@@ -1,5 +1,5 @@
 # stroke-prediction
-Stroke growth prediction
+Stroke infarct growth prediction
 
 ## Objective
 Learning to Predict Stroke Outcome based on Multivariate CT Images
@@ -16,11 +16,11 @@ The repository consists of two subfolder:
 - model: contains the models to be learned
 
 Further, there are the following files:
-- data.py: defines the dataset as mentioned under section Data and contains required transformations
+- data.py: defines the dataset as mentioned under section [Data](README.md#data) and contains required transformations
 - util.py: contains helper functions
 
 ## Usage
-Activate the above environment under section Setup.
+Activate the above environment under section [Setup](README.md#setup).
 
 For learning the shape space on the manual segmentations run the following command:
 
