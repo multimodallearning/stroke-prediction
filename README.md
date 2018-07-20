@@ -13,13 +13,13 @@ The dataset specified in [data.py](data.py) is inherited from [torch.utils.data.
 Set up a Python 3.5 environment including the packages of [requirements.txt](requirements.txt) file.
 
 ## Structure of repository
-The repository consists of two subfolder:
+The repository consists of the following subfolders:
 - common: contains commonly used files such as [DTOs](common/Dto.py)
 - learner: contains the [Learner](learner/Learner.py) for running the different trainings
 - tester: contains the [Tester](tester/Tester.py) for running the different tests (i.e. inference-only)
 - model: contains the models to be learned
 
-Further, there are the following files:
+Further, there are other important files:
 - data.py: defines the dataset as mentioned under section [Data](README.md#data) and contains required transformations
 - util.py: contains helper functions
 
