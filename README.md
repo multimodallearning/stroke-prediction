@@ -14,7 +14,9 @@ Set up a Python 3.5 environment including the packages of [requirements.txt](req
 
 ## Structure of repository
 The repository consists of two subfolder:
-- experiment: contains the Learner and DTO files for running the different trainings
+- common: contains commonly used files such as [DTOs](common/Dto.py)
+- learner: contains the [Learner](learner/Learner.py) for running the different trainings
+- tester: contains the [tester](learner/Tester.py) for running the different testings
 - model: contains the models to be learned
 
 Further, there are the following files:
