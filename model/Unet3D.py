@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from experiment.UnetDto import UnetDto
+from common.UnetDto import UnetDto
 
 
 def crop(tensor_in, crop_as, dims=[]):

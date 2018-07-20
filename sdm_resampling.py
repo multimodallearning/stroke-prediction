@@ -1,5 +1,5 @@
 from model.Unet3D import Unet3D
-import experiment.UnetDto as UnetDtoInit
+import common.UnetDto as UnetDtoInit
 import data
 import util
 import torch

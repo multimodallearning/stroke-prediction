@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from experiment.CaeDto import CaeDto
+from common.CaeDto import CaeDto
 
 
 class CaeBase(nn.Module):

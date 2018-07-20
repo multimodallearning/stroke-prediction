@@ -1,10 +1,10 @@
-from experiment.Learner import Learner
-from experiment.UnetDto import UnetDto
+from learner.Learner import Learner
+from common.UnetDto import UnetDto
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
 import util
 import data
-import experiment.UnetDto as UnetDtoInit
+import common.UnetDto as UnetDtoInit
 
 
 class UnetSegmentationLearner(Learner):
@@ -12,9 +12,9 @@ class UnetSegmentationLearner(Learner):
     """
     FN_VIS_BASE = '_unet_'
 
-    def __init__(self, dataset_training, dataset_validation, unet_model, path_unet_model, optimizer, n_epochs,
+    def __init__(self, dataloader_training, dataloader_validation, unet_model, path_unet_model, optimizer, n_epochs,
                  path_outputs_base, criterion, every_x_epoch_half_lr=100, cuda=True):
-        super().__init__(dataset_training, dataset_validation, unet_model, path_unet_model,
+        super().__init__(dataloader_training, dataloader_validation, unet_model, path_unet_model,
                          optimizer, n_epochs, path_outputs_base=path_outputs_base,
                          metrics={'training': {'loss': [], 'dc_core': [], 'dc_penu': []},
                                   'validate': {'loss': [], 'dc_core': [], 'dc_penu': []}
@@ -89,7 +89,7 @@ class UnetSegmentationLearner(Learner):
 
     def visualize_epoch(self, epoch):
         print('  > new validation loss optimum <  (model saved)')
-        visual_samples, visual_times = util.get_vis_samples(self._dataset_training, self._dataset_validation)
+        visual_samples, visual_times = util.get_vis_samples(self._dataloader_training, self._dataloader_validation)
 
         pad = [20, 20, 20]
 

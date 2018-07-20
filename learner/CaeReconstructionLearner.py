@@ -1,11 +1,11 @@
-from experiment.Learner import Learner
-from experiment.CaeDto import CaeDto
+from learner.Learner import Learner
+from common.CaeDto import CaeDto
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
 import torch
 import util
 import data
-import experiment.CaeDto as CaeDtoInit
+import common.CaeDto as CaeDtoInit
 
 
 class CaeReconstructionLearner(Learner):
@@ -14,10 +14,10 @@ class CaeReconstructionLearner(Learner):
     """
     FN_VIS_BASE = '_cae_'
 
-    def __init__(self, dataset_training, dataset_validation, cae_model, path_cae_model, optimizer, n_epochs,
+    def __init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer, n_epochs,
                  path_outputs_base, criterion, epoch_interpolant_constraint=1, every_x_epoch_half_lr=100,
                  normalization_hours_penumbra=10, cuda=True):
-        super().__init__(dataset_training, dataset_validation, cae_model, path_cae_model,
+        super().__init__(dataloader_training, dataloader_validation, cae_model, path_cae_model,
                          optimizer, n_epochs, path_outputs_base=path_outputs_base,
                          metrics={'training': {'loss': [], 'dc': [], 'hd': [], 'assd': []},
                                   'validate': {'loss': [], 'dc': [], 'hd': [], 'assd': [], 'dc_core': [], 'dc_penu': []}
@@ -175,7 +175,7 @@ class CaeReconstructionLearner(Learner):
 
     def visualize_epoch(self, epoch):
         print('  > new validation loss optimum <  (model saved)')
-        visual_samples, visual_times = util.get_vis_samples(self._dataset_training, self._dataset_validation)
+        visual_samples, visual_times = util.get_vis_samples(self._dataloader_training, self._dataloader_validation)
 
         pad = [20, 20, 20]
 

@@ -1,3 +1,4 @@
+from common.Dto import Dto
 from abc import abstractmethod
 import torch
 import numpy
@@ -6,18 +7,18 @@ import numpy
 class Learner:
     """Base class with a standard routine for
     a training procedure. The single steps can
-    be overriden by subclasses to specify the
+    be overridden by subclasses to specify the
     procedures required for a specific training.
     """
     IMSHOW_VMAX_CBV = 12
     IMSHOW_VMAX_TTD = 40
     FN_VIS_BASE = '_samples_visualization_'
 
-    def __init__(self, dataset_training, dataset_validation, model, path_model, optimizer, n_epochs,
+    def __init__(self, dataloader_training, dataloader_validation, model, path_model, optimizer, n_epochs,
                  path_outputs_base='/tmp/', metrics={'training': {'loss': []}, 'validate': {'loss': []}}):
         super().__init__()
-        self._dataset_training = dataset_training
-        self._dataset_validation = dataset_validation
+        self._dataloader_training = dataloader_training
+        self._dataloader_validation = dataloader_validation
         self._model = model
         self._path_model = path_model
         self._optimizer = optimizer
@@ -30,7 +31,7 @@ class Learner:
         pass
 
     @abstractmethod
-    def loss_step(self, dto, epoch):
+    def loss_step(self, dto: Dto, epoch):
         pass
 
     def train_batch(self, batch, epoch, running_epoch_metrics):
@@ -44,6 +45,9 @@ class Learner:
         running_epoch_metrics['loss'].append(loss.squeeze().cpu().data.numpy()[0])
         running_epoch_metrics = self.metrics_step(dto, epoch, running_epoch_metrics)
 
+        del loss
+        del dto
+
         return running_epoch_metrics
 
     def validate_batch(self, batch, epoch, running_epoch_metrics):
@@ -53,9 +57,12 @@ class Learner:
         running_epoch_metrics['loss'].append(loss.squeeze().cpu().data.numpy()[0])
         running_epoch_metrics = self.metrics_step(dto, epoch, running_epoch_metrics)
 
+        del loss
+        del dto
+
         return running_epoch_metrics
 
-    def metrics_step(self, dto, epoch, running_epoch_metrics):
+    def metrics_step(self, dto: Dto, epoch, running_epoch_metrics):
         return running_epoch_metrics
 
     def print_epoch(self, epoch, phase):
@@ -76,15 +83,15 @@ class Learner:
         for epoch in range(self._n_epochs):
             self.adapt_lr(epoch)
 
+            # ---------------------------- (1) TRAINING ---------------------------- #
+
             running_epoch_metrics = {}
             for key in self._metrics['training'].keys():
                  running_epoch_metrics[key] = []
 
-            # ---------------------------- (1) TRAINING ---------------------------- #
-
             self._model.train()
 
-            for batch in self._dataset_training:
+            for batch in self._dataloader_training:
                 running_epoch_metrics = self.train_batch(batch, epoch, running_epoch_metrics)
 
             for metric in running_epoch_metrics.keys():
@@ -102,7 +109,7 @@ class Learner:
 
             self._model.eval()
 
-            for batch in self._dataset_validation:
+            for batch in self._dataloader_validation:
                 running_epoch_metrics = self.validate_batch(batch, epoch, running_epoch_metrics)
 
             for metric in running_epoch_metrics.keys():

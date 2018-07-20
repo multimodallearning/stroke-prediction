@@ -1,4 +1,4 @@
-from experiment.Dto import Dto
+from common.Dto import Dto
 
 
 class UnetDto(Dto):

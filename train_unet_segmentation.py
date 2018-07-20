@@ -1,7 +1,7 @@
 import util
 import torch
 import datetime
-from experiment.UnetSegmentationLearner import UnetSegmentationLearner
+from learner.UnetSegmentationLearner import UnetSegmentationLearner
 from model.Unet3D import Unet3D
 import data
 
