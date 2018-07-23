@@ -14,12 +14,15 @@ class CaeReconstructionLearner(Learner, CaeInference):
     FN_VIS_BASE = '_cae_'
 
     def __init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer, n_epochs,
-                 path_outputs_base, criterion, epoch_interpolant_constraint=1, every_x_epoch_half_lr=100, cuda=True):
-        Learner.__init__(dataloader_training, dataloader_validation, cae_model, path_cae_model,
-                         optimizer, n_epochs, path_outputs_base=path_outputs_base,
+                 path_outputs_base, criterion, normalization_hours_penumbra=10, epoch_interpolant_constraint=1,
+                 every_x_epoch_half_lr=100, cuda=True):
+        Learner.__init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer,
+                         n_epochs, path_outputs_base=path_outputs_base,
                          metrics={'training': {'loss': [], 'dc': [], 'hd': [], 'assd': []},
                                   'validate': {'loss': [], 'dc': [], 'hd': [], 'assd': [], 'dc_core': [], 'dc_penu': []}
                                  }, cuda=cuda)
+        CaeInference.__init__(self, cae_model, path_cae_model, path_outputs_base, normalization_hours_penumbra,
+                              cuda=cuda)  # TODO: This needs some refactoring (double initialization of model, path etc)
         self._path_model = path_cae_model
         self._criterion = criterion  # main loss criterion
         self._epoch_interpolant_constraint = epoch_interpolant_constraint  # start at epoch to increase weight for the
@@ -127,7 +130,7 @@ class CaeReconstructionLearner(Learner, CaeInference):
 
             col = 3
             for step in [None, -1, 0, 1, 2, 3, 4, 5, 10, 20]:
-                dto = self.inference_step(sample, epoch, step)
+                dto = self.inference_step(sample, step)
                 axarr[inc, col].imshow(dto.reconstructions.gtruth.interpolation.cpu().data.numpy()[0, 0, 14, :, :],
                                        vmin=0, vmax=1, cmap='gray')
                 if col == 3:

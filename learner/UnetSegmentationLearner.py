@@ -13,8 +13,8 @@ class UnetSegmentationLearner(Learner, UnetInference):
 
     def __init__(self, dataloader_training, dataloader_validation, unet_model, path_unet_model, optimizer, n_epochs,
                  path_outputs_base, criterion, every_x_epoch_half_lr=100, cuda=True):
-        super().__init__(dataloader_training, dataloader_validation, unet_model, path_unet_model,
-                         optimizer, n_epochs, path_outputs_base=path_outputs_base,
+        Learner.__init__(self, dataloader_training, dataloader_validation, unet_model, path_unet_model, optimizer,
+                         n_epochs, path_outputs_base=path_outputs_base,
                          metrics={'training': {'loss': [], 'dc_core': [], 'dc_penu': []},
                                   'validate': {'loss': [], 'dc_core': [], 'dc_penu': []}
                                   }, cuda=cuda)
@@ -80,7 +80,7 @@ class UnetSegmentationLearner(Learner, UnetInference):
         f, axarr = plt.subplots(len(visual_samples), 6)
         inc = 0
         for sample in visual_samples:
-            dto = self.inference_step(sample, epoch)
+            dto = self.inference_step(sample)
             zslice = 34
             axarr[inc, 0].imshow(sample[data.KEY_IMAGES].numpy()[0, 0, zslice, pad[1]:-pad[1], pad[2]:-pad[2]],
                                  vmin=0, vmax=self.IMSHOW_VMAX_CBV, cmap='jet')

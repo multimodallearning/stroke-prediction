@@ -1,3 +1,4 @@
+from model.Cae3D import Cae3D
 from common.CaeDto import CaeDto
 from common.CaeInference import CaeInference
 from tester.Tester import Tester
@@ -8,8 +9,8 @@ import util
 
 
 class CaeReconstructionTester(Tester, CaeInference):
-    def __init__(self, dataloader, model, path_model, path_outputs_base):
-        Tester.__init__(dataloader, model, path_model, path_outputs_base=path_outputs_base,
+    def __init__(self, dataloader, model:Cae3D, path_model_TESTER, path_outputs_base):
+        Tester.__init__(self, dataloader, model, path_model_TESTER, path_outputs_base=path_outputs_base,
                         metrics={'dc_core': [], 'dc_penu': [], 'dc': [], 'hd': [], 'assd': []})
 
     def metrics_step(self, dto: CaeDto, metrics):

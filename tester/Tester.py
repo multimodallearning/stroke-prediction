@@ -11,11 +11,10 @@ class Tester(Inference):
     """
 
     def __init__(self, dataloader, model, path_model, path_outputs_base='/tmp/', metrics={}, cuda=True):
-        Inference.__init__(model, path_model, path_outputs_base)
+        Inference.__init__(self, model, path_model, path_outputs_base, cuda)
         self._dataloader = dataloader
         self._path_outputs_base = path_outputs_base
         self._metrics = metrics
-        self._cuda = cuda
         self._model = model
         self._model.load_state_dict(torch.load(path_model))
         for p in self._model.parameters():

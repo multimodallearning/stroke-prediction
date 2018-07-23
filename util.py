@@ -136,7 +136,6 @@ class CAEParser(ExpParser):
                           default='/share/data_zoe1/Linda_Segmentations/tmp/cae_shape.model')
         self.add_argument('--epochs', type=int, help='Number of epochs', default=300)
         self.add_argument('--globals', type=int, help='Number of global variables', default=5)
-        self.add_argument('--batchsize', type=int, help='Batchsize for training', default=1)
         self.add_argument('--channelscae', type=int, nargs='+', help='CAE channels',
                           default=[1, 24, 32, 48, 64, 500, 200, 1])
         self.add_argument('--channelsenc', type=int, nargs='+', help='2nd enc channels',

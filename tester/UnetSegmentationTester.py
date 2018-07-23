@@ -1,6 +1,7 @@
 from tester.Tester import Tester
 from common.UnetInference import UnetInference
 from common.UnetDto import UnetDto
+from model.Unet3D import Unet3D
 import nibabel as nib
 import numpy as np
 import data
@@ -8,8 +9,8 @@ import util
 
 
 class UnetSegmentationTester(Tester, UnetInference):
-    def __init__(self, dataloader, model, path_model, path_outputs_base):
-        Tester.__init__(dataloader, model, path_model, path_outputs_base=path_outputs_base,
+    def __init__(self, dataloader, model:Unet3D, path_model, path_outputs_base):
+        Tester.__init__(self, dataloader, model, path_model, path_outputs_base=path_outputs_base,
                         metrics={'dc_core': [], 'dc_penu': []})
 
     def metrics_step(self, dto: UnetDto, metrics):

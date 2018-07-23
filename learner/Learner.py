@@ -17,20 +17,19 @@ class Learner(Inference):
 
     def __init__(self, dataloader_training, dataloader_validation, model, path_model, optimizer, n_epochs,
                  path_outputs_base='/tmp/', metrics={'training': {'loss': []}, 'validate': {'loss': []}}, cuda=True):
-        Inference.__init__(model, path_model, path_outputs_base)
+        Inference.__init__(self, model, path_model, path_outputs_base, cuda)
         self._dataloader_training = dataloader_training
         self._dataloader_validation = dataloader_validation
         self._optimizer = optimizer
         self._n_epochs = n_epochs
         self._metrics = metrics
-        self._cuda = cuda
 
     @abstractmethod
     def loss_step(self, dto: Dto, epoch):
         pass
 
     def train_batch(self, batch, epoch, running_epoch_metrics):
-        dto = self.inference_step(batch, epoch)
+        dto = self.inference_step(batch)
         loss = self.loss_step(dto, epoch)
 
         self._optimizer.zero_grad()
@@ -46,7 +45,7 @@ class Learner(Inference):
         return running_epoch_metrics
 
     def validate_batch(self, batch, epoch, running_epoch_metrics):
-        dto = self.inference_step(batch, epoch)
+        dto = self.inference_step(batch)
         loss = self.loss_step(dto, epoch)
 
         running_epoch_metrics['loss'].append(loss.squeeze().cpu().data.numpy()[0])
