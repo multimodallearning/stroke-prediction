@@ -1,10 +1,9 @@
 from common.Dto import Dto
-from abc import abstractmethod
+from common.Inference import Inference
 import torch
-import data
 
 
-class Tester:
+class Tester(Inference):
     """Base class with a standard routine for
     a testing procedure. The single steps can
     be overridden by subclasses to specify the
@@ -12,8 +11,7 @@ class Tester:
     """
 
     def __init__(self, dataloader, model, path_model, path_outputs_base='/tmp/', metrics={}, cuda=True):
-        super().__init__()
-        assert dataloader.batch_size == 1, 'Metrics need to be computed on batch size = 1'
+        Inference.__init__(model, path_model, path_outputs_base)
         self._dataloader = dataloader
         self._path_outputs_base = path_outputs_base
         self._metrics = metrics
@@ -22,10 +20,6 @@ class Tester:
         self._model.load_state_dict(torch.load(path_model))
         for p in self._model.parameters():
             p.requires_grad = False
-
-    @abstractmethod
-    def inference_step(self, batch):
-        pass
 
     def infer_batch(self, batch, metrics):
         dto = self.inference_step(batch)

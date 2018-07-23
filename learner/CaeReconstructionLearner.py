@@ -1,23 +1,21 @@
 from learner.Learner import Learner
 from common.CaeDto import CaeDto
-from torch.autograd import Variable
+from common.CaeInference import CaeInference
 import matplotlib.pyplot as plt
 import torch
 import util
 import data
-import common.CaeDto as CaeDtoInit
 
 
-class CaeReconstructionLearner(Learner):
+class CaeReconstructionLearner(Learner, CaeInference):
     """ A Learner to train a CAE on the reconstruction of
     shape segmentations. Uses Cae_Dto data transfer objects.
     """
     FN_VIS_BASE = '_cae_'
 
     def __init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer, n_epochs,
-                 path_outputs_base, criterion, epoch_interpolant_constraint=1, every_x_epoch_half_lr=100,
-                 normalization_hours_penumbra=10, cuda=True):
-        super().__init__(dataloader_training, dataloader_validation, cae_model, path_cae_model,
+                 path_outputs_base, criterion, epoch_interpolant_constraint=1, every_x_epoch_half_lr=100, cuda=True):
+        Learner.__init__(dataloader_training, dataloader_validation, cae_model, path_cae_model,
                          optimizer, n_epochs, path_outputs_base=path_outputs_base,
                          metrics={'training': {'loss': [], 'dc': [], 'hd': [], 'assd': []},
                                   'validate': {'loss': [], 'dc': [], 'hd': [], 'assd': [], 'dc_core': [], 'dc_penu': []}
@@ -28,61 +26,6 @@ class CaeReconstructionLearner(Learner):
                                                                            # loss keeping interpolation close to lesion
                                                                            # in latent space
         self._every_x_epoch_half_lr = every_x_epoch_half_lr  # every x-th epoch half the learning rate
-        self._normalization_hours_penumbra = normalization_hours_penumbra
-
-    def _get_normalized_time(self, batch):
-        to_to_ta = batch[data.KEY_GLOBAL][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5).type(torch.FloatTensor)
-        normalization = torch.ones(to_to_ta.size()[0], 1).type(torch.FloatTensor) * \
-                        self._normalization_hours_penumbra - to_to_ta.squeeze().unsqueeze(data.DIM_CHANNEL_TORCH3D_5)
-        return to_to_ta, normalization
-
-    def inference_step(self, batch, epoch, step=None):
-        to_to_ta, normalization = self._get_normalized_time(batch)
-
-        globals_no_times = batch[data.KEY_GLOBAL][:, 2:, :, :, :].type(torch.FloatTensor)
-        globals_incl_time = Variable(torch.cat((to_to_ta, globals_no_times), dim=data.DIM_CHANNEL_TORCH3D_5))
-        type_core = Variable(torch.zeros(globals_incl_time.size()[0], 1, 1, 1, 1))
-        type_penumbra = Variable(torch.ones(globals_incl_time.size()[0], 1, 1, 1, 1))
-        core_gt = Variable(batch[data.KEY_LABELS][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
-
-        if step is None:
-            ta_to_tr = batch[data.KEY_GLOBAL][:, 1, :, :, :].squeeze().unsqueeze(data.DIM_CHANNEL_TORCH3D_5)
-            time_to_treatment = Variable(ta_to_tr.type(torch.FloatTensor) / normalization)
-        else:
-            time_to_treatment = Variable((step * torch.ones(core_gt.size()[0], 1)) / normalization)
-
-        del to_to_ta
-        del normalization
-        del globals_no_times
-
-        cbv = Variable(batch[data.KEY_IMAGES][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
-        ttd = Variable(batch[data.KEY_IMAGES][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
-        penu_gt = Variable(batch[data.KEY_LABELS][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
-        lesion_gt = Variable(batch[data.KEY_LABELS][:, 2, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
-
-        if self._cuda:
-            globals_incl_time = globals_incl_time.cuda()
-            time_to_treatment = time_to_treatment.cuda()
-            type_core = type_core.cuda()
-            type_penumbra = type_penumbra.cuda()
-            cbv = cbv.cuda()
-            ttd = ttd.cuda()
-            core_gt = core_gt.cuda()
-            penu_gt = penu_gt.cuda()
-            lesion_gt = lesion_gt.cuda()
-
-        dto = CaeDtoInit.init_cae_shapes_dto(globals_incl_time,
-                                             time_to_treatment.unsqueeze(2).unsqueeze(3).unsqueeze(4),
-                                             type_core,
-                                             type_penumbra,
-                                             cbv,
-                                             ttd,
-                                             core_gt,
-                                             penu_gt,
-                                             lesion_gt
-                                             )
-
-        return self._model(dto)
 
     def validation_step(self, batch, epoch):
         pass

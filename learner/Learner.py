@@ -1,10 +1,11 @@
 from common.Dto import Dto
+from common.Inference import Inference
 from abc import abstractmethod
 import torch
 import numpy
 
 
-class Learner:
+class Learner(Inference):
     """Base class with a standard routine for
     a training procedure. The single steps can
     be overridden by subclasses to specify the
@@ -16,20 +17,13 @@ class Learner:
 
     def __init__(self, dataloader_training, dataloader_validation, model, path_model, optimizer, n_epochs,
                  path_outputs_base='/tmp/', metrics={'training': {'loss': []}, 'validate': {'loss': []}}, cuda=True):
-        super().__init__()
+        Inference.__init__(model, path_model, path_outputs_base)
         self._dataloader_training = dataloader_training
         self._dataloader_validation = dataloader_validation
-        self._model = model
-        self._path_model = path_model
         self._optimizer = optimizer
         self._n_epochs = n_epochs
-        self._path_outputs_base = path_outputs_base
         self._metrics = metrics
         self._cuda = cuda
-
-    @abstractmethod
-    def inference_step(self, batch, epoch):
-        pass
 
     @abstractmethod
     def loss_step(self, dto: Dto, epoch):
