@@ -63,23 +63,23 @@ def get_normalized_time(batch, normalization_hours_penumbra):
 def infer():
     args = util.get_args_sdm()
 
-    idxs = [args.testcaseid]
-
-    print('Evaluate validation set', idxs)
+    print('Evaluate validation set', args.fold)
 
     # Params
     normalization_hours_penumbra = 10
     channels_unet = args.channels
     pad = args.padding
 
-    ds_ids, _ = data.split_data_loader3D(modalities=['_CBV_reg1_downsampled', '_TTD_reg1_downsampled'],
-                                         labels=['_CBVmap_subset_reg1_downsampled', '_TTDmap_subset_reg1_downsampled',
-                                                 '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled'], valid_size=0,
-                                         train_transform=[data.ResamplePlaneXY(args.xyresample),
-                                                          data.HemisphericFlipFixedToCaseId(split_id=args.hemisflipid),
-                                                          data.PadImages(pad[0], pad[1], pad[2], pad_value=0),
-                                                          data.ToTensor()], valid_transform=[data.ToTensor()],
-                                         indices=idxs, batch_size=1)
+    transform = [data.ResamplePlaneXY(args.xyresample),
+                 data.HemisphericFlipFixedToCaseId(split_id=args.hemisflipid),
+                 data.PadImages(pad[0], pad[1], pad[2], pad_value=0),
+                 data.ToTensor()]
+
+    ds_test = data.get_testdata(modalities=['_CBV_reg1_downsampled', '_TTD_reg1_downsampled'],
+                                labels=['_CBVmap_subset_reg1_downsampled', '_TTDmap_subset_reg1_downsampled',
+                                        '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled'],
+                                transform=transform,
+                                indices=args.fold)
 
     # Unet
     unet = None
@@ -92,7 +92,7 @@ def infer():
     running_hd = []
     running_assd = []
 
-    for sample in ds_ids:
+    for sample in ds_test:
         case_id = sample[data.KEY_CASE_ID].cpu().numpy()[0]
 
         nifph = nib.load('/share/data_zoe1/lucas/Linda_Segmentations/' + str(case_id) + '/train' + str(case_id) +
@@ -168,6 +168,8 @@ def infer():
         nib.save(nib.Nifti1Image((zoomed > 0).astype(np.float32), nifph), args.outbasepath + '_' + str(case_id) + '_penu.nii.gz')
 
         del nifph
+
+        del sample
 
 
 if __name__ == '__main__':

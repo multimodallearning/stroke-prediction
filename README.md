@@ -40,7 +40,11 @@ Train a Unet with the same fold as specified before, to use the Unet segmentatio
 
 `train_unet_segmentation.py ~/tmp/unet_f3.model --epochs 200 --outbasepath ~/tmp/unet --channels 2 16 32 64 32 16 32 2 --validsetsize 0.275 --fold 17 6 2 26 11 4 1 21 16 27 24 18 9 22 12 0 3 8 23 25 7 10 19`
 
-For comparison, you can run a shape interpolation via signed distance maps:
+To test the trained Unet on some cases, run:
 
-`sdm_resampling.py /share/data_zoe1/lucas/Linda_Segmentations/tmp/tmp_unet_f3.model --testcaseid 22 --downsample 0 --groundtruth 1`
+`test_unet_segmentation.py ~/tmp/unet_f3.model --outbasepath ~/tmp/tmp --channels 2 16 32 64 32 16 32 2 --fold 5 13 14 15 20 28`
+
+For comparison pruposes, you can run a shape interpolation via signed distance maps:
+
+`sdm_resampling.py /share/data_zoe1/lucas/Linda_Segmentations/tmp/tmp_unet_f3.model --fold 22 --downsample 0 --groundtruth 1`
 

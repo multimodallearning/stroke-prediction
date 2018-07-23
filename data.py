@@ -147,8 +147,8 @@ def split_data_loader3D(modalities, labels, indices, batch_size, random_seed=Non
     return (train_loader, valid_loader)
 
 
-def get_unet_testdata(modalities, labels, indices, random_seed=None, shuffle=True, num_workers=4, pin_memory=False,
-                      transform=[]):
+def get_testdata(modalities, labels, indices, random_seed=None, shuffle=True, num_workers=4, pin_memory=False,
+                 transform=[]):
 
     assert transform, "You must provide at least a numpy-to-torch transformation."
 

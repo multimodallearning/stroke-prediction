@@ -32,12 +32,23 @@ class BatchDiceLoss(LossModule):
         return 1.0 - loss
 
 
-# ======================== HELPER FUNCTIONS =======================
+# ======================== METRIC FUNCTIONS =======================
 
 
 def compute_binary_measure_numpy(result, target, threshold=0.5):
-    result_binary = (result[0, 0, :, :, :] > threshold).astype(numpy.uint8)
-    target_binary = (target[0, 0, :, :, :] > threshold).astype(numpy.uint8)
+    if len(result.shape) == 5:
+        result_binary = (result[0, 0, :, :, :] > threshold).astype(numpy.uint8)
+    elif len(result.shape) == 3:
+        result_binary = (result > threshold).astype(numpy.uint8)
+    else:
+        raise Exception("Result must be a 3D or 5D tensor")
+
+    if len(target.shape) == 5:
+        target_binary = (target[0, 0, :, :, :] > threshold).astype(numpy.uint8)
+    elif len(target.shape) == 3:
+        target_binary = (target > threshold).astype(numpy.uint8)
+    else:
+        raise Exception("Target must be a 3D or 5D tensor")
 
     dc = mpm.dc(result_binary, target_binary)
     hd = numpy.Inf
@@ -155,7 +166,6 @@ class SDMParser(ExpParser):
                           default='/share/data_zoe1/lucas/unet1dcm.model')
         self.add_argument('--channels', type=int, nargs='+', help='Unet channels',
                           default=[2, 16, 32, 64, 32, 16, 32, 2])
-        self.add_argument('--testcaseid', type=int, help='Testingcaseid', default=0)
         self.add_argument('--downsample', type=int, help='Downsampling to CAE latent representation size', default=1)
         self.add_argument('--groundtruth', type=int, help='Use groundtruth instead of UNet segmentations', default=1)
         self.add_argument('--visualinspection', type=int, help='Inspect visually before it is saved', default=0)
