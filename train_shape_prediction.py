@@ -10,7 +10,7 @@ def train():
     args = util.get_args_shape_training()
 
     # Params
-    batchsize = 6  # 17 training, 6 validation
+    batchsize = 2  # 17 training, 6 validation
     learning_rate = 1e-3
     momentums_cae = (0.99, 0.999)
     criterion = util.BatchDiceLoss([1.0])

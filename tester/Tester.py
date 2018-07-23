@@ -1,6 +1,7 @@
 from common.Dto import Dto
 from abc import abstractmethod
 import torch
+import data
 
 
 class Tester:
@@ -29,12 +30,16 @@ class Tester:
     def infer_batch(self, batch, metrics):
         dto = self.inference_step(batch)
         metrics = self.metrics_step(dto, metrics)
+        self.save_inference(dto, batch)
         return metrics
 
     def metrics_step(self, dto: Dto, metrics):
         return metrics
 
-    def print_inference(self, phase):
+    def save_inference(self, dto: Dto, batch):
+        pass
+
+    def print_inference(self, batch, metrics):
         pass
 
     def run_inference(self):
@@ -42,7 +47,6 @@ class Tester:
 
         for batch in self._dataloader:
             self._metrics = self.infer_batch(batch, self._metrics)
-
-        self.print_inference(self._metrics)
+            self.print_inference(batch, self._metrics)
 
         del batch

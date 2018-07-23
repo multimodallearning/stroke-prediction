@@ -147,6 +147,27 @@ def split_data_loader3D(modalities, labels, indices, batch_size, random_seed=Non
     return (train_loader, valid_loader)
 
 
+def get_unet_testdata(modalities, labels, indices, random_seed=None, shuffle=True, num_workers=4, pin_memory=False,
+                      transform=[]):
+
+    assert transform, "You must provide at least a numpy-to-torch transformation."
+
+    dataset = StrokeLindaDataset3D(modalities=modalities, labels=labels, transform=transforms.Compose(transform))
+
+    items = list(set(range(len(dataset))).intersection(set(indices)))
+
+    if shuffle == True:
+        random_state = np.random.RandomState(random_seed)
+        random_state.shuffle(items)
+
+    sampler = SubsetRandomSampler(items)
+
+    loader = DataLoader(dataset, batch_size=1, sampler=sampler, num_workers=num_workers, pin_memory=pin_memory,
+                        worker_init_fn=set_np_seed) # important to have batchsize=1 because metrics is computed on batch
+
+    return loader
+
+
 class HemisphericFlipFixedToCaseId(object):
     """Flip numpy images along X-axis."""
 

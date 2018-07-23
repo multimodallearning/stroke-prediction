@@ -36,7 +36,7 @@ class BatchDiceLoss(LossModule):
 
 
 def compute_binary_measure_numpy(result, target, threshold=0.5):
-    result_binary = (result[:, :, :] > threshold).astype(numpy.uint8)
+    result_binary = (result[0, 0, :, :, :] > threshold).astype(numpy.uint8)
     target_binary = (target[0, 0, :, :, :] > threshold).astype(numpy.uint8)
 
     dc = mpm.dc(result_binary, target_binary)

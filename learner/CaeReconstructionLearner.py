@@ -16,12 +16,12 @@ class CaeReconstructionLearner(Learner):
 
     def __init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer, n_epochs,
                  path_outputs_base, criterion, epoch_interpolant_constraint=1, every_x_epoch_half_lr=100,
-                 normalization_hours_penumbra=10):
+                 normalization_hours_penumbra=10, cuda=True):
         super().__init__(dataloader_training, dataloader_validation, cae_model, path_cae_model,
                          optimizer, n_epochs, path_outputs_base=path_outputs_base,
                          metrics={'training': {'loss': [], 'dc': [], 'hd': [], 'assd': []},
                                   'validate': {'loss': [], 'dc': [], 'hd': [], 'assd': [], 'dc_core': [], 'dc_penu': []}
-                                 })
+                                 }, cuda=cuda)
         self._path_model = path_cae_model
         self._criterion = criterion  # main loss criterion
         self._epoch_interpolant_constraint = epoch_interpolant_constraint  # start at epoch to increase weight for the
