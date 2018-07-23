@@ -13,7 +13,7 @@ class UnetSegmentationLearner(Learner):
     FN_VIS_BASE = '_unet_'
 
     def __init__(self, dataloader_training, dataloader_validation, unet_model, path_unet_model, optimizer, n_epochs,
-                 path_outputs_base, criterion, every_x_epoch_half_lr=100, cuda=True):
+                 path_outputs_base, criterion, every_x_epoch_half_lr=100):
         super().__init__(dataloader_training, dataloader_validation, unet_model, path_unet_model,
                          optimizer, n_epochs, path_outputs_base=path_outputs_base,
                          metrics={'training': {'loss': [], 'dc_core': [], 'dc_penu': []},
@@ -22,7 +22,6 @@ class UnetSegmentationLearner(Learner):
         self._path_model = path_unet_model
         self._criterion = criterion  # main loss criterion
         self._every_x_epoch_half_lr = every_x_epoch_half_lr  # every x-th epoch half the learning rate
-        self._cuda = cuda
 
     def inference_step(self, batch, epoch):
         input_modalities = Variable(batch[data.KEY_IMAGES])

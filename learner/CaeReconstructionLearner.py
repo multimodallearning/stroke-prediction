@@ -16,7 +16,7 @@ class CaeReconstructionLearner(Learner):
 
     def __init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer, n_epochs,
                  path_outputs_base, criterion, epoch_interpolant_constraint=1, every_x_epoch_half_lr=100,
-                 normalization_hours_penumbra=10, cuda=True):
+                 normalization_hours_penumbra=10):
         super().__init__(dataloader_training, dataloader_validation, cae_model, path_cae_model,
                          optimizer, n_epochs, path_outputs_base=path_outputs_base,
                          metrics={'training': {'loss': [], 'dc': [], 'hd': [], 'assd': []},
@@ -29,7 +29,6 @@ class CaeReconstructionLearner(Learner):
                                                                            # in latent space
         self._every_x_epoch_half_lr = every_x_epoch_half_lr  # every x-th epoch half the learning rate
         self._normalization_hours_penumbra = normalization_hours_penumbra
-        self._cuda = cuda
 
     def _get_normalized_time(self, batch):
         to_to_ta = batch[data.KEY_GLOBAL][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5).type(torch.FloatTensor)

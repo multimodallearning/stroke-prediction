@@ -15,7 +15,7 @@ class Learner:
     FN_VIS_BASE = '_samples_visualization_'
 
     def __init__(self, dataloader_training, dataloader_validation, model, path_model, optimizer, n_epochs,
-                 path_outputs_base='/tmp/', metrics={'training': {'loss': []}, 'validate': {'loss': []}}):
+                 path_outputs_base='/tmp/', metrics={'training': {'loss': []}, 'validate': {'loss': []}}, cuda=True):
         super().__init__()
         self._dataloader_training = dataloader_training
         self._dataloader_validation = dataloader_validation
@@ -25,6 +25,7 @@ class Learner:
         self._n_epochs = n_epochs
         self._path_outputs_base = path_outputs_base
         self._metrics = metrics
+        self._cuda = cuda
 
     @abstractmethod
     def inference_step(self, batch, epoch):
@@ -65,7 +66,7 @@ class Learner:
     def metrics_step(self, dto: Dto, epoch, running_epoch_metrics):
         return running_epoch_metrics
 
-    def print_epoch(self, epoch, phase):
+    def print_epoch(self, epoch, phase, epoch_metrics):
         pass
 
     def plot_epoch(self, epoch):
