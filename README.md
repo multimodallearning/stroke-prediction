@@ -40,7 +40,7 @@ Train a Unet with the same fold as specified before, to use the Unet segmentatio
 
 `train_unet_segmentation.py ~/tmp/unet_f3.model --epochs 200 --outbasepath ~/tmp/unet --channels 2 16 32 64 32 16 32 2 --validsetsize 0.275 --fold 17 6 2 26 11 4 1 21 16 27 24 18 9 22 12 0 3 8 23 25 7 10 19`
 
-To test the trained Unet on some cases, run:
+The `--channels` arguments specifies the channels used for each layer, incl. input and output. E.g., for the above command the three scales Unet will process the input with 16, downsample and process with 32, and, again, downsample and process with 64 neurons before it is upsampled again with the reverse order of channel numbers per scale. To test the trained Unet on some cases, run:
 
 `test_unet_segmentation.py ~/tmp/unet_f3.model --outbasepath ~/tmp/tmp --channels 2 16 32 64 32 16 32 2 --fold 5 13 14 15 20 28`
 
