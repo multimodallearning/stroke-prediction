@@ -1,5 +1,6 @@
 import numpy
 import medpy.metric.binary as mpm
+from common.dto.MetricMeasuresDto import BinaryMeasuresDto
 
 
 def compute_measures_on_binary_numpy(result, target, threshold=0.5):
@@ -17,13 +18,11 @@ def compute_measures_on_binary_numpy(result, target, threshold=0.5):
     else:
         raise Exception("Target must be a 3D or 5D tensor")
 
-    result = {'dc': mpm.dc(result_binary, target_binary),
-              'hd': numpy.Inf,
-              'assd': numpy.Inf}
+    result = BinaryMeasuresDto(mpm.dc(result_binary, target_binary), numpy.Inf, numpy.Inf)
 
     if result_binary.any() and target_binary.any():
-        result['hd'] = mpm.hd(result_binary, target_binary)
-        result['assd'] = mpm.assd(result_binary, target_binary)
+        result.hd = mpm.hd(result_binary, target_binary)
+        result.assd = mpm.assd(result_binary, target_binary)
 
     return result
 
