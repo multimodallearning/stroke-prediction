@@ -1,4 +1,4 @@
-from common.Dto import Dto
+from common.dto.Dto import Dto
 
 
 class UnetDto(Dto):
@@ -10,14 +10,14 @@ class UnetDto(Dto):
         self.outputs = outputs
 
 
-def init_unet_dto(input_modalities, gtruth_core=None, gtruth_penumbra=None, gtruth_lesion=None):
+def init_dto(input_modalities, gtruth_core=None, gtruth_penumbra=None, gtruth_lesion=None):
     """
-    Inits a Unet_Dto with the given variables.
+    Inits a UnetDto with the given variables.
     :param input_modalities:    CTP input modalities
     :param gtruth_core:         manual segmentation mask for core
     :param gtruth_penumbra:     manual segmentation mask for penumbra
     :param gtruth_lesion:       manual segmentation mask for follow-up lesion
-    :return: Unet_Dto
+    :return: UnetDto
     """
 
     given_variables = Dto(input_modalities=input_modalities, core=gtruth_core, penu=gtruth_penumbra,

@@ -1,4 +1,4 @@
-from common.Dto import Dto
+from common.dto.Dto import Dto
 
 
 class CaeDto(Dto):
@@ -11,10 +11,10 @@ class CaeDto(Dto):
         self.latents = reconstructions
 
 
-def init_cae_shapes_dto(global_variables, time_to_treatment, type_core, type_penumbra, cbv, ttd,
-                        gtruth_core, gtruth_penumbra, gtruth_lesion):
+def init_dto(global_variables, time_to_treatment, type_core, type_penumbra, cbv, ttd,
+             gtruth_core, gtruth_penumbra, gtruth_lesion):
     """
-    Inits a Cae_Dto with the given variables.
+    Inits a CaeDto with the given variables.
     :param global_variables:    global clinical scalar variables, such as age et cetera
     :param time_to_treatment:   global clinical scalar variable time_to_treatment
     :param type_core:           aux value to represent core
@@ -24,7 +24,7 @@ def init_cae_shapes_dto(global_variables, time_to_treatment, type_core, type_pen
     :param gtruth_core:         manual segmentation mask for core
     :param gtruth_penumbra:     manual segmentation mask for penumbra
     :param gtruth_lesion:       manual segmentation mask for follow-up lesion
-    :return: Cae_Dto
+    :return: CaeDto
     """
 
     given_variables = Dto(globals=global_variables,

@@ -7,14 +7,14 @@ Learning to Predict Stroke Outcome based on Multivariate CT Images
 ## Data
 The source code is working from within the IMI network at University of Luebeck, as the closed dataset of 29 subjects is only accessable if you are member of the bvstaff group. The filenames have been renamed and cases are represented as a subfolder. CTP modalities CBV and TTD are used as input, corresponding manual segmentations for core and penumbra, as well as follow-up lesion segmentation (FUCTMap). The directory contains more files since the work for the Master's thesis of Linda Aulmann.
 
-The dataset specified in [data.py](data.py) is inherited from [torch.utils.data.Dataset](https://pytorch.org/docs/stable/_modules/torch/utils/data/dataset.html#Dataset), thus can be exchanged with other datasets and loaders (At the moment there are two datasets with different transformations for training and validation). The existing Learners expect 3D pytorch tensors of shape `BxCxDxHxW`, but implementing an own [Learner](learner/Learner.py) will enable the use of 2D data as well.
+The dataset specified in [data.py](common/data.py) is inherited from [torch.utils.data.Dataset](https://pytorch.org/docs/stable/_modules/torch/utils/data/dataset.html#Dataset), thus can be exchanged with other datasets and loaders (At the moment there are two datasets with different transformations for training and validation). The existing Learners expect 3D pytorch tensors of shape `BxCxDxHxW`, but implementing an own [Learner](learner/Learner.py) will enable the use of 2D data as well.
 
 ## Setup
 Set up a Python 3.5 environment including the packages of [requirements.txt](requirements.txt) file.
 
 ## Structure of repository
 The repository consists of the following subfolders:
-- common: contains commonly used files such as [DTOs](common/Dto.py)
+- common: contains commonly used files such as [DTOs](common/dto/Dto.py)
 - learner: contains the [Learner](learner/Learner.py) for running the different trainings
 - tester: contains the [Tester](tester/Tester.py) for running the different tests (i.e. inference-only)
 - model: contains the models to be learned

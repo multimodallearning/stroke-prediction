@@ -1,5 +1,5 @@
-from common.Dto import Dto
-from common.Inference import Inference
+from common.dto.Dto import Dto
+from common.inference.Inference import Inference
 import torch
 
 

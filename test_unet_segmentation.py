@@ -1,8 +1,7 @@
-import util
 import datetime
 from tester.UnetSegmentationTester import UnetSegmentationTester
-from model.Unet3D import Unet3D
-import data
+from common.model.Unet3D import Unet3D
+from common import data, util
 
 
 def test():

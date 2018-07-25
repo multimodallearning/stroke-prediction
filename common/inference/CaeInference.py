@@ -1,9 +1,9 @@
-from model.Cae3D import Cae3D
-from common.Inference import Inference
+from common.model.Cae3D import Cae3D
+from common.inference.Inference import Inference
 from torch.autograd import Variable
-import common.CaeDto as CaeDtoInit
+import common.dto.CaeDto as CaeDtoInit
 import torch
-import data
+from common import data
 
 
 class CaeInference(Inference):
@@ -56,15 +56,15 @@ class CaeInference(Inference):
             penu_gt = penu_gt.cuda()
             lesion_gt = lesion_gt.cuda()
 
-        dto = CaeDtoInit.init_cae_shapes_dto(globals_incl_time,
-                                             time_to_treatment.unsqueeze(2).unsqueeze(3).unsqueeze(4),
-                                             type_core,
-                                             type_penumbra,
-                                             cbv,
-                                             ttd,
-                                             core_gt,
-                                             penu_gt,
-                                             lesion_gt
-                                             )
+        dto = CaeDtoInit.init_dto(globals_incl_time,
+                                  time_to_treatment.unsqueeze(2).unsqueeze(3).unsqueeze(4),
+                                  type_core,
+                                  type_penumbra,
+                                  cbv,
+                                  ttd,
+                                  core_gt,
+                                  penu_gt,
+                                  lesion_gt
+                                  )
 
         return self._model(dto)

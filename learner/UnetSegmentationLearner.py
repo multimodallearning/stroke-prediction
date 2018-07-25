@@ -1,9 +1,8 @@
-from common.UnetInference import UnetInference
+from common.inference.UnetInference import UnetInference
 from learner.Learner import Learner
-from common.UnetDto import UnetDto
+from common.dto.UnetDto import UnetDto
 import matplotlib.pyplot as plt
-import util
-import data
+from common import data, util
 
 
 class UnetSegmentationLearner(Learner, UnetInference):

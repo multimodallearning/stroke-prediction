@@ -1,7 +1,6 @@
-from model.Unet3D import Unet3D
-import common.UnetDto as UnetDtoInit
-import data
-import util
+from common.model.Unet3D import Unet3D
+import common.dto.UnetDto as UnetDtoInit
+from common import data, util
 import torch
 import numpy as np
 import nibabel as nib
@@ -105,7 +104,7 @@ def infer():
             core = Variable(sample[data.KEY_LABELS][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
             penu = Variable(sample[data.KEY_LABELS][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
         else:
-            dto = UnetDtoInit.init_unet_dto(Variable(sample[data.KEY_IMAGES]), None, None)
+            dto = UnetDtoInit.init_dto(Variable(sample[data.KEY_IMAGES]), None, None)
             dto = unet(dto)
             core = dto.outputs.core
             penu = dto.outputs.penu,

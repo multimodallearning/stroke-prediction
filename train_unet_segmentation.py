@@ -1,9 +1,8 @@
-import util
 import torch
 import datetime
 from learner.UnetSegmentationLearner import UnetSegmentationLearner
-from model.Unet3D import Unet3D
-import data
+from common.model.Unet3D import Unet3D
+from common import data, util
 
 
 def train():

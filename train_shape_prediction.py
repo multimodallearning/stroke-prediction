@@ -1,9 +1,8 @@
-import util
 import torch
 import datetime
 from learner.CaeReconstructionLearner import CaeReconstructionLearner
-from model.Cae3D import Cae3D, Enc3D, Dec3D
-import data
+from common.model.Cae3D import Cae3D, Enc3D, Dec3D
+from common import data, util
 
 
 def train():

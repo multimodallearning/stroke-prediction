@@ -1,11 +1,10 @@
-from model.Cae3D import Cae3D
-from common.CaeDto import CaeDto
-from common.CaeInference import CaeInference
+from common.model.Cae3D import Cae3D
+from common.dto.CaeDto import CaeDto
+from common.inference.CaeInference import CaeInference
 from tester.Tester import Tester
 import nibabel as nib
 import numpy as np
-import data
-import util
+from common import metrics, data
 
 
 class CaeReconstructionTester(Tester, CaeInference):
@@ -13,25 +12,22 @@ class CaeReconstructionTester(Tester, CaeInference):
         Tester.__init__(self, dataloader, model, path_model_TESTER, path_outputs_base=path_outputs_base,
                         metrics={'dc_core': [], 'dc_penu': [], 'dc': [], 'hd': [], 'assd': []})
 
-    def metrics_step(self, dto: CaeDto, metrics):
-        dc, hd, assd = util.compute_binary_measure_numpy(dto.reconstructions.gtruth.interpolation.cpu().data.numpy(),
-                                                         dto.given_variables.gtruth.lesion.cpu().data.numpy())
-        dc_core, _, _ = util.compute_binary_measure_numpy(dto.reconstructions.gtruth.core.cpu().data.numpy(),
-                                                          dto.given_variables.gtruth.core.cpu().data.numpy())
-        dc_penu, _, _ = util.compute_binary_measure_numpy(dto.reconstructions.gtruth.penu.cpu().data.numpy(),
-                                                          dto.given_variables.gtruth.penu.cpu().data.numpy())
-        for metric in metrics.keys():
-            if metric == 'dc':
-                metrics[metric].append(dc)
-            elif metric == 'hd':
-                metrics[metric].append(hd)
-            elif metric == 'assd':
-                metrics[metric].append(assd)
-            elif metric == 'dc_core':
-                metrics[metric].append(dc_core)
-            elif metric == 'dc_penu':
-                metrics[metric].append(dc_penu)
-        return metrics
+    def metrics_step(self, dto: CaeDto, metric_measures):
+        metric_lesion = metrics.compute_binary_measure_numpy(dto.reconstructions.gtruth.interpolation.cpu().data.numpy(),
+                                                             dto.given_variables.gtruth.lesion.cpu().data.numpy())
+        metric_core, _, _ = metrics.compute_binary_measure_numpy(dto.reconstructions.gtruth.core.cpu().data.numpy(),
+                                                                 dto.given_variables.gtruth.core.cpu().data.numpy())
+        metric_penu, _, _ = metrics.compute_binary_measure_numpy(dto.reconstructions.gtruth.penu.cpu().data.numpy(),
+                                                                 dto.given_variables.gtruth.penu.cpu().data.numpy())
+        for mm in metric_measures.keys():
+            if mm == 'dc_core':
+                metric_measures[mm].append(metric_core['dc'])
+            elif mm == 'dc_penu':
+                metric_measures[mm].append(metric_penu['dc'])
+            else:
+                metric_measures[mm].append(metric_lesion[mm])
+
+        return metric_measures
 
     def save_inference(self, dto: CaeDto, batch):
         case_id = int(batch[data.KEY_CASE_ID])

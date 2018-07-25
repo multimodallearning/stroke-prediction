@@ -1,11 +1,10 @@
 from tester.Tester import Tester
-from common.UnetInference import UnetInference
-from common.UnetDto import UnetDto
-from model.Unet3D import Unet3D
+from common.inference.UnetInference import UnetInference
+from common.dto.UnetDto import UnetDto
+from common.model.Unet3D import Unet3D
 import nibabel as nib
 import numpy as np
-import data
-import util
+from common import data, util
 
 
 class UnetSegmentationTester(Tester, UnetInference):

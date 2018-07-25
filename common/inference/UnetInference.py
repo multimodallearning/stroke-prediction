@@ -1,8 +1,8 @@
-from model.Unet3D import Unet3D
-from common.Inference import Inference
+from common.model.Unet3D import Unet3D
+from common.inference.Inference import Inference
 from torch.autograd import Variable
-import common.UnetDto as UnetDtoInit
-import data
+import common.dto.UnetDto as UnetDtoInit
+from common import data
 
 
 class UnetInference(Inference):
@@ -22,6 +22,6 @@ class UnetInference(Inference):
             core_gt = core_gt.cuda()
             penu_gt = penu_gt.cuda()
 
-        dto = UnetDtoInit.init_unet_dto(input_modalities, core_gt, penu_gt)
+        dto = UnetDtoInit.init_dto(input_modalities, core_gt, penu_gt)
 
         return self._model(dto)

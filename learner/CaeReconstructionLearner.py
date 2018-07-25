@@ -1,10 +1,9 @@
 from learner.Learner import Learner
-from common.CaeDto import CaeDto
-from common.CaeInference import CaeInference
+from common.dto.CaeDto import CaeDto
+from common.inference.CaeInference import CaeInference
 import matplotlib.pyplot as plt
 import torch
-import util
-import data
+from common import data, util
 
 
 class CaeReconstructionLearner(Learner, CaeInference):
