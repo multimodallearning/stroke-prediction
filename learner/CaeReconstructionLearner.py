@@ -8,7 +8,7 @@ from common import data, util
 
 class CaeReconstructionLearner(Learner, CaeInference):
     """ A Learner to train a CAE on the reconstruction of
-    shape segmentations. Uses Cae_Dto data transfer objects.
+    shape segmentations. Uses CaeDto data transfer objects.
     """
     FN_VIS_BASE = '_cae_'
 
