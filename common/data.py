@@ -109,10 +109,7 @@ def set_np_seed(workerid):
 
 def split_data_loader3D(modalities, labels, indices, batch_size, random_seed=None, valid_size=0.5, shuffle=True,
                         num_workers=4, pin_memory=False, train_transform=[], valid_transform=[]):
-
-    error_msg = "[!] valid_size should be in the range [0, 1]."
-    assert ((valid_size >= 0) and (valid_size <= 1)), error_msg
-
+    assert ((valid_size >= 0) and (valid_size <= 1)), "[!] valid_size should be in the range [0, 1]."
     assert train_transform, "You must provide at least a numpy-to-torch transformation."
     assert valid_transform, "You must provide at least a numpy-to-torch transformation."
 
@@ -147,9 +144,20 @@ def split_data_loader3D(modalities, labels, indices, batch_size, random_seed=Non
     return (train_loader, valid_loader)
 
 
+def get_stroke_training_data(train_transform, valid_transform, fold_indices, ratio, seed=4, batchsize=2):
+    modalities = ['_CBV_reg1_downsampled', '_TTD_reg1_downsampled']
+    labels = ['_CBVmap_subset_reg1_downsampled', '_TTDmap_subset_reg1_downsampled',
+              '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled']
+
+    ds_train, ds_valid = split_data_loader3D(modalities, labels, fold_indices, batchsize, random_seed=seed,
+                                             valid_size=ratio, train_transform=train_transform,
+                                             valid_transform=valid_transform, num_workers=0)
+
+    return ds_train, ds_valid
+
+
 def get_testdata(modalities, labels, indices, random_seed=None, shuffle=True, num_workers=4, pin_memory=False,
                  transform=[]):
-
     assert transform, "You must provide at least a numpy-to-torch transformation."
 
     dataset = StrokeLindaDataset3D(modalities=modalities, labels=labels, transform=transforms.Compose(transform))

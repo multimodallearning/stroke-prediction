@@ -12,7 +12,7 @@ class BinaryMeasuresDto(Dto):
 
 
 class MetricMeasuresDto(Dto):
-    """ DTO for the metric measures.
+    """ DTO for all evaluation metric measures.
     """
     def __init__(self, loss, core:BinaryMeasuresDto, penu:BinaryMeasuresDto, lesion:BinaryMeasuresDto):
         super().__init__()
@@ -26,7 +26,7 @@ def init_dto(loss=None, core_dc=None, core_hd=None, core_assd=None,
              penu_dc=None, penu_hd=None, penu_assd=None,
              lesion_dc=None, lesion_hd=None, lesion_assd=None):
     """
-    Inits a MetricMeasuresDto with the given variables.
+    Inits a MetricMeasuresDto with the evaluation measures.
     :return: MetricMeasuresDto
     """
 

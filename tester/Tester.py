@@ -1,5 +1,8 @@
 from common.dto.Dto import Dto
 from common.inference.Inference import Inference
+from common.dto.MetricMeasuresDto import MetricMeasuresDto
+import common.dto.MetricMeasuresDto as MetricMeasuresDtoInit
+from torch.utils.data import DataLoader
 import torch
 
 
@@ -10,36 +13,33 @@ class Tester(Inference):
     procedures required for a specific test run.
     """
 
-    def __init__(self, dataloader, model, path_model, path_outputs_base='/tmp/', metrics={}, cuda=True):
+    def __init__(self, dataloader: DataLoader, model, path_model, path_outputs_base='/tmp/', cuda=True):
         Inference.__init__(self, model, path_model, path_outputs_base, cuda)
         self._dataloader = dataloader
         self._path_outputs_base = path_outputs_base
-        self._metrics = metrics
         self._model = model
         self._model.load_state_dict(torch.load(path_model))
         for p in self._model.parameters():
             p.requires_grad = False
+        self._model.eval()
 
-    def infer_batch(self, batch, metrics):
+    def infer_batch(self, batch: dict):
         dto = self.inference_step(batch)
-        metrics = self.metrics_step(dto, metrics)
+        batch_metrics = self.batch_metrics_step(dto)
         self.save_inference(dto, batch)
-        return metrics
+        return batch_metrics
 
-    def metrics_step(self, dto: Dto, metrics):
-        return metrics
+    def batch_metrics_step(self, dto: Dto):
+        return MetricMeasuresDtoInit.init_dto()
 
-    def save_inference(self, dto: Dto, batch):
+    def save_inference(self, dto: Dto, batch: dict):
         pass
 
-    def print_inference(self, batch, metrics):
+    def print_inference(self, batch: dict, metrics: MetricMeasuresDto):
         pass
 
     def run_inference(self):
-        self._model.eval()
-
+        assert self._dataloader.batch_size == 1, "You must ensure a batch size of 1 for correct case metric measures."
         for batch in self._dataloader:
-            self._metrics = self.infer_batch(batch, self._metrics)
-            self.print_inference(batch, self._metrics)
-
-        del batch
+            batch_metrics = self.infer_batch(batch)
+            self.print_inference(batch, batch_metrics)

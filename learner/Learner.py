@@ -28,7 +28,7 @@ class Learner(Inference):
     def loss_step(self, dto: Dto, epoch):
         pass
 
-    def train_batch(self, batch, epoch, running_epoch_metrics):
+    def train_batch(self, batch: dict, epoch, running_epoch_metrics):
         dto = self.inference_step(batch)
         loss = self.loss_step(dto, epoch)
 
@@ -44,7 +44,7 @@ class Learner(Inference):
 
         return running_epoch_metrics
 
-    def validate_batch(self, batch, epoch, running_epoch_metrics):
+    def validate_batch(self, batch: dict, epoch, running_epoch_metrics):
         dto = self.inference_step(batch)
         loss = self.loss_step(dto, epoch)
 

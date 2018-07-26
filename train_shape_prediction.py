@@ -1,5 +1,6 @@
 import torch
 import datetime
+
 from learner.CaeReconstructionLearner import CaeReconstructionLearner
 from common.model.Cae3D import Cae3D, Enc3D, Dec3D
 from common import data, util
@@ -18,6 +19,7 @@ def train():
     n_globals = args.globals  # type(core/penu), tO_to_tA, NHISS, sex, age
     resample_size = int(args.xyoriginal * args.xyresample)
     pad = args.padding
+    pad_value = 0
     leakage = 0.2
     cuda = True
 
@@ -39,17 +41,13 @@ def train():
     optimizer = torch.optim.Adam(params, lr=learning_rate, weight_decay=1e-5, betas=momentums_cae)
 
     # Data
-    train_transform = [data.ResamplePlaneXY(args.xyresample),
-                       data.HemisphericFlipFixedToCaseId(split_id=args.hemisflipid),
-                       data.PadImages(pad[0], pad[1], pad[2], pad_value=0),
-                       data.ElasticDeform(),
-                       data.ToTensor()]
-    valid_transform = [data.ResamplePlaneXY(args.xyresample),
-                       data.HemisphericFlipFixedToCaseId(split_id=args.hemisflipid),
-                       data.PadImages(pad[0], pad[1], pad[2], pad_value=0),
-                       data.ToTensor()]
-    ds_train, ds_valid = util.get_data_shape_labels(train_transform, valid_transform, args.fold, args.validsetsize,
-                                                    batchsize=batchsize)
+    common_transform = [data.ResamplePlaneXY(args.xyresample),
+                        data.HemisphericFlipFixedToCaseId(split_id=args.hemisflipid),
+                        data.PadImages(pad[0], pad[1], pad[2], pad_value=pad_value)]
+    train_transform = common_transform + [data.ElasticDeform(), data.ToTensor()]
+    valid_transform = common_transform + [data.ToTensor()]
+    ds_train, ds_valid = data.get_stroke_training_data(train_transform, valid_transform, args.fold, args.validsetsize,
+                                                       batchsize=batchsize)
     print('Size training set:', len(ds_train.sampler.indices), '| Size validation set:', len(ds_valid.sampler.indices))
     print('# training batches:', len(ds_train), '| # validation batches:', len(ds_valid))
 

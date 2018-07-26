@@ -1,5 +1,7 @@
 import torch
 import datetime
+
+import common.data
 from learner.UnetSegmentationLearner import UnetSegmentationLearner
 from common.model.Unet3D import Unet3D
 from common import data, util
@@ -42,8 +44,8 @@ def train():
                        data.PadImages(pad[0], pad[1], pad[2], pad_value=0),
                        data.RandomPatch(104, 104, 68, pad[0], pad[1], pad[2]),
                        data.ToTensor()]
-    ds_train, ds_valid = util.get_data_shape_labels(train_transform, valid_transform, args.fold, args.validsetsize,
-                                                    batchsize=batchsize)
+    ds_train, ds_valid = data.get_stroke_training_data(train_transform, valid_transform, args.fold, args.validsetsize,
+                                                       batchsize=batchsize)
     print('Size training set:', len(ds_train.sampler.indices), '| Size validation set:', len(ds_valid.sampler.indices))
     print('# training batches:', len(ds_train), '| # validation batches:', len(ds_valid))
 

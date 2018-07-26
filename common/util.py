@@ -33,18 +33,6 @@ def get_vis_samples(train_loader, valid_loader):
     return visual_samples, visual_times
 
 
-def get_data_shape_labels(train_transform, valid_transform, fold_indices, ratio, seed=4, batchsize=2):
-    modalities = ['_CBV_reg1_downsampled', '_TTD_reg1_downsampled']
-    labels = ['_CBVmap_subset_reg1_downsampled', '_TTDmap_subset_reg1_downsampled',
-              '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled']
-
-    ds_train, ds_valid = data.split_data_loader3D(modalities, labels, fold_indices, batchsize, random_seed=seed,
-                                                  valid_size=ratio, train_transform=train_transform,
-                                                  valid_transform=valid_transform, num_workers=0)
-
-    return ds_train, ds_valid
-
-
 # =================================== PARSER ===========================
 
 

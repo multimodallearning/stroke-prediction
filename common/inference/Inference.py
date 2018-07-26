@@ -12,5 +12,5 @@ class Inference():
         self._cuda = cuda
 
     @abstractmethod
-    def inference_step(self, batch):
+    def inference_step(self, batch: dict):
         pass
