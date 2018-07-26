@@ -1,5 +1,5 @@
 # stroke-prediction
-Stroke infarct growth prediction (3D)
+Stroke infarct growth prediction (3D, pytorch 0.3)
 
 ## Objective
 Learning to Predict Stroke Outcome based on Multivariate CT Images
