@@ -1,8 +1,10 @@
 from common.inference.UnetInference import UnetInference
+from common.dto.MetricMeasuresDto import MetricMeasuresDto
+import common.dto.MetricMeasuresDto as MetricMeasuresDtoInit
 from learner.Learner import Learner
 from common.dto.UnetDto import UnetDto
 import matplotlib.pyplot as plt
-from common import data, util
+from common import data, metrics
 
 
 class UnetSegmentationLearner(Learner, UnetInference):
@@ -33,17 +35,13 @@ class UnetSegmentationLearner(Learner, UnetInference):
 
         return loss / divd
 
-    def metrics_step(self, dto: UnetDto, epoch, running_epoch_metrics):
-        dc_core, _, _ = util.compute_binary_measure_numpy(dto.outputs.core.cpu().data.numpy(),
-                                                          dto.given_variables.core.cpu().data.numpy())
-        dc_penu, _, _ = util.compute_binary_measure_numpy(dto.outputs.penu.cpu().data.numpy(),
-                                                          dto.given_variables.penu.cpu().data.numpy())
-        for metric in running_epoch_metrics.keys():
-            if metric == 'dc_core':
-                running_epoch_metrics[metric].append(dc_core)
-            elif metric == 'dc_penu':
-                running_epoch_metrics[metric].append(dc_penu)
-        return running_epoch_metrics
+    def batch_metrics_step(self, dto: UnetDto, epoch):
+        batch_metrics = MetricMeasuresDtoInit.init_dto()
+        batch_metrics.core = metrics.measures_on_binary_numpy(dto.outputs.core.cpu().data.numpy(),
+                                                              dto.given_variables.core.cpu().data.numpy())
+        batch_metrics.penu = metrics.measures_on_binary_numpy(dto.outputs.penu.cpu().data.numpy(),
+                                                              dto.given_variables.penu.cpu().data.numpy())
+        return batch_metrics
 
     def adapt_lr(self, epoch):
         if epoch % self._every_x_epoch_half_lr == self._every_x_epoch_half_lr - 1:

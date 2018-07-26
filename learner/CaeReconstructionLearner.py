@@ -51,25 +51,25 @@ class CaeReconstructionLearner(Learner, CaeInference):
 
         return loss / divd
 
-    def metrics_step(self, dto: CaeDto, epoch, running_epoch_metrics):
+    def batch_metrics_step(self, dto: CaeDto, epoch, batch_metrics):
         dc, hd, assd = util.compute_binary_measure_numpy(dto.reconstructions.gtruth.interpolation.cpu().data.numpy(),
                                                          dto.given_variables.gtruth.lesion.cpu().data.numpy())
         dc_core, _, _ = util.compute_binary_measure_numpy(dto.reconstructions.gtruth.core.cpu().data.numpy(),
                                                           dto.given_variables.gtruth.core.cpu().data.numpy())
         dc_penu, _, _ = util.compute_binary_measure_numpy(dto.reconstructions.gtruth.penu.cpu().data.numpy(),
                                                           dto.given_variables.gtruth.penu.cpu().data.numpy())
-        for metric in running_epoch_metrics.keys():
+        for metric in batch_metrics.keys():
             if metric == 'dc':
-                running_epoch_metrics[metric].append(dc)
+                batch_metrics[metric].append(dc)
             elif metric == 'hd':
-                running_epoch_metrics[metric].append(hd)
+                batch_metrics[metric].append(hd)
             elif metric == 'assd':
-                running_epoch_metrics[metric].append(assd)
+                batch_metrics[metric].append(assd)
             elif metric == 'dc_core':
-                running_epoch_metrics[metric].append(dc_core)
+                batch_metrics[metric].append(dc_core)
             elif metric == 'dc_penu':
-                running_epoch_metrics[metric].append(dc_penu)
-        return running_epoch_metrics
+                batch_metrics[metric].append(dc_penu)
+        return batch_metrics
 
     def adapt_lr(self, epoch):
         if epoch % self._every_x_epoch_half_lr == self._every_x_epoch_half_lr - 1:
