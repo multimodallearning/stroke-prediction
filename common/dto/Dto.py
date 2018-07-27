@@ -2,9 +2,14 @@ class Dto:
     """ Data Transfer Object.
     Usually not required here, but makes it easier for
     passing arguments and consistent naming of variables.
+    Allows to iter through its members.
     """
     def __init__(self, **kwargs):
         self.__dict__ = kwargs
+
+    def __iter__(self):
+        for attr, value in self.__dict__.items():
+            yield attr, value
 
     def __repr__(self, indent=None):
         """

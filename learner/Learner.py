@@ -73,6 +73,18 @@ class Learner(Inference):
     def adapt_lr(self, epoch):
         pass
 
+    def _loop_tru(self):
+        for key in sorted(self.__dict__.keys()):
+            txt = '[ ]'
+            val = self.__dict__[key]
+            if val is not None:
+                txt = '[x]'
+            result += indent + txt + ' ' + key + '\n'
+            if isinstance(val, Dto):
+                result += val.__repr__(indent=(indent + '    '))
+        return result
+
+
     def run_training(self):
         minloss = numpy.Inf
 
@@ -81,44 +93,30 @@ class Learner(Inference):
 
             # ---------------------------- (1) TRAINING ---------------------------- #
 
-            running_epoch_metrics = {}
-            for key in self._metrics['training'].keys():
-                 running_epoch_metrics[key] = []
-
             self._model.train()
 
+            epoch_metrics = MetricMeasuresDtoInit.init_dto()
             for batch in self._dataloader_training:
-                running_epoch_metrics.append(self.train_batch(batch, epoch))
+                batch_metrics = self.train_batch(batch, epoch)
+                epoch_metrics.add(batch_metrics)
+            epoch_metrics.normalize()
 
-            [print(key) for key in dto for dto in running_epoch_metrics]  # TODO
-            '''
-            for metric in running_epoch_metrics.keys():
-                self._metrics['training'][metric].append(numpy.mean(running_epoch_metrics[metric]))
-            '''
-
-            self.print_epoch(epoch, 'training', self._metrics['training'])
-            del running_epoch_metrics
+            self.print_epoch(epoch, 'training', epoch_metrics)
+            del epoch_metrics
             del batch
 
             # ---------------------------- (2) VALIDATE ---------------------------- #
 
-            running_epoch_metrics = {}
-            for key in self._metrics['validate'].keys():
-                running_epoch_metrics[key] = []
-
             self._model.eval()
 
+            epoch_metrics = MetricMeasuresDtoInit.init_dto()
             for batch in self._dataloader_validation:
-                running_epoch_metrics.append(self.validate_batch(batch, epoch))
+                epoch_metrics.append(self.validate_batch(batch, epoch))
+                epoch_metrics.add(batch_metrics)
+            epoch_metrics.normalize()
 
-            # TODO
-            '''
-            for metric in running_epoch_metrics.keys():
-                self._metrics['validate'][metric].append(numpy.mean(running_epoch_metrics[metric]))
-            '''
-
-            self.print_epoch(epoch, 'validate', self._metrics['validate'])
-            del running_epoch_metrics
+            self.print_epoch(epoch, 'validate', epoch_metrics)
+            del epoch_metrics
             del batch
 
             # ------------ (3) SAVE MODEL / VISUALIZE (if new optimum) ------------ #

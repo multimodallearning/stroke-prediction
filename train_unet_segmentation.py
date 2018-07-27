@@ -1,10 +1,8 @@
 import torch
 import datetime
-
-import common.data
 from learner.UnetSegmentationLearner import UnetSegmentationLearner
 from common.model.Unet3D import Unet3D
-from common import data, util
+from common import data, util, metrics
 
 
 def train():
@@ -14,7 +12,7 @@ def train():
     batchsize = 6  # 17 training, 6 validation
     learning_rate = 1e-3
     momentums_cae = (0.99, 0.999)
-    criterion = util.BatchDiceLoss([1.0])  # evaluated separately
+    criterion = metrics.BatchDiceLoss([1.0])  # evaluated separately
     path_saved_model = args.unetpath
     channels = args.channels
     pad = args.padding

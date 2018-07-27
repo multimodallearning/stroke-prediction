@@ -1,7 +1,22 @@
+import numpy
 from common.dto.Dto import Dto
 
 
-class BinaryMeasuresDto(Dto):
+class MeasuresDto(Dto):
+    def add(self, other):
+        if isinstance(other, type(self)):
+            for attr, value in other:
+                if self.__dict__[attr] is None:
+                    self.__dict__[attr] = value
+                elif isinstance(value, MeasuresDto):
+                    self.__dict__[attr].add(value)
+                else:
+                    self.__dict__[attr] += value
+        else:
+            raise Exception('A' + str(type(self)) + 'must be added')
+
+
+class BinaryMeasuresDto(MeasuresDto):
     """ DTO for the metric measures on binary images.
     """
     def __init__(self, dc, hd, assd):
@@ -11,7 +26,7 @@ class BinaryMeasuresDto(Dto):
         self.assd = assd
 
 
-class MetricMeasuresDto(Dto):
+class MetricMeasuresDto(MeasuresDto):
     """ DTO for all evaluation metric measures.
     """
     def __init__(self, loss, core:BinaryMeasuresDto, penu:BinaryMeasuresDto, lesion:BinaryMeasuresDto):
