@@ -20,11 +20,12 @@ class Learner(Inference):
     def __init__(self, dataloader_training, dataloader_validation, model, path_model, optimizer, n_epochs,
                  path_outputs_base='/tmp/', cuda=True):
         Inference.__init__(self, model, path_model, path_outputs_base, cuda)
+        assert dataloader_training.batch_size > 1, 'For normalization layers batch_size > 1 is required.'
         self._dataloader_training = dataloader_training
         self._dataloader_validation = dataloader_validation
         self._optimizer = optimizer
         self._n_epochs = n_epochs
-        self._metrics = {'training': None, 'validate': None}
+        self._metrics = {'training': MetricMeasuresDtoInit.init_dto(), 'validate': MetricMeasuresDtoInit.init_dto()}
 
     @abstractmethod
     def loss_step(self, dto: Dto, epoch):
@@ -73,18 +74,6 @@ class Learner(Inference):
     def adapt_lr(self, epoch):
         pass
 
-    def _loop_tru(self):
-        for key in sorted(self.__dict__.keys()):
-            txt = '[ ]'
-            val = self.__dict__[key]
-            if val is not None:
-                txt = '[x]'
-            result += indent + txt + ' ' + key + '\n'
-            if isinstance(val, Dto):
-                result += val.__repr__(indent=(indent + '    '))
-        return result
-
-
     def run_training(self):
         minloss = numpy.Inf
 
@@ -97,11 +86,11 @@ class Learner(Inference):
 
             epoch_metrics = MetricMeasuresDtoInit.init_dto()
             for batch in self._dataloader_training:
-                batch_metrics = self.train_batch(batch, epoch)
-                epoch_metrics.add(batch_metrics)
-            epoch_metrics.normalize()
+                epoch_metrics.add(self.train_batch(batch, epoch))
+            epoch_metrics.div(len(self._dataloader_training))
 
             self.print_epoch(epoch, 'training', epoch_metrics)
+            self._metrics['training'].add(epoch_metrics)
             del epoch_metrics
             del batch
 
@@ -111,18 +100,18 @@ class Learner(Inference):
 
             epoch_metrics = MetricMeasuresDtoInit.init_dto()
             for batch in self._dataloader_validation:
-                epoch_metrics.append(self.validate_batch(batch, epoch))
-                epoch_metrics.add(batch_metrics)
-            epoch_metrics.normalize()
+                epoch_metrics.add(self.validate_batch(batch, epoch))
+            epoch_metrics.div(len(self._dataloader_validation))
 
             self.print_epoch(epoch, 'validate', epoch_metrics)
+            self._metrics['validate'].add(epoch_metrics)
             del epoch_metrics
             del batch
 
             # ------------ (3) SAVE MODEL / VISUALIZE (if new optimum) ------------ #
 
-            if self._metrics['validate']['loss'] and self._metrics['validate']['loss'][-1] < minloss:
-                minloss = self._metrics['validate']['loss'][-1]
+            if self._metrics['validate'] and self._metrics['validate'][-1].loss < minloss:
+                minloss = self._metrics['validate'][-1].loss
                 torch.save(self._model.state_dict(), self._path_model)
                 self.visualize_epoch(epoch)
 

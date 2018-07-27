@@ -1,10 +1,9 @@
 from common.inference.UnetInference import UnetInference
-from common.dto.MetricMeasuresDto import MetricMeasuresDto
 import common.dto.MetricMeasuresDto as MetricMeasuresDtoInit
 from learner.Learner import Learner
 from common.dto.UnetDto import UnetDto
 import matplotlib.pyplot as plt
-from common import data, metrics
+from common import data, metrics, util
 
 
 class UnetSegmentationLearner(Learner, UnetInference):
@@ -48,9 +47,9 @@ class UnetSegmentationLearner(Learner, UnetInference):
     def print_epoch(self, epoch, phase, epoch_metrics):
         output = 'Epoch {}/{} {} loss: {:.3} - DC Core:{:.3}, DC Penumbra:{:.3}'
         print(output.format(epoch + 1, self._n_epochs, phase,
-                            epoch_metrics['loss'][-1],
-                            epoch_metrics['dc_core'][-1],
-                            epoch_metrics['dc_penu'][-1]))
+                            epoch_metrics.loss,
+                            epoch_metrics.core.dc,
+                            epoch_metrics.penu.dc))
 
     def plot_epoch(self, epoch):
         if epoch > 0:

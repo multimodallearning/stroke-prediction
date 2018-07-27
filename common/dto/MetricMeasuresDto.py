@@ -15,6 +15,14 @@ class MeasuresDto(Dto):
         else:
             raise Exception('A' + str(type(self)) + 'must be added')
 
+    def div(self, divisor):
+        for attr, value in self.__dict__.items():
+            if value is not None and value != numpy.Inf:
+                if isinstance(value, MeasuresDto):
+                    self.__dict__[attr].div(divisor)
+                else:
+                    self.__dict__[attr] = value / divisor
+
 
 class BinaryMeasuresDto(MeasuresDto):
     """ DTO for the metric measures on binary images.
