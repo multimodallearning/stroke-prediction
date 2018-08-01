@@ -55,10 +55,10 @@ class UnetSegmentationLearner(Learner, UnetInference):
         if epoch > 0:
             fig, ax1 = plt.subplots()
             t = range(1, epoch + 2)
-            ax1.plot(t, self._metrics['training']['loss'], 'r-')
-            ax1.plot(t, self._metrics['validate']['loss'], 'g-')
-            ax1.plot(t, self._metrics['validate']['dc_core'], 'c+')
-            ax1.plot(t, self._metrics['validate']['dc_penu'], 'm+')
+            ax1.plot(t, [dto.loss for dto in self._metric_dtos['training']], 'r-')
+            ax1.plot(t, [dto.loss for dto in self._metric_dtos['validate']], 'g-')
+            ax1.plot(t, [dto.core.dc for dto in self._metric_dtos['validate']], 'c+')
+            ax1.plot(t, [dto.penu.dc for dto in self._metric_dtos['validate']], 'm+')
             ax1.set_ylabel('L Train.(red)/Val.(green) | Dice Val. Core(c), Penu(m)')
             fig.savefig(self._path_outputs_base + '_losses.png', bbox_inches='tight', dpi=300)
             del fig

@@ -25,7 +25,7 @@ class Learner(Inference):
         self._dataloader_validation = dataloader_validation
         self._optimizer = optimizer
         self._n_epochs = n_epochs
-        self._metrics = {'training': MetricMeasuresDtoInit.init_dto(), 'validate': MetricMeasuresDtoInit.init_dto()}
+        self._metric_dtos = {'training': [], 'validate': []}
 
     @abstractmethod
     def loss_step(self, dto: Dto, epoch):
@@ -90,7 +90,7 @@ class Learner(Inference):
             epoch_metrics.div(len(self._dataloader_training))
 
             self.print_epoch(epoch, 'training', epoch_metrics)
-            self._metrics['training'].add(epoch_metrics)
+            self._metric_dtos['training'].append(epoch_metrics)
             del epoch_metrics
             del batch
 
@@ -104,14 +104,14 @@ class Learner(Inference):
             epoch_metrics.div(len(self._dataloader_validation))
 
             self.print_epoch(epoch, 'validate', epoch_metrics)
-            self._metrics['validate'].add(epoch_metrics)
+            self._metric_dtos['validate'].append(epoch_metrics)
             del epoch_metrics
             del batch
 
             # ------------ (3) SAVE MODEL / VISUALIZE (if new optimum) ------------ #
 
-            if self._metrics['validate'] and self._metrics['validate'][-1].loss < minloss:
-                minloss = self._metrics['validate'][-1].loss
+            if self._metric_dtos['validate'] and self._metric_dtos['validate'][-1].loss < minloss:
+                minloss = self._metric_dtos['validate'][-1].loss
                 torch.save(self._model.state_dict(), self._path_model)
                 self.visualize_epoch(epoch)
 

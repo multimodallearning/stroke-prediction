@@ -1,9 +1,10 @@
 from learner.Learner import Learner
 from common.dto.CaeDto import CaeDto
 from common.inference.CaeInference import CaeInference
+import common.dto.MetricMeasuresDto as MetricMeasuresDtoInit
 import matplotlib.pyplot as plt
 import torch
-from common import data, util
+from common import data, util, metrics
 
 
 class CaeReconstructionLearner(Learner, CaeInference):
@@ -16,10 +17,7 @@ class CaeReconstructionLearner(Learner, CaeInference):
                  path_outputs_base, criterion, normalization_hours_penumbra=10, epoch_interpolant_constraint=1,
                  every_x_epoch_half_lr=100, cuda=True):
         Learner.__init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer,
-                         n_epochs, path_outputs_base=path_outputs_base,
-                         metrics={'training': {'loss': [], 'dc': [], 'hd': [], 'assd': []},
-                                  'validate': {'loss': [], 'dc': [], 'hd': [], 'assd': [], 'dc_core': [], 'dc_penu': []}
-                                 }, cuda=cuda)
+                         n_epochs, path_outputs_base=path_outputs_base, cuda=cuda)
         CaeInference.__init__(self, cae_model, path_cae_model, path_outputs_base, normalization_hours_penumbra,
                               cuda=cuda)  # TODO: This needs some refactoring (double initialization of model, path etc)
         self._path_model = path_cae_model
@@ -51,24 +49,14 @@ class CaeReconstructionLearner(Learner, CaeInference):
 
         return loss / divd
 
-    def batch_metrics_step(self, dto: CaeDto, epoch, batch_metrics):
-        dc, hd, assd = util.compute_binary_measure_numpy(dto.reconstructions.gtruth.interpolation.cpu().data.numpy(),
-                                                         dto.given_variables.gtruth.lesion.cpu().data.numpy())
-        dc_core, _, _ = util.compute_binary_measure_numpy(dto.reconstructions.gtruth.core.cpu().data.numpy(),
-                                                          dto.given_variables.gtruth.core.cpu().data.numpy())
-        dc_penu, _, _ = util.compute_binary_measure_numpy(dto.reconstructions.gtruth.penu.cpu().data.numpy(),
-                                                          dto.given_variables.gtruth.penu.cpu().data.numpy())
-        for metric in batch_metrics.keys():
-            if metric == 'dc':
-                batch_metrics[metric].append(dc)
-            elif metric == 'hd':
-                batch_metrics[metric].append(hd)
-            elif metric == 'assd':
-                batch_metrics[metric].append(assd)
-            elif metric == 'dc_core':
-                batch_metrics[metric].append(dc_core)
-            elif metric == 'dc_penu':
-                batch_metrics[metric].append(dc_penu)
+    def batch_metrics_step(self, dto: CaeDto, epoch):
+        batch_metrics = MetricMeasuresDtoInit.init_dto()
+        batch_metrics.lesion = metrics.measures_on_binary_numpy(dto.reconstructions.gtruth.interpolation.cpu().data.numpy(),
+                                                                dto.given_variables.gtruth.lesion.cpu().data.numpy())
+        batch_metrics.core = metrics.measures_on_binary_numpy(dto.reconstructions.gtruth.core.cpu().data.numpy(),
+                                                              dto.given_variables.gtruth.core.cpu().data.numpy())
+        batch_metrics.penu = metrics.measures_on_binary_numpy(dto.reconstructions.gtruth.penu.cpu().data.numpy(),
+                                                              dto.given_variables.gtruth.penu.cpu().data.numpy())
         return batch_metrics
 
     def adapt_lr(self, epoch):
@@ -77,39 +65,27 @@ class CaeReconstructionLearner(Learner, CaeInference):
                 param_group['lr'] *= 0.5
 
     def print_epoch(self, epoch, phase, epoch_metrics):
-        output = 'Epoch {}/{} {} loss: {:.3} - DC:{:.3}, HD:{:.3}, ASSD:{:.3}'
-        if phase == 'validate':
-            output += ', DC core:{:.3}, DC penu.:{:.3}'
-            print(output.format(epoch + 1, self._n_epochs, phase,
-                                epoch_metrics['loss'][-1],
-                                epoch_metrics['dc'][-1],
-                                epoch_metrics['hd'][-1],
-                                epoch_metrics['assd'][-1],
-                                epoch_metrics['dc_core'][-1],
-                                epoch_metrics['dc_penu'][-1])
-                 )
-        elif phase == 'training':
-            print(output.format(epoch + 1, self._n_epochs, phase,
-                                epoch_metrics['loss'][-1],
-                                epoch_metrics['dc'][-1],
-                                epoch_metrics['hd'][-1],
-                                epoch_metrics['assd'][-1])
-                 )
-        else:
-            print('Given learning phase did not match in order to print correctly!')
+        output = 'Epoch {}/{} {} loss: {:.3} - DC:{:.3}, HD:{:.3}, ASSD:{:.3}, DC core:{:.3}, DC penu.:{:.3}'
+        print(output.format(epoch + 1, self._n_epochs, phase,
+                            epoch_metrics.loss,
+                            epoch_metrics.lesion.dc,
+                            epoch_metrics.lesion.hd,
+                            epoch_metrics.lesion.assd,
+                            epoch_metrics.core.dc,
+                            epoch_metrics.penu.dc))
 
     def plot_epoch(self, epoch):
         if epoch > 0:
             fig, ax1 = plt.subplots()
             t = range(1, epoch + 2)
-            ax1.plot(t, self._metrics['training']['loss'], 'r-')
-            ax1.plot(t, self._metrics['validate']['loss'], 'g-')
-            ax1.plot(t, self._metrics['validate']['dc'], 'k-')
-            ax1.plot(t, self._metrics['validate']['dc_core'], 'c+')
-            ax1.plot(t, self._metrics['validate']['dc_penu'], 'm+')
+            ax1.plot(t, [dto.loss for dto in self._metric_dtos['training']], 'r-')
+            ax1.plot(t, [dto.loss for dto in self._metric_dtos['validate']], 'g-')
+            ax1.plot(t, [dto.lesion.dc for dto in self._metric_dtos['validate']], 'k-')
+            ax1.plot(t, [dto.core.dc for dto in self._metric_dtos['validate']], 'c+')
+            ax1.plot(t, [dto.penu.dc for dto in self._metric_dtos['validate']], 'm+')
             ax1.set_ylabel('L Train.(red)/Val.(green) | Dice Val. Lesion(b), Core(c), Penu(m)')
             ax2 = ax1.twinx()
-            ax2.plot(t, self._metrics['validate']['assd'], 'b-')
+            ax2.plot(t, [dto.lesion.assd for dto in self._metric_dtos['validate']], 'b-')
             ax2.set_ylabel('Validation ASSD (blue)', color='b')
             ax2.tick_params('y', colors='b')
             fig.savefig(self._path_outputs_base + 'cae_losses.png', bbox_inches='tight', dpi=300)

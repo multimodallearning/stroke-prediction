@@ -1,9 +1,8 @@
 import torch
 import datetime
-
 from learner.CaeReconstructionLearner import CaeReconstructionLearner
 from common.model.Cae3D import Cae3D, Enc3D, Dec3D
-from common import data, util
+from common import data, util, metrics
 
 
 def train():
@@ -13,7 +12,7 @@ def train():
     batchsize = 6  # 17 training, 6 validation
     learning_rate = 1e-3
     momentums_cae = (0.99, 0.999)
-    criterion = util.BatchDiceLoss([1.0])
+    criterion = metrics.BatchDiceLoss([1.0])
     path_saved_model = args.caepath
     channels_cae = args.channelscae
     n_globals = args.globals  # type(core/penu), tO_to_tA, NHISS, sex, age
