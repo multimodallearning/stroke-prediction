@@ -10,7 +10,7 @@ class BatchDiceLoss(LossModule):
         self.epsilon = epsilon
         self._dim = dim
         self._label_weights = label_weights
-        print("DICE Loss weights each class' output by", label_weights)
+        print("DICE Loss weights classes' output by", label_weights)
 
     def forward(self, outputs, targets):
         assert targets.shape[self._dim] == len(self._label_weights), \

@@ -7,7 +7,7 @@ from common import data, util
 def test():
     args = util.get_args_unet_training()
 
-    # Params
+    # Params / Config
     modalities = ['_CBV_reg1_downsampled', '_TTD_reg1_downsampled']
     labels = ['_CBVmap_subset_reg1_downsampled', '_TTDmap_subset_reg1_downsampled',
               '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled']

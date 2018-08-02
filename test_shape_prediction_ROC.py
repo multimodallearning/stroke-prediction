@@ -1,5 +1,5 @@
 import datetime
-from tester.CaeReconstructionTester import CaeReconstructionTester
+from tester.CaeReconstructionTesterROC import CaeReconstructionTesterROC
 from common.model.Cae3D import Cae3D, Dec3D, Enc3D
 from common import data, util
 
@@ -16,6 +16,7 @@ def test():
     n_globals = args.globals  # type(core/penu), tO_to_tA, NHISS, sex, age
     resample_size = int(args.xyoriginal * args.xyresample)
     normalization_hours_penumbra = args.normalize
+    steps = range(6)  # fixed steps for tAdmission-->tReca: 0-5 hrs
     pad = args.padding
     pad_value = 0
     leakage = 0.2
@@ -39,7 +40,8 @@ def test():
     print('Size test set:', len(ds_test.sampler.indices), '| # batches:', len(ds_test))
 
     # Single case evaluation
-    tester = CaeReconstructionTester(ds_test, cae, path_saved_model, args.outbasepath, normalization_hours_penumbra)
+    tester = CaeReconstructionTesterROC(ds_test, cae, path_saved_model, args.outbasepath, normalization_hours_penumbra,
+                                        steps)
     tester.run_inference()
 
 

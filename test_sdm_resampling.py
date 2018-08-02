@@ -64,7 +64,7 @@ def infer():
 
     print('Evaluate validation set', args.fold)
 
-    # Params
+    # Params / Config
     normalization_hours_penumbra = 10
     channels_unet = args.channels
     pad = args.padding

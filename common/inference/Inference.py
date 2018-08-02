@@ -4,6 +4,7 @@ from abc import abstractmethod
 class Inference():
     """Base class for all classes that require model inference.
     """
+
     @abstractmethod
     def __init__(self, model, path_model, path_outputs_base):
         self._model = model
@@ -13,3 +14,7 @@ class Inference():
     @abstractmethod
     def inference_step(self, batch: dict):
         pass
+
+    @property
+    def is_cuda(self) -> bool:
+        return next(self._model.parameters()).is_cuda

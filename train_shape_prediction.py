@@ -8,7 +8,7 @@ from common import data, util, metrics
 def train():
     args = util.get_args_shape_training()
 
-    # Params
+    # Params / Config
     batchsize = 6  # 17 training, 6 validation
     learning_rate = 1e-3
     momentums_cae = (0.99, 0.999)
@@ -47,12 +47,13 @@ def train():
     valid_transform = common_transform + [data.ToTensor()]
     ds_train, ds_valid = data.get_stroke_training_data(train_transform, valid_transform, args.fold, args.validsetsize,
                                                        batchsize=batchsize)
-    print('Size training set:', len(ds_train.sampler.indices), '| Size validation set:', len(ds_valid.sampler.indices))
+    print('Size training set:', len(ds_train.sampler.indices), '| Size validation set:', len(ds_valid.sampler.indices),
+          '| Size batch:', batchsize)
     print('# training batches:', len(ds_train), '| # validation batches:', len(ds_valid))
 
     # Training
     learner = CaeReconstructionLearner(ds_train, ds_valid, cae, path_saved_model, optimizer, args.epochs,
-                                       args.outbasepath, criterion, cuda=cuda)
+                                       args.outbasepath, criterion)
     learner.run_training()
 
 

@@ -18,8 +18,7 @@ class CaeReconstructionLearner(Learner, CaeInference):
                  every_x_epoch_half_lr=100):
         Learner.__init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer,
                          n_epochs, path_outputs_base=path_outputs_base)
-        CaeInference.__init__(self, cae_model, path_cae_model, path_outputs_base, normalization_hours_penumbra,
-                              cuda=cuda)  # TODO: This needs some refactoring (double initialization of model, path etc)
+        CaeInference.__init__(self, cae_model, path_cae_model, path_outputs_base, normalization_hours_penumbra)  # TODO: This needs some refactoring (double initialization of model, path etc)
         self._path_model = path_cae_model
         self._criterion = criterion  # main loss criterion
         self._epoch_interpolant_constraint = epoch_interpolant_constraint  # start at epoch to increase weight for the

@@ -31,7 +31,7 @@ class UnetSegmentationTester(Tester, UnetInference):
         nib.save(nib.Nifti1Image(np.transpose(dto.outputs.penu.cpu().data.numpy(), (4, 3, 2, 1, 0)), nifph),
                  self._path_outputs_base + '_' + str(case_id) + '_penu.nii.gz')
 
-    def print_inference(self, batch: dict, batch_metrics: MetricMeasuresDto):
+    def print_inference(self, batch: dict, batch_metrics: MetricMeasuresDto, dto: UnetDto):
         output = 'Case Id {}:\t DC Core:{:.3},\tDC Penumbra:{:.3}'
         print(output.format(int(batch[data.KEY_CASE_ID]),
                             batch_metrics.core.dc,

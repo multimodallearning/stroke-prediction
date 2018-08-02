@@ -44,7 +44,7 @@ class CaeInference(Inference):
         penu_gt = Variable(batch[data.KEY_LABELS][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
         lesion_gt = Variable(batch[data.KEY_LABELS][:, 2, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
 
-        if next(self._model.parameters()).is_cuda:
+        if self.is_cuda:
             globals_incl_time = globals_incl_time.cuda()
             time_to_treatment = time_to_treatment.cuda()
             type_core = type_core.cuda()
