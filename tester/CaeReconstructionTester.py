@@ -12,9 +12,8 @@ from common import metrics, data
 class CaeReconstructionTester(Tester, CaeInference):
     def __init__(self, dataloader, model: Cae3D, path_model, path_outputs_base='/tmp/', normalization_hours_penumbra=0):
         Tester.__init__(self, dataloader, model, path_model, path_outputs_base=path_outputs_base)
-        CaeInference.__init__(self, model, path_model, path_outputs_base, normalization_hours_penumbra,
-                              cuda=True)  # TODO: This needs some refactoring (double initialization of model, path etc)
-                                          # TODO: Check if cuda required for the Inference modules
+        CaeInference.__init__(self, model, path_model, path_outputs_base, normalization_hours_penumbra)
+        # TODO: This needs some refactoring (double initialization of model, path etc)
 
     def batch_metrics_step(self, dto: CaeDto):
         batch_metrics = MetricMeasuresDtoInit.init_dto()

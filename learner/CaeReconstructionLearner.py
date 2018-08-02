@@ -15,9 +15,9 @@ class CaeReconstructionLearner(Learner, CaeInference):
 
     def __init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer, n_epochs,
                  path_outputs_base, criterion, normalization_hours_penumbra=10, epoch_interpolant_constraint=1,
-                 every_x_epoch_half_lr=100, cuda=True):
+                 every_x_epoch_half_lr=100):
         Learner.__init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer,
-                         n_epochs, path_outputs_base=path_outputs_base, cuda=cuda)
+                         n_epochs, path_outputs_base=path_outputs_base)
         CaeInference.__init__(self, cae_model, path_cae_model, path_outputs_base, normalization_hours_penumbra,
                               cuda=cuda)  # TODO: This needs some refactoring (double initialization of model, path etc)
         self._path_model = path_cae_model

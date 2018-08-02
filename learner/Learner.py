@@ -18,8 +18,8 @@ class Learner(Inference):
     FN_VIS_BASE = '_samples_visualization_'
 
     def __init__(self, dataloader_training, dataloader_validation, model, path_model, optimizer, n_epochs,
-                 path_outputs_base='/tmp/', cuda=True):
-        Inference.__init__(self, model, path_model, path_outputs_base, cuda)
+                 path_outputs_base='/tmp/'):
+        Inference.__init__(self, model, path_model, path_outputs_base)
         assert dataloader_training.batch_size > 1, 'For normalization layers batch_size > 1 is required.'
         self._dataloader_training = dataloader_training
         self._dataloader_validation = dataloader_validation

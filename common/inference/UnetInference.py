@@ -17,7 +17,7 @@ class UnetInference(Inference):
         core_gt = Variable(batch[data.KEY_LABELS][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
         penu_gt = Variable(batch[data.KEY_LABELS][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
 
-        if self._cuda:
+        if next(self._model.parameters()).is_cuda:
             input_modalities = input_modalities.cuda()
             core_gt = core_gt.cuda()
             penu_gt = penu_gt.cuda()

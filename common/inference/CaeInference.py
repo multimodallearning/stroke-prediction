@@ -10,9 +10,8 @@ class CaeInference(Inference):
     """Common inference for training and testing,
     i.e. feed-forward of CAE
     """
-    def __init__(self, model:Cae3D, path_model, path_outputs_base='/tmp/', normalization_hours_penumbra = 10,
-                 cuda=True):
-        Inference.__init__(self, model, path_model, path_outputs_base, cuda)
+    def __init__(self, model:Cae3D, path_model, path_outputs_base='/tmp/', normalization_hours_penumbra = 10):
+        Inference.__init__(self, model, path_model, path_outputs_base)
         self._normalization_hours_penumbra = normalization_hours_penumbra
 
     def _get_normalized_time(self, batch):
@@ -45,7 +44,7 @@ class CaeInference(Inference):
         penu_gt = Variable(batch[data.KEY_LABELS][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
         lesion_gt = Variable(batch[data.KEY_LABELS][:, 2, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
 
-        if self._cuda:
+        if next(self._model.parameters()).is_cuda:
             globals_incl_time = globals_incl_time.cuda()
             time_to_treatment = time_to_treatment.cuda()
             type_core = type_core.cuda()
