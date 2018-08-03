@@ -44,7 +44,9 @@ class CaeReconstructionTester(Tester, CaeInference):
         )
 
     def print_inference(self, batch: dict, batch_metrics: MetricMeasuresDto, dto: CaeDto, note=''):
-        output = 'Case Id={}\ttA-tO={:.3f}\ttR-tA={:.3f}\tnormalized_time_to_treatment={:.3f}\t-->\tDC={:.3f}\tHD={:.3f}\tASSD={:.3f}\tDC Core={:.3f}\tDC Penumbra={:.3f}\t{}'
+        output = 'Case Id={}\ttA-tO={:.3f}\ttR-tA={:.3f}\tnormalized_time_to_treatment={:.3f}\t-->\
+                  \tDC={:.3f}\tHD={:.3f}\tASSD={:.3f}\tDC Core={:.3f}\tDC Penumbra={:.3f}\t\
+                  Sensitivity={:.3}\tSpecificity={:.3}\t{}'
         print(output.format(int(batch[data.KEY_CASE_ID]),
                             float(batch[data.KEY_GLOBAL][:, 0, :, :, :]),
                             float(batch[data.KEY_GLOBAL][:, 1, :, :, :]),
@@ -54,4 +56,6 @@ class CaeReconstructionTester(Tester, CaeInference):
                             batch_metrics.lesion.assd,
                             batch_metrics.core.dc,
                             batch_metrics.penu.dc,
+                            batch_metrics.lesion.sensitivity,
+                            batch_metrics.lesion.specificity,
                             note))

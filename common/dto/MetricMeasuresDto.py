@@ -27,11 +27,13 @@ class MeasuresDto(Dto):
 class BinaryMeasuresDto(MeasuresDto):
     """ DTO for the metric measures on binary images.
     """
-    def __init__(self, dc, hd, assd):
+    def __init__(self, dc, hd, assd, sensitivity, specificity):
         super().__init__()
         self.dc = dc
         self.hd = hd
         self.assd = assd
+        self.sensitivity = sensitivity
+        self.specificity = specificity
 
 
 class MetricMeasuresDto(MeasuresDto):
@@ -47,14 +49,15 @@ class MetricMeasuresDto(MeasuresDto):
 
 def init_dto(loss=None, core_dc=None, core_hd=None, core_assd=None,
              penu_dc=None, penu_hd=None, penu_assd=None,
-             lesion_dc=None, lesion_hd=None, lesion_assd=None):
+             lesion_dc=None, lesion_hd=None, lesion_assd=None,
+             lesion_sensitivity=None, lesion_specificity=None):
     """
     Inits a MetricMeasuresDto with the evaluation measures.
     :return: MetricMeasuresDto
     """
 
-    core = BinaryMeasuresDto(core_dc, core_hd, core_assd)
-    penu = BinaryMeasuresDto(penu_dc, penu_hd, penu_assd)
-    lesion = BinaryMeasuresDto(lesion_dc, lesion_hd, lesion_assd)
+    core = BinaryMeasuresDto(core_dc, core_hd, core_assd, None, None)
+    penu = BinaryMeasuresDto(penu_dc, penu_hd, penu_assd, None, None)
+    lesion = BinaryMeasuresDto(lesion_dc, lesion_hd, lesion_assd, lesion_sensitivity, lesion_specificity)
 
     return MetricMeasuresDto(loss, core, penu, lesion)
