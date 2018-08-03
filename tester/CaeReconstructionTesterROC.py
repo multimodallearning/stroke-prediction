@@ -14,7 +14,6 @@ class CaeReconstructionTesterROC(CaeReconstructionTester):
     def infer_batch(self, batch: dict, step: int):
         dto = self.inference_step(batch, step)
         batch_metrics = self.batch_metrics_step(dto)
-        #self.save_inference(dto, batch, suffix='_'+str(step))  # only interested in evaluation metrics
         return batch_metrics, dto
 
     def run_inference(self):
@@ -23,6 +22,7 @@ class CaeReconstructionTesterROC(CaeReconstructionTester):
             # 1) Evaluate on ground truth tA-->tR
             batch_metrics, dto = self.infer_batch(batch, None)
             self.print_inference(batch, batch_metrics, dto)
+            self.save_inference(dto, batch)
 
             # 2) Evaluate on fixed tA-->tR: 0 .. 5 hrs
             for step in self._steps_fixed:
