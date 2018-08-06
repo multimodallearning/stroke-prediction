@@ -41,7 +41,9 @@ def measures_on_binary_numpy(result, target, threshold=0.5):
     else:
         raise Exception("Target must be a 3D or 5D tensor")
 
-    result = BinaryMeasuresDto(mpm.dc(result_binary, target_binary), numpy.Inf, numpy.Inf)
+    result = BinaryMeasuresDto(mpm.dc(result_binary, target_binary), numpy.Inf, numpy.Inf,
+                               mpm.sensitivity(result_binary, target_binary),
+                               mpm.specificity(result_binary, target_binary))
 
     if result_binary.any() and target_binary.any():
         result.hd = mpm.hd(result_binary, target_binary)
