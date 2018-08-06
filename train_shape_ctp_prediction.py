@@ -1,7 +1,7 @@
 import torch
 import datetime
 from learner.CaeReconstructionLearner import CaeReconstructionLearner
-from common.model.Cae3D import Cae3D, Enc3D, Dec3D
+from common.model.Cae3D import Cae3DCtp, Enc3DCtp, Dec3D
 from common import data, util, metrics
 
 
@@ -24,11 +24,11 @@ def train():
     cuda = True
 
     # CAE model
-    enc = Enc3D(size_input_xy=resample_size, size_input_z=args.zsize,
-                channels=channels_cae, n_ch_global=n_globals, leakage=leakage)
+    enc = Enc3DCtp(size_input_xy=resample_size, size_input_z=args.zsize,
+                   channels=channels_cae, n_ch_global=n_globals, leakage=leakage, padding=pad)
     dec = Dec3D(size_input_xy=resample_size, size_input_z=args.zsize,
                 channels=channels_cae, n_ch_global=n_globals, leakage=leakage)
-    cae = Cae3D(enc, dec)
+    cae = Cae3DCtp(enc, dec)
     if cuda:
         cae = cae.cuda()
 

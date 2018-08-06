@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import common.data as data
 from common.dto.CaeDto import CaeDto
 
 
@@ -31,10 +32,8 @@ class CaeBase(nn.Module):
 
 
 class Enc3D(CaeBase):
-    def __init__(self, size_input_xy, size_input_z, channels, n_ch_global, leakage, datatype=None):
+    def __init__(self, size_input_xy, size_input_z, channels, n_ch_global, leakage):
         super().__init__(size_input_xy, size_input_z, channels, n_ch_global, leakage, inner_xy=10, inner_z=3)
-
-        self.datatype = datatype
 
         self.encoder = nn.Sequential(
             nn.BatchNorm3d(self.n_input),
@@ -122,6 +121,37 @@ class Enc3D(CaeBase):
         # return self._forward_inputs(dto, step)
 
 
+class Enc3DCtp(Enc3D):
+    def __init__(self, size_input_xy, size_input_z, channels, n_ch_global, leakage, padding):
+        Enc3D.__init__(self, size_input_xy, size_input_z, channels, n_ch_global, leakage)
+        assert channels[0] > 2, 'At least 3 channels required to process input'
+        self._padding = padding
+
+    def _forward_shape_ctp(self, dto: CaeDto, step):
+        cbv = dto.given_variables.inputs.core[:, :, self._padding[0]:-self._padding[0],
+                                                    self._padding[1]:-self._padding[1],
+                                                    self._padding[2]:-self._padding[2]]
+        ttd = dto.given_variables.inputs.penu[:, :, self._padding[0]:-self._padding[0],
+                                                    self._padding[1]:-self._padding[1],
+                                                    self._padding[2]:-self._padding[2]]
+        cat_core = torch.cat((dto.given_variables.gtruth.core, cbv, ttd), dim=data.DIM_CHANNEL_TORCH3D_5)
+        cat_penu = torch.cat((dto.given_variables.gtruth.penu, cbv, ttd), dim=data.DIM_CHANNEL_TORCH3D_5)
+        cat_lesion = torch.cat((dto.given_variables.gtruth.lesion, cbv, ttd), dim=data.DIM_CHANNEL_TORCH3D_5)
+        del cbv
+        del ttd
+        dto.latents.gtruth.core = self._forward_single(cat_core)
+        dto.latents.gtruth.penu = self._forward_single(cat_penu)
+        dto.latents.gtruth.lesion = self._forward_single(cat_lesion)
+        dto.latents.gtruth.interpolation = self._interpolate(dto.latents.gtruth.core,
+                                                             dto.latents.gtruth.penu,
+                                                             step)
+        return dto
+
+    def forward(self, dto: CaeDto):
+        step = self._get_step(dto)
+        return self._forward_shape_ctp(dto, step)
+
+
 class Dec3D(CaeBase):
     def __init__(self, size_input_xy, size_input_z, channels, n_ch_global, leakage):
         super().__init__(size_input_xy, size_input_z, channels, n_ch_global, leakage, inner_xy=10, inner_z=3)
@@ -192,10 +222,20 @@ class Dec3D(CaeBase):
 
 
 class Cae3D(nn.Module):
-    def __init__(self, enc, dec):
+    def __init__(self, enc: Enc3D, dec: Dec3D):
         super().__init__()
         self.enc = enc
         self.dec = dec
+
+    def forward(self, dto: CaeDto):
+        dto = self.enc(dto)
+        dto = self.dec(dto)
+        return dto
+
+
+class Cae3DCtp(Cae3D):
+    def __init__(self, enc: Enc3DCtp, dec: Dec3D):
+        Cae3D.__init__(self, enc, dec)
 
     def forward(self, dto: CaeDto):
         dto = self.enc(dto)

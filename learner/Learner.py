@@ -1,8 +1,11 @@
 from abc import abstractmethod
+from torch.utils.data import DataLoader
 from common.dto.Dto import Dto
 from common.inference.Inference import Inference
 from common.dto.MetricMeasuresDto import MetricMeasuresDto
 import common.dto.MetricMeasuresDto as MetricMeasuresDtoInit
+from torch.optim.optimizer import Optimizer
+from torch.nn import Module
 import torch
 import numpy
 
@@ -17,8 +20,8 @@ class Learner(Inference):
     IMSHOW_VMAX_TTD = 40
     FN_VIS_BASE = '_samples_visualization_'
 
-    def __init__(self, dataloader_training, dataloader_validation, model, path_model, optimizer, n_epochs,
-                 path_outputs_base='/tmp/'):
+    def __init__(self, dataloader_training: DataLoader, dataloader_validation: DataLoader, model: Module,
+                 path_model: str, optimizer: Optimizer, n_epochs: int, path_outputs_base: str='/tmp/'):
         Inference.__init__(self, model, path_model, path_outputs_base)
         assert dataloader_training.batch_size > 1, 'For normalization layers batch_size > 1 is required.'
         self._dataloader_training = dataloader_training

@@ -26,6 +26,11 @@ class CaeReconstructionLearner(Learner, CaeInference):
                                                                            # in latent space
         self._every_x_epoch_half_lr = every_x_epoch_half_lr  # every x-th epoch half the learning rate
 
+    def adapt_lr(self, epoch):
+        if epoch % self._every_x_epoch_half_lr == self._every_x_epoch_half_lr - 1:
+            for param_group in self._optimizer.param_groups:
+                param_group['lr'] *= 0.5
+
     def validation_step(self, batch, epoch):
         pass
 
@@ -41,8 +46,8 @@ class CaeReconstructionLearner(Learner, CaeInference):
         loss += 1 * self._criterion(dto.reconstructions.gtruth.core, dto.given_variables.gtruth.core)
         loss += 1 * self._criterion(dto.reconstructions.gtruth.penu, dto.given_variables.gtruth.penu)
 
-        if self._epoch_interpolant_constraint < epoch < self._epoch_interpolant_constraint + 25:
-            weight = 0.04 * (epoch - self._epoch_interpolant_constraint)
+        if self._epoch_interpolant_constraint < epoch:
+            weight = min(0.04 * (epoch - self._epoch_interpolant_constraint), 1.0)  # increase weight for 25 epochs
             loss += weight * torch.mean(torch.abs(dto.latents.gtruth.interpolation - dto.latents.gtruth.lesion))
             divd += weight
 
@@ -57,11 +62,6 @@ class CaeReconstructionLearner(Learner, CaeInference):
         batch_metrics.penu = metrics.measures_on_binary_numpy(dto.reconstructions.gtruth.penu.cpu().data.numpy(),
                                                               dto.given_variables.gtruth.penu.cpu().data.numpy())
         return batch_metrics
-
-    def adapt_lr(self, epoch):
-        if epoch % self._every_x_epoch_half_lr == self._every_x_epoch_half_lr - 1:
-            for param_group in self._optimizer.param_groups:
-                param_group['lr'] *= 0.5
 
     def print_epoch(self, epoch, phase, epoch_metrics):
         output = 'Epoch {}/{} {} loss: {:.3} - DC:{:.3}, HD:{:.3}, ASSD:{:.3}, DC core:{:.3}, DC penu.:{:.3}'
