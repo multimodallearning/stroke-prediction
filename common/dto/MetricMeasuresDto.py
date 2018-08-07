@@ -27,13 +27,23 @@ class MeasuresDto(Dto):
 class BinaryMeasuresDto(MeasuresDto):
     """ DTO for the metric measures on binary images.
     """
-    def __init__(self, dc, hd, assd, sensitivity, specificity):
+    def __init__(self, dc, hd, assd, precision, sensitivity, specificity):
         super().__init__()
         self.dc = dc
         self.hd = hd
         self.assd = assd
-        self.sensitivity = sensitivity
+        self.precision = precision
+        self.sensitivity = sensitivity  # Recall
         self.specificity = specificity
+
+    @property
+    def prc_euclidean_distance(self):
+        """Computes the distance to top-right corner (1,1)
+        supposed to be ideal in the precision recall plot.
+        Consequently, aim to minimize the distance
+        :return: euclidean distance to top-right corner
+        """
+        return numpy.sqrt((1-self.precision)**2 + (1-self.sensitivity)**2)
 
 
 class MetricMeasuresDto(MeasuresDto):
@@ -50,14 +60,16 @@ class MetricMeasuresDto(MeasuresDto):
 def init_dto(loss=None, core_dc=None, core_hd=None, core_assd=None,
              penu_dc=None, penu_hd=None, penu_assd=None,
              lesion_dc=None, lesion_hd=None, lesion_assd=None,
-             lesion_sensitivity=None, lesion_specificity=None):
+             lesion_precision=None, lesion_sensitivity=None,
+             lesion_specificity=None):
     """
     Inits a MetricMeasuresDto with the evaluation measures.
     :return: MetricMeasuresDto
     """
 
-    core = BinaryMeasuresDto(core_dc, core_hd, core_assd, None, None)
-    penu = BinaryMeasuresDto(penu_dc, penu_hd, penu_assd, None, None)
-    lesion = BinaryMeasuresDto(lesion_dc, lesion_hd, lesion_assd, lesion_sensitivity, lesion_specificity)
+    core = BinaryMeasuresDto(core_dc, core_hd, core_assd, None, None, None)
+    penu = BinaryMeasuresDto(penu_dc, penu_hd, penu_assd, None, None, None)
+    lesion = BinaryMeasuresDto(lesion_dc, lesion_hd, lesion_assd, lesion_precision, lesion_sensitivity,
+                               lesion_specificity)
 
     return MetricMeasuresDto(loss, core, penu, lesion)

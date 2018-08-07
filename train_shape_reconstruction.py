@@ -3,6 +3,7 @@ import datetime
 from learner.CaeReconstructionLearner import CaeReconstructionLearner
 from common.model.Cae3D import Cae3D, Enc3D, Dec3D
 from common import data, util, metrics
+import torch.nn as nn
 
 
 def train():

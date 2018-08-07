@@ -1,5 +1,5 @@
 import datetime
-from tester.CaeReconstructionTesterROC import CaeReconstructionTesterROC
+from tester.CaeReconstructionTesterCurve import CaeReconstructionTesterROC
 from common.model.Cae3D import Cae3D, Dec3D, Enc3D
 from common import data, util
 

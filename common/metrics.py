@@ -2,6 +2,7 @@ import numpy
 import medpy.metric.binary as mpm
 from common.dto.MetricMeasuresDto import BinaryMeasuresDto
 from torch.nn.modules.loss import _Loss as LossModule
+from sklearn.metrics import average_precision_score
 
 
 class BatchDiceLoss(LossModule):
@@ -41,7 +42,10 @@ def measures_on_binary_numpy(result, target, threshold=0.5):
     else:
         raise Exception("Target must be a 3D or 5D tensor")
 
-    result = BinaryMeasuresDto(mpm.dc(result_binary, target_binary), numpy.Inf, numpy.Inf,
+    result = BinaryMeasuresDto(mpm.dc(result_binary, target_binary),
+                               numpy.Inf,
+                               numpy.Inf,
+                               mpm.precision(result_binary, target_binary),
                                mpm.sensitivity(result_binary, target_binary),
                                mpm.specificity(result_binary, target_binary))
 

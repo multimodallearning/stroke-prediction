@@ -24,18 +24,18 @@ class CaeReconstructionTesterROC(CaeReconstructionTester):
             self.print_inference(batch, batch_metrics, dto)
             self.save_inference(dto, batch)
 
-            # 2) Evaluate on fixed tA-->tR: 0 .. 5 hrs
+            # 2) Evaluate metrics curve on fixed tA-->tR: 0 .. 5 hrs
             for step in self._steps_fixed:
                 batch_metrics, dto = self.infer_batch(batch, step)
                 self.print_inference(batch, batch_metrics, dto, 'ta_to_tr fixed=' + str(step))
 
-            # 3) Evaluate on relative tA-->tR:
+            # 3) Evaluate metrics curve on relative tA-->tR:
             ta_to_tr = float(batch[data.KEY_GLOBAL][:, 1, :, :, :])
             for step in self._steps_relative:
                 batch_metrics, dto = self.infer_batch(batch, step * ta_to_tr)
                 self.print_inference(batch, batch_metrics, dto, 'ta_to_tr ratio=' + str(step) + '\t(' + str(step * ta_to_tr) + ')')
 
-            # 4) Evaluate on uniform interval [0,1] between core/penumbra
+            # 4) Evaluate metrics curve on uniform interval [0,1] between core/penumbra
             to_to_ta = float(batch[data.KEY_GLOBAL][:, 0, :, :, :])
             tr_to_penu = self._normalization_hours_penumbra - to_to_ta
             for step in [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
