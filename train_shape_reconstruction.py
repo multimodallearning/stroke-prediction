@@ -13,7 +13,7 @@ def train():
     learning_rate = 1e-3
     momentums_cae = (0.9, 0.999)
     every_x_epoch_half_lr = 200
-    path_training_metrics = args.continuetraining
+    path_training_metrics = args.continuetraining  # --continuetraining /share/data_zoe1/lucas/Linda_Segmentations/tmp/tmp_shape_cae_training.json
     criterion = metrics.BatchDiceLoss([1.0])
     path_saved_model = args.caepath
     channels_cae = args.channelscae
@@ -57,7 +57,7 @@ def train():
     if path_training_metrics:  # if aborted training JSON provided, load latest model from that training
         cae.load_state_dict(torch.load(path_saved_model))
 
-    learner = CaeReconstructionLearner(ds_train, ds_valid, cae, path_saved_model, optimizer, n_epochs=n_epochs,
+    learner = CaeReconstructionLearner(ds_train, ds_valid, cae, path_saved_model, optimizer, n_epochs=args.epochs,
                                        path_training_metrics=path_training_metrics, path_outputs_base=args.outbasepath,
                                        criterion=criterion, every_x_epoch_half_lr=every_x_epoch_half_lr)
     learner.run_training()

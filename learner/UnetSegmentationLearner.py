@@ -68,7 +68,6 @@ class UnetSegmentationLearner(Learner, UnetInference):
         plot.set_ylabel('L Train.(red)/Val.(green) | Dice Val. Core(c), Penu(m)')
 
     def visualize_epoch(self, epoch):
-        print('(model saved)', end='')
         visual_samples, visual_times = util.get_vis_samples(self._dataloader_training, self._dataloader_validation)
 
         pad = [20, 20, 20]

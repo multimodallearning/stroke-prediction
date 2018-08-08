@@ -14,7 +14,7 @@ def train():
     momentums_cae = (0.99, 0.999)
     every_x_epoch_half_lr = 200
     criterion = metrics.BatchDiceLoss([1.0])  # TODO nn.BCELoss() less oscillation? better results?
-    path_training_metrics = args.continuetraining
+    path_training_metrics = args.continuetraining  # --continuetraining /share/data_zoe1/lucas/Linda_Segmentations/tmp/tmp_shape_cae_training.json
     path_saved_model = args.caepath
     channels_cae = args.channelscae
     n_globals = args.globals  # type(core/penu), tO_to_tA, NHISS, sex, age

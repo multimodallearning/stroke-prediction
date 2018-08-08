@@ -143,11 +143,12 @@ class Learner(Inference):
             if self._metric_dtos['validate'] and self._metric_dtos['validate'][-1].loss < min_loss:
                 min_loss = self._metric_dtos['validate'][-1].loss
                 torch.save(self._model.state_dict(), self._path_model)
+                self.save_training_metrics()
+                print('(Training and new optimum model saved)', end=' ')
                 self.visualize_epoch(epoch)
 
             # ----------------- (4) PLOT / SAVE EVALUATION METRICS ---------------- #
 
-            self.save_training_metrics()
             if epoch > 0:
                 fig, plot = plt.subplots()
                 self.plot_epoch(plot, range(1, epoch + 2))

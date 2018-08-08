@@ -106,7 +106,6 @@ class CaeReconstructionLearner(Learner, CaeInference):
         ax2.tick_params('y', colors='b')
 
     def visualize_epoch(self, epoch):
-        print('(model saved)', end=' ')
         visual_samples, visual_times = util.get_vis_samples(self._dataloader_training, self._dataloader_validation)
 
         pad = [20, 20, 20]
