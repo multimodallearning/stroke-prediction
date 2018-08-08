@@ -12,13 +12,13 @@ class UnetSegmentationLearner(Learner, UnetInference):
     """
     FN_VIS_BASE = '_unet_'
 
-    def __init__(self, dataloader_training, dataloader_validation, unet_model, path_unet_model, optimizer, n_epochs,
-                 path_training_metrics, path_outputs_base, criterion, every_x_epoch_half_lr=100):
+    def __init__(self, dataloader_training, dataloader_validation, unet_model, path_unet_model, optimizer, scheduler,
+                 n_epochs, path_training_metrics, path_outputs_base, criterion):
         Learner.__init__(self, dataloader_training, dataloader_validation, unet_model, path_unet_model, optimizer,
-                         n_epochs, path_training_metrics=path_training_metrics, path_outputs_base=path_outputs_base)
+                         scheduler, n_epochs, path_training_metrics=path_training_metrics,
+                         path_outputs_base=path_outputs_base)
         self._path_model = path_unet_model
         self._criterion = criterion  # main loss criterion
-        self._every_x_epoch_half_lr = every_x_epoch_half_lr  # every x-th epoch half the learning rate
 
     def loss_step(self, dto: UnetDto, epoch):
         loss = 0.0
@@ -31,17 +31,11 @@ class UnetSegmentationLearner(Learner, UnetInference):
 
     def batch_metrics_step(self, dto: UnetDto, epoch):
         batch_metrics = MetricMeasuresDtoInit.init_dto()
-        batch_metrics.core = metrics.measures_on_binary_numpy(dto.outputs.core.cpu().data.numpy(),
-                                                              dto.given_variables.core.cpu().data.numpy())
-        batch_metrics.penu = metrics.measures_on_binary_numpy(dto.outputs.penu.cpu().data.numpy(),
-                                                              dto.given_variables.penu.cpu().data.numpy())
+        batch_metrics.core = metrics.binary_measures_torch(dto.outputs.core,
+                                                           dto.given_variables.core, self.is_cuda)
+        batch_metrics.penu = metrics.binary_measures_torch(dto.outputs.penu,
+                                                           dto.given_variables.penu, self.is_cuda)
         return batch_metrics
-
-    def adapt_lr(self, epoch):
-        if epoch % self._every_x_epoch_half_lr == self._every_x_epoch_half_lr - 1:
-            for param_group in self._optimizer.param_groups:
-                param_group['lr'] *= 0.5
-            print('Learning rate has been set to:', param_group['lr'])
 
     def get_start_epoch(self):
         if self._metric_dtos['training']:

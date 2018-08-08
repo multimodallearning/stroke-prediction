@@ -15,10 +15,10 @@ class UnetSegmentationTester(Tester, UnetInference):
 
     def batch_metrics_step(self, dto: UnetDto):
         batch_metrics = MetricMeasuresDtoInit.init_dto()
-        batch_metrics.core = metrics.measures_on_binary_numpy(dto.outputs.core.cpu().data.numpy(),
-                                                              dto.given_variables.core.cpu().data.numpy())
-        batch_metrics.penu = metrics.measures_on_binary_numpy(dto.outputs.penu.cpu().data.numpy(),
-                                                              dto.given_variables.penu.cpu().data.numpy())
+        batch_metrics.core = metrics.binary_measures_torch(dto.outputs.core,
+                                                           dto.given_variables.core, self.is_cuda)
+        batch_metrics.penu = metrics.binary_measures_torch(dto.outputs.penu,
+                                                           dto.given_variables.penu, self.is_cuda)
         return batch_metrics
 
     def save_inference(self, dto: UnetDto, batch: dict):

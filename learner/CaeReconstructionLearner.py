@@ -13,34 +13,28 @@ class CaeReconstructionLearner(Learner, CaeInference):
     shape segmentations. Uses CaeDto data transfer objects.
     """
     FN_VIS_BASE = '_cae_'
+    N_EPOCHS_ADAPT_BETA1 = 5
 
-    def __init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer, n_epochs,
-                 path_training_metrics, path_outputs_base, criterion, normalization_hours_penumbra=10,
-                 every_x_epoch_half_lr=100):
+    def __init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer, scheduler,
+                 n_epochs, path_training_metrics, path_outputs_base, criterion, normalization_hours_penumbra=10):
         Learner.__init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer,
-                         n_epochs, path_training_metrics=path_training_metrics, path_outputs_base=path_outputs_base)
-        CaeInference.__init__(self, cae_model, path_cae_model, path_outputs_base,
-                              normalization_hours_penumbra)  # TODO: This needs some refactoring (double initialization of model, path etc)
+                         scheduler, n_epochs, path_training_metrics=path_training_metrics,
+                         path_outputs_base=path_outputs_base)
+        CaeInference.__init__(self, cae_model, path_cae_model, path_outputs_base, normalization_hours_penumbra)
+                        # TODO: This needs some refactoring (double initialization of model, path etc)
         self._path_model = path_cae_model
         self._criterion = criterion  # main loss criterion
-        self._every_x_epoch_half_lr = every_x_epoch_half_lr  # every x-th epoch half the learning rate
-
-    def adapt_lr(self, epoch):
-        if epoch % self._every_x_epoch_half_lr == self._every_x_epoch_half_lr - 1:
-            for param_group in self._optimizer.param_groups:
-                param_group['lr'] *= 0.5
-            print('Learning rate has been set to:', param_group['lr'], end=' ')
 
     def adapt_betas(self, epoch):
         betas = self._optimizer.defaults['betas']
-        if epoch < 4:
+        if epoch < self.N_EPOCHS_ADAPT_BETA1:
             betas = list(betas)
-            betas[0] -= 0.1 * (4 - epoch)
+            betas[0] -= 0.1 * (self.N_EPOCHS_ADAPT_BETA1 - epoch)
             betas = tuple(betas)
             for param_group in self._optimizer.param_groups:
                 param_group['betas'] = betas
             print('Momentum betas have been set to:', param_group['betas'], end=' ')
-        elif epoch == 4:
+        elif epoch == self.N_EPOCHS_ADAPT_BETA1:
             for param_group in self._optimizer.param_groups:
                 param_group['betas'] = betas
             print('Momentum betas have been set to:', param_group['betas'], end=' ')
@@ -73,13 +67,12 @@ class CaeReconstructionLearner(Learner, CaeInference):
 
     def batch_metrics_step(self, dto: CaeDto, epoch):
         batch_metrics = MetricMeasuresDtoInit.init_dto()
-        batch_metrics.lesion = metrics.measures_on_binary_numpy(
-            dto.reconstructions.gtruth.interpolation.cpu().data.numpy(),
-            dto.given_variables.gtruth.lesion.cpu().data.numpy())
-        batch_metrics.core = metrics.measures_on_binary_numpy(dto.reconstructions.gtruth.core.cpu().data.numpy(),
-                                                              dto.given_variables.gtruth.core.cpu().data.numpy())
-        batch_metrics.penu = metrics.measures_on_binary_numpy(dto.reconstructions.gtruth.penu.cpu().data.numpy(),
-                                                              dto.given_variables.gtruth.penu.cpu().data.numpy())
+        batch_metrics.lesion = metrics.binary_measures_torch(dto.reconstructions.gtruth.interpolation,
+                                                             dto.given_variables.gtruth.lesion, self.is_cuda)
+        batch_metrics.core = metrics.binary_measures_torch(dto.reconstructions.gtruth.core,
+                                                           dto.given_variables.gtruth.core, self.is_cuda)
+        batch_metrics.penu = metrics.binary_measures_torch(dto.reconstructions.gtruth.penu,
+                                                           dto.given_variables.gtruth.penu, self.is_cuda)
         return batch_metrics
 
     def print_epoch(self, epoch, phase, epoch_metrics):

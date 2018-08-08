@@ -12,7 +12,7 @@ def train():
     batchsize = 6  # 17 training, 6 validation
     learning_rate = 1e-3
     momentums_cae = (0.99, 0.999)
-    criterion = metrics.BatchDiceLoss([1.0])  # evaluated separately
+    criterion = metrics.BatchDiceLoss([1.0])  # nn.BCELoss()
     path_training_metrics = args.continuetraining
     path_saved_model = args.unetpath
     channels = args.channels
@@ -29,8 +29,12 @@ def train():
     print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
           '/ total: unet', sum([p.nelement() for p in unet.parameters()]))
 
-    # Optimizer
+    # Optimizer with scheduler
     optimizer = torch.optim.Adam(params, lr=learning_rate, weight_decay=1e-5, betas=momentums_cae)
+    if args.lrsteps:
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, args.lrsteps)
+    else:
+        scheduler = None
 
     # Data
     train_transform = [data.ResamplePlaneXY(args.xyresample),
@@ -53,9 +57,9 @@ def train():
     if path_training_metrics:  # if aborted training JSON provided, load latest model from that training
         unet.load_state_dict(torch.load(path_saved_model))
 
-    learner = UnetSegmentationLearner(ds_train, ds_valid, unet, path_saved_model, optimizer, n_epochs=args.epochs,
-                                      path_training_metrics=path_training_metrics, path_outputs_base=args.outbasepath,
-                                      criterion=criterion)
+    learner = UnetSegmentationLearner(ds_train, ds_valid, unet, path_saved_model, optimizer, scheduler,
+                                      n_epochs=args.epochs, path_training_metrics=path_training_metrics,
+                                      path_outputs_base=args.outbasepath, criterion=criterion)
     learner.run_training()
 
 

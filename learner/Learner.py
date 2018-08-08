@@ -5,6 +5,7 @@ from common.inference.Inference import Inference
 from common.dto.MetricMeasuresDto import MetricMeasuresDto
 import common.dto.MetricMeasuresDto as MetricMeasuresDtoInit
 from torch.optim.optimizer import Optimizer
+from torch.optim.lr_scheduler import _LRScheduler
 from torch.nn import Module
 import matplotlib.pyplot as plt
 import torch
@@ -18,23 +19,24 @@ class Learner(Inference):
     be overridden by subclasses to specify the
     procedures required for a specific training.
     """
-    IMSHOW_VMAX_CBV = 12
-    IMSHOW_VMAX_TTD = 40
-    FN_VIS_BASE = '_visual_'
 
     def __init__(self, dataloader_training: DataLoader, dataloader_validation: DataLoader, model: Module,
-                 path_model: str, optimizer: Optimizer, n_epochs: int, path_training_metrics: str=None,
-                 path_outputs_base: str='/tmp/'):
+                 path_model: str, optimizer: Optimizer, scheduler: _LRScheduler, n_epochs: int,
+                 path_training_metrics: str=None, path_outputs_base: str='/tmp/'):
         Inference.__init__(self, model, path_model, path_outputs_base)
+        self._path_optim = self._path_model.replace('.model', '.optim')
+        self._path_train = self._path_model.replace('.model', '.json')
         assert dataloader_training.batch_size > 1, 'For normalization layers batch_size > 1 is required.'
         self._dataloader_training = dataloader_training
         self._dataloader_validation = dataloader_validation
         self._optimizer = optimizer
+        self._scheduler = scheduler
         self._n_epochs = n_epochs
         if path_training_metrics is None:
             self._metric_dtos = {'training': [], 'validate': []}
         else:
-            self.load_training_metrics(path_training_metrics)
+            self.load_training(path_training_metrics)
+            print(path_training_metrics, 'has been loaded and training will be continued...')
         assert len(self._metric_dtos['training']) == len(self._metric_dtos['validate']), 'Incomplete training data!'
 
     @abstractmethod
@@ -47,15 +49,16 @@ class Learner(Inference):
     def get_start_min_loss(self):
         return numpy.Inf
 
-    def load_training_metrics(self, path):
+    def load_training(self, path):
+        print('Loading:', self._path_train, ',', self._optimizer, ',', self._scheduler)
+        self._optimizer.load_state_dict(torch.load(self._path_optim))
         with open(path, 'r') as fp:
             self._metric_dtos = jsonpickle.decode(fp.read())
-            print(path, 'has been loaded and training will be continued...')
 
-    def save_training_metrics(self):
-        with open(self._path_outputs_base + self.FN_VIS_BASE + 'training.json', 'w') as fp:
+    def save_training(self):
+        torch.save(self._optimizer.state_dict(), self._path_optim)
+        with open(self._path_train, 'w') as fp:
             fp.write(jsonpickle.encode(self._metric_dtos))
-            print('Training saved.', end=' ')
 
     def train_batch(self, batch: dict, epoch) -> MetricMeasuresDto:
         dto = self.inference_step(batch)
@@ -98,7 +101,8 @@ class Learner(Inference):
         pass
 
     def adapt_lr(self, epoch):
-        pass
+        if self._scheduler is not None:
+            self._scheduler.step()
 
     def adapt_betas(self, epoch):
         pass
@@ -143,8 +147,8 @@ class Learner(Inference):
             if self._metric_dtos['validate'] and self._metric_dtos['validate'][-1].loss < min_loss:
                 min_loss = self._metric_dtos['validate'][-1].loss
                 torch.save(self._model.state_dict(), self._path_model)
-                self.save_training_metrics()
-                print('(Training and new optimum model saved)', end=' ')
+                self.save_training()  # allows to continue if training has been interrupted
+                print('(New optimum: Training saved)', end=' ')
                 self.visualize_epoch(epoch)
 
             # ----------------- (4) PLOT / SAVE EVALUATION METRICS ---------------- #
@@ -152,6 +156,6 @@ class Learner(Inference):
             if epoch > 0:
                 fig, plot = plt.subplots()
                 self.plot_epoch(plot, range(1, epoch + 2))
-                fig.savefig(self._path_outputs_base + self.FN_VIS_BASE + 'metrics.png', bbox_inches='tight', dpi=300)
+                fig.savefig(self._path_outputs_base + self.FN_VIS_BASE + 'plots.png', bbox_inches='tight', dpi=300)
                 del plot
                 del fig

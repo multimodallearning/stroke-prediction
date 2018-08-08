@@ -52,6 +52,7 @@ class ExpParser(argparse.ArgumentParser):
         self.add_argument('--zsize', type=int, help='Number of z slices', default=28)
         self.add_argument('--padding', type=int, nargs='+', help='Padding of patches', default=[20, 20, 20])
         self.add_argument('--continuetraining', type=str, help='Provide a *.json to continue training.', default=None)
+        self.add_argument('--lrsteps', type=int, nargs='+', help='MultiStepLR epochs', default=[])
 
     def parse_args(self, args=None, namespace=None):
         args = super().parse_args(args, namespace)

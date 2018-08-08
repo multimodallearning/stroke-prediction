@@ -84,8 +84,8 @@ class Enc3D(CaeBase):
         results = []
         for batch_sample in range(step.size()[0]):
             results.append(
-                (latent_core[batch_sample, :, :, :, :] + step[batch_sample, :, :, :, :] *
-                 core_to_penumbra[batch_sample, :, :, :, :]).unsqueeze(0)
+                (latent_core[batch_sample, :, :, :, :] +
+                 step[batch_sample, :, :, :, :] * core_to_penumbra[batch_sample, :, :, :, :]).unsqueeze(0)
             )
         return torch.cat(results, dim=0)
 
@@ -107,18 +107,9 @@ class Enc3D(CaeBase):
                                                              step)
         return dto
 
-    def _forward_inputs(self, dto: CaeDto, step):
-        dto.latents.inputs.core = self._forward_single(dto.given_variables.inputs.core)
-        dto.latents.inputs.penu = self._forward_single(dto.given_variables.inputs.penu)
-        dto.latents.inputs.interpolation = self._interpolate(dto.latents.inputs.core,
-                                                             dto.latents.inputs.penu,
-                                                             step)
-        return dto
-
     def forward(self, dto: CaeDto):
         step = self._get_step(dto)
         return self._forward_shape(dto, step)
-        # return self._forward_inputs(dto, step)
 
 
 class Enc3DCtp(Enc3D):
@@ -236,8 +227,3 @@ class Cae3D(nn.Module):
 class Cae3DCtp(Cae3D):
     def __init__(self, enc: Enc3DCtp, dec: Dec3D):
         Cae3D.__init__(self, enc, dec)
-
-    def forward(self, dto: CaeDto):
-        dto = self.enc(dto)
-        dto = self.dec(dto)
-        return dto

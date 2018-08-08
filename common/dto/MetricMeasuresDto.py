@@ -16,7 +16,7 @@ class MeasuresDto(Dto):
             raise Exception('A' + str(type(self)) + 'must be added')
 
     def div(self, divisor):
-        for attr, value in self.__dict__.items():
+        for attr, value in self:
             if value is not None and value != numpy.Inf:
                 if isinstance(value, MeasuresDto):
                     self.__dict__[attr].div(divisor)

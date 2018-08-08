@@ -17,12 +17,12 @@ class CaeReconstructionTester(Tester, CaeInference):
 
     def batch_metrics_step(self, dto: CaeDto):
         batch_metrics = MetricMeasuresDtoInit.init_dto()
-        batch_metrics.lesion = metrics.measures_on_binary_numpy(dto.reconstructions.gtruth.interpolation.cpu().data.numpy(),
-                                                                dto.given_variables.gtruth.lesion.cpu().data.numpy())
-        batch_metrics.core = metrics.measures_on_binary_numpy(dto.reconstructions.gtruth.core.cpu().data.numpy(),
-                                                              dto.given_variables.gtruth.core.cpu().data.numpy())
-        batch_metrics.penu = metrics.measures_on_binary_numpy(dto.reconstructions.gtruth.penu.cpu().data.numpy(),
-                                                              dto.given_variables.gtruth.penu.cpu().data.numpy())
+        batch_metrics.lesion = metrics.binary_measures_torch(dto.reconstructions.gtruth.interpolation,
+                                                             dto.given_variables.gtruth.lesion, self.is_cuda)
+        batch_metrics.core = metrics.binary_measures_torch(dto.reconstructions.gtruth.core,
+                                                           dto.given_variables.gtruth.core, self.is_cuda)
+        batch_metrics.penu = metrics.binary_measures_torch(dto.reconstructions.gtruth.penu,
+                                                           dto.given_variables.gtruth.penu, self.is_cuda)
         return batch_metrics
 
     def save_inference(self, dto: CaeDto, batch: dict, suffix=None):

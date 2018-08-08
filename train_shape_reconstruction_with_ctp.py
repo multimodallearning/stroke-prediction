@@ -12,9 +12,8 @@ def train():
     batchsize = 6  # 17 training, 6 validation
     learning_rate = 1e-3
     momentums_cae = (0.99, 0.999)
-    every_x_epoch_half_lr = 200
-    criterion = metrics.BatchDiceLoss([1.0])  # TODO nn.BCELoss() less oscillation? better results?
-    path_training_metrics = args.continuetraining  # --continuetraining /share/data_zoe1/lucas/Linda_Segmentations/tmp/tmp_shape_cae_training.json
+    criterion = metrics.BatchDiceLoss([1.0])  # nn.BCELoss()
+    path_training_metrics = args.continuetraining  # --continuetraining /share/data_zoe1/lucas/Linda_Segmentations/tmp/tmp_shape_f3.json
     path_saved_model = args.caepath
     channels_cae = args.channelscae
     n_globals = args.globals  # type(core/penu), tO_to_tA, NHISS, sex, age
@@ -38,8 +37,12 @@ def train():
     print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
           '/ total: cae', sum([p.nelement() for p in cae.parameters()]))
 
-    # Optimizer
+    # Optimizer with scheduler
     optimizer = torch.optim.Adam(params, lr=learning_rate, weight_decay=1e-5, betas=momentums_cae)
+    if args.lrsteps:
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, args.lrsteps)
+    else:
+        scheduler = None
 
     # Data
     common_transform = [data.ResamplePlaneXY(args.xyresample),
@@ -57,9 +60,9 @@ def train():
     if path_training_metrics:  # if aborted training JSON provided, load latest model from that training
         cae.load_state_dict(torch.load(path_saved_model))
 
-    learner = CaeReconstructionLearner(ds_train, ds_valid, cae, path_saved_model, optimizer, n_epochs=args.epochs,
-                                       path_training_metrics=path_training_metrics, path_outputs_base=args.outbasepath,
-                                       criterion=criterion, every_x_epoch_half_lr=every_x_epoch_half_lr)
+    learner = CaeReconstructionLearner(ds_train, ds_valid, cae, path_saved_model, optimizer, scheduler,
+                                       n_epochs=args.epochs, path_training_metrics=path_training_metrics,
+                                       path_outputs_base=args.outbasepath, criterion=criterion)
     learner.run_training()
 
 

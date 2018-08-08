@@ -2,6 +2,7 @@ import numpy
 import medpy.metric.binary as mpm
 from common.dto.MetricMeasuresDto import BinaryMeasuresDto
 from torch.nn.modules.loss import _Loss as LossModule
+from torch.autograd import Variable
 
 
 class BatchDiceLoss(LossModule):
@@ -27,20 +28,21 @@ class BatchDiceLoss(LossModule):
         return 1.0 - loss
 
 
-def measures_on_binary_numpy(result, target, threshold=0.5):
-    if len(result.shape) == 5:
-        result_binary = (result[0, 0, :, :, :] > threshold).astype(numpy.uint8)
-    elif len(result.shape) == 3:
-        result_binary = (result > threshold).astype(numpy.uint8)
-    else:
-        raise Exception("Result must be a 3D or 5D tensor")
+def binary_measures_torch(result, target, cuda=False, binary_threshold=0.5):
+    if cuda:
+        result = result.cpu()
+        target = target.cpu()
 
-    if len(target.shape) == 5:
-        target_binary = (target[0, 0, :, :, :] > threshold).astype(numpy.uint8)
-    elif len(target.shape) == 3:
-        target_binary = (target > threshold).astype(numpy.uint8)
-    else:
-        raise Exception("Target must be a 3D or 5D tensor")
+    if isinstance(result, Variable):
+        result = result.data
+    if isinstance(target, Variable):
+        target = target.data
+
+    result = result.numpy()
+    target = target.numpy()
+
+    result_binary = (result > binary_threshold).astype(numpy.uint8)
+    target_binary = (target > binary_threshold).astype(numpy.uint8)
 
     result = BinaryMeasuresDto(mpm.dc(result_binary, target_binary),
                                numpy.Inf,
