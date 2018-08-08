@@ -5,6 +5,7 @@ import common.dto.MetricMeasuresDto as MetricMeasuresDtoInit
 import matplotlib.pyplot as plt
 import torch
 from common import data, util, metrics
+import numpy
 
 
 class CaeReconstructionLearner(Learner, CaeInference):
@@ -14,29 +15,49 @@ class CaeReconstructionLearner(Learner, CaeInference):
     FN_VIS_BASE = '_cae_'
 
     def __init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer, n_epochs,
-                 path_outputs_base, criterion, normalization_hours_penumbra=10, epoch_interpolant_constraint=1,
+                 path_training_metrics, path_outputs_base, criterion, normalization_hours_penumbra=10,
                  every_x_epoch_half_lr=100):
         Learner.__init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer,
-                         n_epochs, path_outputs_base=path_outputs_base)
-        CaeInference.__init__(self, cae_model, path_cae_model, path_outputs_base, normalization_hours_penumbra)  # TODO: This needs some refactoring (double initialization of model, path etc)
+                         n_epochs, path_training_metrics=path_training_metrics, path_outputs_base=path_outputs_base)
+        CaeInference.__init__(self, cae_model, path_cae_model, path_outputs_base,
+                              normalization_hours_penumbra)  # TODO: This needs some refactoring (double initialization of model, path etc)
         self._path_model = path_cae_model
         self._criterion = criterion  # main loss criterion
-        self._epoch_interpolant_constraint = epoch_interpolant_constraint  # start at epoch to increase weight for the
-                                                                           # loss keeping interpolation close to lesion
-                                                                           # in latent space
         self._every_x_epoch_half_lr = every_x_epoch_half_lr  # every x-th epoch half the learning rate
 
     def adapt_lr(self, epoch):
         if epoch % self._every_x_epoch_half_lr == self._every_x_epoch_half_lr - 1:
             for param_group in self._optimizer.param_groups:
                 param_group['lr'] *= 0.5
+            print('Learning rate has been set to:', param_group['lr'], end=' ')
 
-    def validation_step(self, batch, epoch):
-        pass
+    def adapt_betas(self, epoch):
+        betas = self._optimizer.defaults['betas']
+        if epoch < 4:
+            betas = list(betas)
+            betas[0] -= 0.1 * (4 - epoch)
+            betas = tuple(betas)
+            for param_group in self._optimizer.param_groups:
+                param_group['betas'] = betas
+            print('Momentum betas have been set to:', param_group['betas'], end=' ')
+        elif epoch == 4:
+            for param_group in self._optimizer.param_groups:
+                param_group['betas'] = betas
+            print('Momentum betas have been set to:', param_group['betas'], end=' ')
+
+    def get_start_epoch(self):
+        if self._metric_dtos['training']:
+            return len([dto.loss for dto in self._metric_dtos['training']])
+        return 0
+
+    def get_start_min_loss(self):
+        if self._metric_dtos['validate']:
+            return min([dto.loss for dto in self._metric_dtos['validate']])
+        return numpy.Inf
 
     def loss_step(self, dto: CaeDto, epoch):
         loss = 0.0
-        divd = 4
+        divd = 5
 
         diff_penu_fuct = dto.reconstructions.gtruth.penu - dto.reconstructions.gtruth.interpolation
         diff_penu_core = dto.reconstructions.gtruth.penu - dto.reconstructions.gtruth.core
@@ -46,17 +67,15 @@ class CaeReconstructionLearner(Learner, CaeInference):
         loss += 1 * self._criterion(dto.reconstructions.gtruth.core, dto.given_variables.gtruth.core)
         loss += 1 * self._criterion(dto.reconstructions.gtruth.penu, dto.given_variables.gtruth.penu)
 
-        if self._epoch_interpolant_constraint < epoch:
-            weight = min(0.04 * (epoch - self._epoch_interpolant_constraint), 1.0)  # increase weight for 25 epochs
-            loss += weight * torch.mean(torch.abs(dto.latents.gtruth.interpolation - dto.latents.gtruth.lesion))
-            divd += weight
+        loss += 1 * torch.mean(torch.abs(dto.latents.gtruth.interpolation - dto.latents.gtruth.lesion))
 
         return loss / divd
 
     def batch_metrics_step(self, dto: CaeDto, epoch):
         batch_metrics = MetricMeasuresDtoInit.init_dto()
-        batch_metrics.lesion = metrics.measures_on_binary_numpy(dto.reconstructions.gtruth.interpolation.cpu().data.numpy(),
-                                                                dto.given_variables.gtruth.lesion.cpu().data.numpy())
+        batch_metrics.lesion = metrics.measures_on_binary_numpy(
+            dto.reconstructions.gtruth.interpolation.cpu().data.numpy(),
+            dto.given_variables.gtruth.lesion.cpu().data.numpy())
         batch_metrics.core = metrics.measures_on_binary_numpy(dto.reconstructions.gtruth.core.cpu().data.numpy(),
                                                               dto.given_variables.gtruth.core.cpu().data.numpy())
         batch_metrics.penu = metrics.measures_on_binary_numpy(dto.reconstructions.gtruth.penu.cpu().data.numpy(),
@@ -64,36 +83,30 @@ class CaeReconstructionLearner(Learner, CaeInference):
         return batch_metrics
 
     def print_epoch(self, epoch, phase, epoch_metrics):
-        output = 'Epoch {}/{} {} loss: {:.3} - DC:{:.3}, HD:{:.3}, ASSD:{:.3}, DC core:{:.3}, DC penu.:{:.3}'
+        output = '\nEpoch {}/{} {} loss: {:.3} - DC:{:.3}, HD:{:.3}, ASSD:{:.3}, DC core:{:.3}, DC penu.:{:.3}'
         print(output.format(epoch + 1, self._n_epochs, phase,
                             epoch_metrics.loss,
                             epoch_metrics.lesion.dc,
                             epoch_metrics.lesion.hd,
                             epoch_metrics.lesion.assd,
                             epoch_metrics.core.dc,
-                            epoch_metrics.penu.dc))
+                            epoch_metrics.penu.dc), end=' ')
 
-    def plot_epoch(self, epoch):
-        if epoch > 0:
-            fig, ax1 = plt.subplots()
-            t = range(1, epoch + 2)
-            ax1.plot(t, [dto.loss for dto in self._metric_dtos['training']], 'r-')
-            ax1.plot(t, [dto.loss for dto in self._metric_dtos['validate']], 'g-')
-            ax1.plot(t, [dto.lesion.dc for dto in self._metric_dtos['validate']], 'k-')
-            ax1.plot(t, [dto.core.dc for dto in self._metric_dtos['validate']], 'c+')
-            ax1.plot(t, [dto.penu.dc for dto in self._metric_dtos['validate']], 'm+')
-            ax1.set_ylabel('L Train.(red)/Val.(green) | Dice Val. Lesion(b), Core(c), Penu(m)')
-            ax2 = ax1.twinx()
-            ax2.plot(t, [dto.lesion.assd for dto in self._metric_dtos['validate']], 'b-')
-            ax2.set_ylabel('Validation ASSD (blue)', color='b')
-            ax2.tick_params('y', colors='b')
-            fig.savefig(self._path_outputs_base + 'cae_losses.png', bbox_inches='tight', dpi=300)
-            del fig
-            del ax1
-            del ax2
+    def plot_epoch(self, plot, epochs):
+        plot.plot(epochs, [dto.loss for dto in self._metric_dtos['training']], 'r-')
+        plot.plot(epochs, [dto.loss for dto in self._metric_dtos['validate']], 'g-')
+        plot.plot(epochs, [dto.lesion.dc for dto in self._metric_dtos['validate']], 'k-')
+        plot.plot(epochs, [dto.core.dc for dto in self._metric_dtos['validate']], 'c+')
+        plot.plot(epochs, [dto.penu.dc for dto in self._metric_dtos['validate']], 'm+')
+        plot.set_ylabel('L Train.(red)/Val.(green) | Dice Val. Lesion(b), Core(c), Penu(m)')
+        plot.set_ylim(0, 1)
+        ax2 = plot.twinx()
+        ax2.plot(epochs, [dto.lesion.assd for dto in self._metric_dtos['validate']], 'b-')
+        ax2.set_ylabel('Validation ASSD (blue)', color='b')
+        ax2.tick_params('y', colors='b')
 
     def visualize_epoch(self, epoch):
-        print('  > new validation loss optimum <  (model saved)')
+        print('(model saved)', end=' ')
         visual_samples, visual_times = util.get_vis_samples(self._dataloader_training, self._dataloader_validation)
 
         pad = [20, 20, 20]
@@ -103,7 +116,7 @@ class CaeReconstructionLearner(Learner, CaeInference):
         for sample, time in zip(visual_samples, visual_times):
 
             col = 3
-            for step in [None, -1, 0, 1, 2, 3, 4, 5, 10, 20]:
+            for step in [None, -10, -1, 0, 1, 2, 3, 4, 5, 20]:
                 dto = self.inference_step(sample, step)
                 axarr[inc, col].imshow(dto.reconstructions.gtruth.interpolation.cpu().data.numpy()[0, 0, 14, :, :],
                                        vmin=0, vmax=1, cmap='gray')
@@ -128,7 +141,7 @@ class CaeReconstructionLearner(Learner, CaeInference):
 
             titles = ['CBV', 'TTD', 'Lesion', 'p(' +
                       ('{:03.1f}'.format(float(time)))
-                      + 'h)', 'Core', 'p(-1h)', 'p(0h)', 'p(1h)', 'p(2h)', 'p(3h)', 'p(4h)', 'p(5h)', 'p(10h)',
+                      + 'h)', 'Core', 'p(-10h)', 'p(-1h)', 'p(0h)', 'p(1h)', 'p(2h)', 'p(3h)', 'p(4h)', 'p(5h)',
                       'p(20h)',
                       'Penumbra']
 

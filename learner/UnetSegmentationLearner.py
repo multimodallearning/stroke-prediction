@@ -4,6 +4,7 @@ from learner.Learner import Learner
 from common.dto.UnetDto import UnetDto
 import matplotlib.pyplot as plt
 from common import data, metrics, util
+import numpy
 
 
 class UnetSegmentationLearner(Learner, UnetInference):
@@ -12,15 +13,12 @@ class UnetSegmentationLearner(Learner, UnetInference):
     FN_VIS_BASE = '_unet_'
 
     def __init__(self, dataloader_training, dataloader_validation, unet_model, path_unet_model, optimizer, n_epochs,
-                 path_outputs_base, criterion, every_x_epoch_half_lr=100):
+                 path_training_metrics, path_outputs_base, criterion, every_x_epoch_half_lr=100):
         Learner.__init__(self, dataloader_training, dataloader_validation, unet_model, path_unet_model, optimizer,
-                         n_epochs, path_outputs_base=path_outputs_base)
+                         n_epochs, path_training_metrics=path_training_metrics, path_outputs_base=path_outputs_base)
         self._path_model = path_unet_model
         self._criterion = criterion  # main loss criterion
         self._every_x_epoch_half_lr = every_x_epoch_half_lr  # every x-th epoch half the learning rate
-
-    def validation_step(self, batch, epoch):
-        pass
 
     def loss_step(self, dto: UnetDto, epoch):
         loss = 0.0
@@ -43,29 +41,34 @@ class UnetSegmentationLearner(Learner, UnetInference):
         if epoch % self._every_x_epoch_half_lr == self._every_x_epoch_half_lr - 1:
             for param_group in self._optimizer.param_groups:
                 param_group['lr'] *= 0.5
+            print('Learning rate has been set to:', param_group['lr'])
+
+    def get_start_epoch(self):
+        if self._metric_dtos['training']:
+            return len([dto.loss for dto in self._metric_dtos['training']])
+        return 0
+
+    def get_start_min_loss(self):
+        if self._metric_dtos['validate']:
+            return min([dto.loss for dto in self._metric_dtos['validate']])
+        return numpy.Inf
 
     def print_epoch(self, epoch, phase, epoch_metrics):
-        output = 'Epoch {}/{} {} loss: {:.3} - DC Core:{:.3}, DC Penumbra:{:.3}'
+        output = '\nEpoch {}/{} {} loss: {:.3} - DC Core:{:.3}, DC Penumbra:{:.3}'
         print(output.format(epoch + 1, self._n_epochs, phase,
                             epoch_metrics.loss,
                             epoch_metrics.core.dc,
-                            epoch_metrics.penu.dc))
+                            epoch_metrics.penu.dc), end=' ')
 
-    def plot_epoch(self, epoch):
-        if epoch > 0:
-            fig, ax1 = plt.subplots()
-            t = range(1, epoch + 2)
-            ax1.plot(t, [dto.loss for dto in self._metric_dtos['training']], 'r-')
-            ax1.plot(t, [dto.loss for dto in self._metric_dtos['validate']], 'g-')
-            ax1.plot(t, [dto.core.dc for dto in self._metric_dtos['validate']], 'c+')
-            ax1.plot(t, [dto.penu.dc for dto in self._metric_dtos['validate']], 'm+')
-            ax1.set_ylabel('L Train.(red)/Val.(green) | Dice Val. Core(c), Penu(m)')
-            fig.savefig(self._path_outputs_base + '_losses.png', bbox_inches='tight', dpi=300)
-            del fig
-            del ax1
+    def plot_epoch(self, plot, epochs):
+        plot.plot(epochs, [dto.loss for dto in self._metric_dtos['training']], 'r-')
+        plot.plot(epochs, [dto.loss for dto in self._metric_dtos['validate']], 'g-')
+        plot.plot(epochs, [dto.core.dc for dto in self._metric_dtos['validate']], 'c+')
+        plot.plot(epochs, [dto.penu.dc for dto in self._metric_dtos['validate']], 'm+')
+        plot.set_ylabel('L Train.(red)/Val.(green) | Dice Val. Core(c), Penu(m)')
 
     def visualize_epoch(self, epoch):
-        print('  > new validation loss optimum <  (model saved)')
+        print('(model saved)', end='')
         visual_samples, visual_times = util.get_vis_samples(self._dataloader_training, self._dataloader_validation)
 
         pad = [20, 20, 20]

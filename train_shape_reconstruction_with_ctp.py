@@ -14,6 +14,7 @@ def train():
     momentums_cae = (0.99, 0.999)
     every_x_epoch_half_lr = 200
     criterion = metrics.BatchDiceLoss([1.0])  # TODO nn.BCELoss() less oscillation? better results?
+    path_training_metrics = args.continuetraining
     path_saved_model = args.caepath
     channels_cae = args.channelscae
     n_globals = args.globals  # type(core/penu), tO_to_tA, NHISS, sex, age
@@ -53,9 +54,12 @@ def train():
     print('# training batches:', len(ds_train), '| # validation batches:', len(ds_valid))
 
     # Training
+    if path_training_metrics:  # if aborted training JSON provided, load latest model from that training
+        cae.load_state_dict(torch.load(path_saved_model))
+
     learner = CaeReconstructionLearner(ds_train, ds_valid, cae, path_saved_model, optimizer, n_epochs=args.epochs,
-                                       path_outputs_base=args.outbasepath, criterion=criterion,
-                                       every_x_epoch_half_lr=every_x_epoch_half_lr)
+                                       path_training_metrics=path_training_metrics, path_outputs_base=args.outbasepath,
+                                       criterion=criterion, every_x_epoch_half_lr=every_x_epoch_half_lr)
     learner.run_training()
 
 

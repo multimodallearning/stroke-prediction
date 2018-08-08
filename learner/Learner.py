@@ -6,8 +6,10 @@ from common.dto.MetricMeasuresDto import MetricMeasuresDto
 import common.dto.MetricMeasuresDto as MetricMeasuresDtoInit
 from torch.optim.optimizer import Optimizer
 from torch.nn import Module
+import matplotlib.pyplot as plt
 import torch
 import numpy
+import jsonpickle
 
 
 class Learner(Inference):
@@ -18,21 +20,42 @@ class Learner(Inference):
     """
     IMSHOW_VMAX_CBV = 12
     IMSHOW_VMAX_TTD = 40
-    FN_VIS_BASE = '_samples_visualization_'
+    FN_VIS_BASE = '_visual_'
 
     def __init__(self, dataloader_training: DataLoader, dataloader_validation: DataLoader, model: Module,
-                 path_model: str, optimizer: Optimizer, n_epochs: int, path_outputs_base: str='/tmp/'):
+                 path_model: str, optimizer: Optimizer, n_epochs: int, path_training_metrics: str=None,
+                 path_outputs_base: str='/tmp/'):
         Inference.__init__(self, model, path_model, path_outputs_base)
         assert dataloader_training.batch_size > 1, 'For normalization layers batch_size > 1 is required.'
         self._dataloader_training = dataloader_training
         self._dataloader_validation = dataloader_validation
         self._optimizer = optimizer
         self._n_epochs = n_epochs
-        self._metric_dtos = {'training': [], 'validate': []}
+        if path_training_metrics is None:
+            self._metric_dtos = {'training': [], 'validate': []}
+        else:
+            self.load_training_metrics(path_training_metrics)
+        assert len(self._metric_dtos['training']) == len(self._metric_dtos['validate']), 'Incomplete training data!'
 
     @abstractmethod
     def loss_step(self, dto: Dto, epoch):
         pass
+
+    def get_start_epoch(self):
+        return 0
+
+    def get_start_min_loss(self):
+        return numpy.Inf
+
+    def load_training_metrics(self, path):
+        with open(path, 'r') as fp:
+            self._metric_dtos = jsonpickle.decode(fp.read())
+            print(path, 'has been loaded and training will be continued...')
+
+    def save_training_metrics(self):
+        with open(self._path_outputs_base + self.FN_VIS_BASE + 'training.json', 'w') as fp:
+            fp.write(jsonpickle.encode(self._metric_dtos))
+            print('Training saved.', end=' ')
 
     def train_batch(self, batch: dict, epoch) -> MetricMeasuresDto:
         dto = self.inference_step(batch)
@@ -68,7 +91,7 @@ class Learner(Inference):
     def print_epoch(self, epoch, phase, epoch_metrics: MetricMeasuresDto):
         pass
 
-    def plot_epoch(self, epoch):
+    def plot_epoch(self, plotter, epochs):
         pass
 
     def visualize_epoch(self, epoch):
@@ -77,11 +100,15 @@ class Learner(Inference):
     def adapt_lr(self, epoch):
         pass
 
-    def run_training(self):
-        minloss = numpy.Inf
+    def adapt_betas(self, epoch):
+        pass
 
-        for epoch in range(self._n_epochs):
+    def run_training(self):
+        min_loss = self.get_start_min_loss()
+
+        for epoch in range(self.get_start_epoch(), self._n_epochs):
             self.adapt_lr(epoch)
+            self.adapt_betas(epoch)
 
             # ---------------------------- (1) TRAINING ---------------------------- #
 
@@ -113,13 +140,17 @@ class Learner(Inference):
 
             # ------------ (3) SAVE MODEL / VISUALIZE (if new optimum) ------------ #
 
-            if self._metric_dtos['validate'] and self._metric_dtos['validate'][-1].loss < minloss:
-                minloss = self._metric_dtos['validate'][-1].loss
+            if self._metric_dtos['validate'] and self._metric_dtos['validate'][-1].loss < min_loss:
+                min_loss = self._metric_dtos['validate'][-1].loss
                 torch.save(self._model.state_dict(), self._path_model)
                 self.visualize_epoch(epoch)
 
-            # ----------------------------- (4) PLOT ----------------------------- #
+            # ----------------- (4) PLOT / SAVE EVALUATION METRICS ---------------- #
 
-            self.plot_epoch(epoch)
-
-
+            self.save_training_metrics()
+            if epoch > 0:
+                fig, plot = plt.subplots()
+                self.plot_epoch(plot, range(1, epoch + 2))
+                fig.savefig(self._path_outputs_base + self.FN_VIS_BASE + 'metrics.png', bbox_inches='tight', dpi=300)
+                del plot
+                del fig

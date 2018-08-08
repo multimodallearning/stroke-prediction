@@ -1,4 +1,4 @@
-class Dto:
+class Dto():
     """ Data Transfer Object.
     Usually not required here, but makes it easier for
     passing arguments and consistent naming of variables.
@@ -11,7 +11,7 @@ class Dto:
         for attr, value in self.__dict__.items():
             yield attr, value
 
-    def __repr__(self, indent=None):
+    def __str__(self, indent=None):
         """
         Indicates the fill level, i.e. which attributes
         have non-None values
@@ -20,7 +20,7 @@ class Dto:
         """
         result = ''
         if indent is None:
-            result += 'Fill level of ' + super().__repr__() + ':\n'
+            result += 'Fill level of ' + super().__str__() + ':\n'
             indent = ''
         for key in sorted(self.__dict__.keys()):
             txt = '[ ]'
@@ -29,5 +29,5 @@ class Dto:
                 txt = '[x]'
             result += indent + txt + ' ' + key + '\n'
             if isinstance(val, Dto):
-                result += val.__repr__(indent=(indent + '    '))
+                result += val.__str__(indent=(indent + '    '))
         return result

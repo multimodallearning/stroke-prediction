@@ -13,6 +13,7 @@ def train():
     learning_rate = 1e-3
     momentums_cae = (0.99, 0.999)
     criterion = metrics.BatchDiceLoss([1.0])  # evaluated separately
+    path_training_metrics = args.continuetraining
     path_saved_model = args.unetpath
     channels = args.channels
     pad = args.padding
@@ -42,15 +43,19 @@ def train():
                        data.PadImages(pad[0], pad[1], pad[2], pad_value=0),
                        data.RandomPatch(104, 104, 68, pad[0], pad[1], pad[2]),
                        data.ToTensor()]
-    ds_train, ds_valid = data.get_stroke_shape_training_data(train_transform, valid_transform, args.fold, args.validsetsize,
-                                                             batchsize=batchsize)
+    ds_train, ds_valid = data.get_stroke_shape_training_data(train_transform, valid_transform, args.fold,
+                                                             args.validsetsize, batchsize=batchsize)
     print('Size training set:', len(ds_train.sampler.indices), '| Size validation set:', len(ds_valid.sampler.indices),
           '| Size batch:', batchsize)
     print('# training batches:', len(ds_train), '| # validation batches:', len(ds_valid))
 
     # Training
-    learner = UnetSegmentationLearner(ds_train, ds_valid, unet, path_saved_model, optimizer, args.epochs,
-                                      args.outbasepath, criterion)
+    if path_training_metrics:  # if aborted training JSON provided, load latest model from that training
+        unet.load_state_dict(torch.load(path_saved_model))
+
+    learner = UnetSegmentationLearner(ds_train, ds_valid, unet, path_saved_model, optimizer, n_epochs=args.epochs,
+                                      path_training_metrics=path_training_metrics, path_outputs_base=args.outbasepath,
+                                      criterion=criterion)
     learner.run_training()
 
 
