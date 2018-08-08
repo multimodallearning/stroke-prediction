@@ -14,10 +14,9 @@ Set up a Python 3.5 environment including the packages of [requirements.txt](req
 
 ## Structure of repository
 The repository consists of the following subfolders:
-- common: contains commonly used files such as [DTOs](common/dto/Dto.py)
+- common: contains commonly used files such as [DTOs](common/dto/Dto.py), models to be learned, helper files or [Inference](common/inference/Inference.py) classes
 - learner: contains the [Learner](learner/Learner.py) for running the different trainings
 - tester: contains the [Tester](tester/Tester.py) for running the different tests (i.e. inference-only)
-- model: contains the models to be learned
 
 Further, there are other important files:
 - data.py: defines the dataset as mentioned under section [Data](README.md#data) and contains required transformations
