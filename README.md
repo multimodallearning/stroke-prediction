@@ -2,7 +2,7 @@
 Stroke infarct growth prediction (3D, pytorch 0.3)
 
 ## Objective
-Learning to Predict Stroke Outcome based on Multivariate CT Images
+Learning to Predict Stroke Infarcted Tissue Outcome based on Multivariate CT Images
 
 ## Data
 The source code is working from within the IMI network at University of Luebeck, as the closed dataset of 29 subjects is only accessable if you are member of the bvstaff group. The filenames have been renamed and cases are represented as a subfolder. CTP modalities CBV and TTD are used as input, corresponding manual segmentations for core and penumbra, as well as follow-up lesion segmentation (FUCTMap). The directory contains more files since the work for the Master's thesis of Linda Aulmann.
@@ -47,3 +47,5 @@ For comparison pruposes, you can run a shape interpolation via signed distance m
 
 `sdm_resampling.py /share/data_zoe1/lucas/Linda_Segmentations/tmp/tmp_unet_f3.model --fold 22 --downsample 0 --groundtruth 1`
 
+## Literature
+Listed under: https://www.researchgate.net/project/Learning-to-predict-stroke-outcome-on-multivariate-CT-data
