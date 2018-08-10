@@ -28,7 +28,7 @@ class BatchDiceLoss(LossModule):
         return 1.0 - loss
 
 
-def binary_measures_torch(result, target, cuda=False, binary_threshold=0.5):
+def binary_measures_torch(result, target, cuda, binary_threshold=0.5):
     if cuda:
         result = result.cpu()
         target = target.cpu()

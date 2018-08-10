@@ -35,8 +35,12 @@ class Learner(Inference):
         if path_training_metrics is None:
             self._metric_dtos = {'training': [], 'validate': []}
         else:
-            self.load_training(path_training_metrics)
-            print(path_training_metrics, 'has been loaded and training will be continued...')
+            if self.is_cuda:  # restore model weights from previous training
+                self._model = torch.load(path_model).cuda()
+            else:
+                self._model = torch.load(path_model)
+            self.load_training(path_training_metrics)  # restore training curves from previous training
+            print('Continue training from files:', path_training_metrics, path_model, self._path_optim)
         assert len(self._metric_dtos['training']) == len(self._metric_dtos['validate']), 'Incomplete training data!'
 
     @abstractmethod
@@ -50,7 +54,7 @@ class Learner(Inference):
         return numpy.Inf
 
     def load_training(self, path):
-        print('Loading:', self._path_train, ',', self._optimizer, ',', self._scheduler)
+        print('Loading:', self._path_train, ',', self._optimizer)
         self._optimizer.load_state_dict(torch.load(self._path_optim))
         with open(path, 'r') as fp:
             self._metric_dtos = jsonpickle.decode(fp.read())
@@ -146,7 +150,8 @@ class Learner(Inference):
 
             if self._metric_dtos['validate'] and self._metric_dtos['validate'][-1].loss < min_loss:
                 min_loss = self._metric_dtos['validate'][-1].loss
-                torch.save(self._model.state_dict(), self._path_model)
+                torch.save(self._model.cpu(), self._path_model)
+                self._model.cuda()
                 self.save_training()  # allows to continue if training has been interrupted
                 print('(New optimum: Training saved)', end=' ')
                 self.visualize_epoch(epoch)

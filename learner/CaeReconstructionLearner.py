@@ -21,7 +21,7 @@ class CaeReconstructionLearner(Learner, CaeInference):
                          scheduler, n_epochs, path_training_metrics=path_training_metrics,
                          path_outputs_base=path_outputs_base)
         CaeInference.__init__(self, cae_model, path_cae_model, path_outputs_base, normalization_hours_penumbra)
-                        # TODO: This needs some refactoring (double initialization of model, path etc)
+                              # TODO: This needs some refactoring (double initialization of model, path etc)
         self._path_model = path_cae_model
         self._criterion = criterion  # main loss criterion
 

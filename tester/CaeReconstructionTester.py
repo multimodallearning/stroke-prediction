@@ -1,18 +1,18 @@
-from common.model.Cae3D import Cae3D
 from common.inference.CaeInference import CaeInference
 from common.dto.CaeDto import CaeDto
 from common.dto.MetricMeasuresDto import MetricMeasuresDto
 import common.dto.MetricMeasuresDto as MetricMeasuresDtoInit
 from tester.Tester import Tester
+import scipy.ndimage.interpolation as ndi
 import nibabel as nib
 import numpy as np
 from common import metrics, data
 
 
 class CaeReconstructionTester(Tester, CaeInference):
-    def __init__(self, dataloader, model: Cae3D, path_model, path_outputs_base='/tmp/', normalization_hours_penumbra=0):
-        Tester.__init__(self, dataloader, model, path_model, path_outputs_base=path_outputs_base)
-        CaeInference.__init__(self, model, path_model, path_outputs_base, normalization_hours_penumbra)
+    def __init__(self, dataloader, path_model, path_outputs_base='/tmp/', normalization_hours_penumbra=10):
+        Tester.__init__(self, dataloader, path_model, path_outputs_base=path_outputs_base)
+        CaeInference.__init__(self, self._model, path_model, path_outputs_base, normalization_hours_penumbra)
         # TODO: This needs some refactoring (double initialization of model, path etc)
 
     def batch_metrics_step(self, dto: CaeDto):
@@ -25,23 +25,26 @@ class CaeReconstructionTester(Tester, CaeInference):
                                                            dto.given_variables.gtruth.penu, self.is_cuda)
         return batch_metrics
 
+    def _fn(self, case_id, type, suffix):
+        return self._path_outputs_base + '_' + str(case_id) + str(type) + str(suffix) + '.nii.gz'
+
     def save_inference(self, dto: CaeDto, batch: dict, suffix=None):
         case_id = int(batch[data.KEY_CASE_ID])
         # Output results on which metrics have been computed
         nifph = nib.load('/share/data_zoe1/lucas/Linda_Segmentations/' + str(case_id) + '/train' + str(case_id) +
                          '_CBVmap_reg1_downsampled.nii.gz').affine
-        nib.save(
-            nib.Nifti1Image(np.transpose(dto.reconstructions.gtruth.core.cpu().data.numpy(), (4, 3, 2, 1, 0)), nifph),
-            self._path_outputs_base + '_' + str(case_id) + '_core' + str(suffix) + '.nii.gz'
-        )
-        nib.save(
-            nib.Nifti1Image(np.transpose(dto.reconstructions.gtruth.interpolation.cpu().data.numpy(), (4, 3, 2, 1, 0)), nifph),
-            self._path_outputs_base + '_' + str(case_id) + '_pred' + str(suffix) + '.nii.gz'
-        )
-        nib.save(
-            nib.Nifti1Image(np.transpose(dto.reconstructions.gtruth.penu.cpu().data.numpy(), (4, 3, 2, 1, 0)), nifph),
-            self._path_outputs_base + '_' + str(case_id) + '_penu' + str(suffix) + '.nii.gz'
-        )
+        image = np.transpose(dto.reconstructions.gtruth.core.cpu().data.numpy(), (4, 3, 2, 1, 0))[:, :, :, 0, 0]
+        nib.save(nib.Nifti1Image(ndi.zoom(image, zoom=(2, 2, 1)), nifph), self._fn(case_id, '_core', suffix))
+
+        nifph = nib.load('/share/data_zoe1/lucas/Linda_Segmentations/' + str(case_id) + '/train' + str(case_id) +
+                         '_FUCT_MAP_T_Samplespace_reg1_downsampled.nii.gz').affine
+        image = np.transpose(dto.reconstructions.gtruth.interpolation.cpu().data.numpy(), (4, 3, 2, 1, 0))[:, :, :, 0, 0]
+        nib.save(nib.Nifti1Image(ndi.zoom(image, zoom=(2, 2, 1)), nifph), self._fn(case_id, '_pred', suffix))
+
+        nifph = nib.load('/share/data_zoe1/lucas/Linda_Segmentations/' + str(case_id) + '/train' + str(case_id) +
+                         '_TTDmap_reg1_downsampled.nii.gz').affine
+        image = np.transpose(dto.reconstructions.gtruth.penu.cpu().data.numpy(), (4, 3, 2, 1, 0))[:, :, :, 0, 0]
+        nib.save(nib.Nifti1Image(ndi.zoom(image, zoom=(2, 2, 1)), nifph), self._fn(case_id, '_penu', suffix))
 
     def print_inference(self, batch: dict, batch_metrics: MetricMeasuresDto, dto: CaeDto, note=''):
         output = 'Case Id={}\ttA-tO={:.3f}\ttR-tA={:.3f}\tnormalized_time_to_treatment={:.3f}\t-->\

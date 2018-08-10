@@ -12,15 +12,8 @@ def test():
     labels = ['_CBVmap_subset_reg1_downsampled', '_TTDmap_subset_reg1_downsampled',
               '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled']
     path_saved_model = args.unetpath
-    channels = args.channels
     pad = args.padding
     pad_value = 0
-    cuda = True
-
-    # Unet model
-    unet = Unet3D(channels)
-    if cuda:
-        unet = unet.cuda()
 
     # Data
     # Trained on patches, but fully convolutional approach let us apply on bigger image (thus, omit patch transform)
@@ -32,7 +25,7 @@ def test():
     print('Size test set:', len(ds_test.sampler.indices), '| # batches:', len(ds_test))
 
     # Single case evaluation
-    tester = UnetSegmentationTester(ds_test, unet, path_saved_model, args.outbasepath)
+    tester = UnetSegmentationTester(ds_test, path_saved_model, args.outbasepath)
     tester.run_inference()
 
 

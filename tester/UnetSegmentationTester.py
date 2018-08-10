@@ -3,15 +3,14 @@ from common.inference.UnetInference import UnetInference
 from common.dto.UnetDto import UnetDto
 from common.dto.MetricMeasuresDto import MetricMeasuresDto
 import common.dto.MetricMeasuresDto as MetricMeasuresDtoInit
-from common.model.Unet3D import Unet3D
 from common import data, metrics
 import nibabel as nib
 import numpy as np
 
 
 class UnetSegmentationTester(Tester, UnetInference):
-    def __init__(self, dataloader, model: Unet3D, path_model, path_outputs_base='/tmp/'):
-        Tester.__init__(self, dataloader, model, path_model, path_outputs_base=path_outputs_base)
+    def __init__(self, dataloader, path_model, path_outputs_base='/tmp/'):
+        Tester.__init__(self, dataloader, path_model, path_outputs_base=path_outputs_base)
 
     def batch_metrics_step(self, dto: UnetDto):
         batch_metrics = MetricMeasuresDtoInit.init_dto()

@@ -1,17 +1,16 @@
 import common.data as data
-from common.model.Cae3D import Cae3D
 from tester.CaeReconstructionTester import CaeReconstructionTester
 
 
-class CaeReconstructionTesterROC(CaeReconstructionTester):
-    def __init__(self, dataloader, model: Cae3D, path_model, path_outputs_base='/tmp/', normalization_hours_penumbra=10,
+class CaeReconstructionTesterCurve(CaeReconstructionTester):
+    def __init__(self, dataloader, path_model, path_outputs_base='/tmp/', normalization_hours_penumbra=10,
                  ta_to_tr_fixed_hours=range(11), ta_to_tr_relative_steps=[0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]):
-        CaeReconstructionTester.__init__(self, dataloader, model, path_model, path_outputs_base=path_outputs_base,
+        CaeReconstructionTester.__init__(self, dataloader, path_model, path_outputs_base=path_outputs_base,
                                          normalization_hours_penumbra=normalization_hours_penumbra)
         self._steps_fixed = ta_to_tr_fixed_hours
         self._steps_relative = ta_to_tr_relative_steps
 
-    def infer_batch(self, batch: dict, step: int):
+    def infer_batch(self, batch: dict, step: float):
         dto = self.inference_step(batch, step)
         batch_metrics = self.batch_metrics_step(dto)
         return batch_metrics, dto

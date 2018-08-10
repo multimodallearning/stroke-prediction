@@ -20,7 +20,7 @@ def train():
     resample_size = int(args.xyoriginal * args.xyresample)
     pad = args.padding
     pad_value = 0
-    leakage = 0.2
+    leakage = 0.01
     cuda = True
 
     # CAE model
@@ -57,9 +57,6 @@ def train():
     print('# training batches:', len(ds_train), '| # validation batches:', len(ds_valid))
 
     # Training
-    if path_training_metrics:  # if aborted training JSON provided, load latest model from that training
-        cae.load_state_dict(torch.load(path_saved_model))
-
     learner = CaeReconstructionLearner(ds_train, ds_valid, cae, path_saved_model, optimizer, scheduler,
                                        n_epochs=args.epochs, path_training_metrics=path_training_metrics,
                                        path_outputs_base=args.outbasepath, criterion=criterion)

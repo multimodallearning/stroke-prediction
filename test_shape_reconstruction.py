@@ -12,23 +12,9 @@ def test():
     labels = ['_CBVmap_subset_reg1_downsampled', '_TTDmap_subset_reg1_downsampled',
               '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled']
     path_saved_model = args.caepath
-    channels_cae = args.channelscae
-    n_globals = args.globals  # type(core/penu), tO_to_tA, NHISS, sex, age
-    resample_size = int(args.xyoriginal * args.xyresample)
     normalization_hours_penumbra = args.normalize
     pad = args.padding
     pad_value = 0
-    leakage = 0.2
-    cuda = True
-
-    # Unet model
-    enc = Enc3D(size_input_xy=resample_size, size_input_z=args.zsize,
-                channels=channels_cae, n_ch_global=n_globals, leakage=leakage)
-    dec = Dec3D(size_input_xy=resample_size, size_input_z=args.zsize,
-                channels=channels_cae, n_ch_global=n_globals, leakage=leakage)
-    cae = Cae3D(enc, dec)
-    if cuda:
-        cae = cae.cuda()
 
     # Data
     transform = [data.ResamplePlaneXY(args.xyresample),
@@ -39,7 +25,7 @@ def test():
     print('Size test set:', len(ds_test.sampler.indices), '| # batches:', len(ds_test))
 
     # Single case evaluation
-    tester = CaeReconstructionTester(ds_test, cae, path_saved_model, args.outbasepath, normalization_hours_penumbra)
+    tester = CaeReconstructionTester(ds_test, path_saved_model, args.outbasepath, normalization_hours_penumbra)
     tester.run_inference()
 
 

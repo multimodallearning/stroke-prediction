@@ -3,7 +3,6 @@ from common.inference.Inference import Inference
 from common.dto.MetricMeasuresDto import MetricMeasuresDto
 import common.dto.MetricMeasuresDto as MetricMeasuresDtoInit
 from torch.utils.data import DataLoader
-from torch.nn import Module
 import torch
 
 
@@ -14,13 +13,11 @@ class Tester(Inference):
     procedures required for a specific test run.
     """
 
-    def __init__(self, dataloader: DataLoader, model: Module, path_model: str, path_outputs_base: str='/tmp/'):
-        Inference.__init__(self, model, path_model, path_outputs_base)
+    def __init__(self, dataloader: DataLoader, path_model: str, path_outputs_base: str='/tmp/'):
+        Inference.__init__(self, torch.load(path_model), path_model, path_outputs_base)
         assert dataloader.batch_size == 1, "You must ensure a batch size of 1 for correct case metric measures."
         self._dataloader = dataloader
         self._path_outputs_base = path_outputs_base
-        self._model = model
-        self._model.load_state_dict(torch.load(path_model))
         for p in self._model.parameters():
             p.requires_grad = False
         self._model.eval()

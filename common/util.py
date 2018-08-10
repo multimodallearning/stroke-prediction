@@ -43,8 +43,6 @@ class ExpParser(argparse.ArgumentParser):
                           default=list(range(29)))  # Internal indices, NOT case numbers on disk)
         self.add_argument('--hemisflipid', type=float, help='Case id or greater, at which hemispheric flip is applied',
                           default=15)
-        self.add_argument('--threshold', type=float,
-                          help='Threshold to binarize segmentation in order to compute distances', default=0.5)
         self.add_argument('--validsetsize', type=float, help='Fraction of validation set size', default=0.5)
         self.add_argument('--seed', type=int, help='Seed for any randomization', default=4)
         self.add_argument('--xyoriginal', type=int, help='Original size of slices', default=256)
@@ -117,18 +115,11 @@ def get_args_shape_testing():
     parser = argparse.ArgumentParser()
     parser.add_argument('--path', action='append', type=str, help='Path to model of Shape CAE')
     parser.add_argument('--fold', action='append', type=int, nargs='+', help='Fold case indices')  # Internal indices, NOT case numbers on disk)
-    parser.add_argument('--globals', type=int, help='Number of global variables', default=5)
-    parser.add_argument('--channelscae', type=int, nargs='+', help='CAE channels',
-                        default=[1, 24, 32, 48, 64, 500, 200, 1])
     parser.add_argument('--normalize', type=int, help='Normalization value corresponding to penumbra (hours)',
                         default=10)
     parser.add_argument('--outbasepath', type=str, help='Path and filename base for outputs',
                         default='/share/data_zoe1/lucas/Linda_Segmentations/tmp/shape')
-    parser.add_argument('--threshold', type=float,
-                        help='Threshold to binarize segmentation in order to compute distances', default=0.5)
-    parser.add_argument('--xyoriginal', type=int, help='Original size of slices', default=256)
     parser.add_argument('--xyresample', type=int, help='Factor for resampling slices', default=0.5)
-    parser.add_argument('--zsize', type=int, help='Number of z slices', default=28)
     parser.add_argument('--padding', type=int, nargs='+', help='Padding of patches', default=[20, 20, 20])
     args = parser.parse_args()
     return args
