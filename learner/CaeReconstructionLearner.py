@@ -13,7 +13,7 @@ class CaeReconstructionLearner(Learner, CaeInference):
     shape segmentations. Uses CaeDto data transfer objects.
     """
     FN_VIS_BASE = '_cae_'
-    N_EPOCHS_ADAPT_BETA1 = 5
+    N_EPOCHS_ADAPT_BETA1 = 4
 
     def __init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer, scheduler,
                  n_epochs, path_training_metrics, path_outputs_base, criterion, normalization_hours_penumbra=10):
@@ -51,7 +51,7 @@ class CaeReconstructionLearner(Learner, CaeInference):
 
     def loss_step(self, dto: CaeDto, epoch):
         loss = 0.0
-        divd = 5
+        divd = 6
 
         diff_penu_fuct = dto.reconstructions.gtruth.penu - dto.reconstructions.gtruth.interpolation
         diff_penu_core = dto.reconstructions.gtruth.penu - dto.reconstructions.gtruth.core
@@ -60,6 +60,7 @@ class CaeReconstructionLearner(Learner, CaeInference):
 
         loss += 1 * self._criterion(dto.reconstructions.gtruth.core, dto.given_variables.gtruth.core)
         loss += 1 * self._criterion(dto.reconstructions.gtruth.penu, dto.given_variables.gtruth.penu)
+        loss += 1 * self._criterion(dto.reconstructions.gtruth.lesion, dto.given_variables.gtruth.lesion)
 
         loss += 1 * torch.mean(torch.abs(dto.latents.gtruth.interpolation - dto.latents.gtruth.lesion))
 

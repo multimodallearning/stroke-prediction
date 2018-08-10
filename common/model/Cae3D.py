@@ -7,7 +7,7 @@ from common.dto.CaeDto import CaeDto
 class CaeBase(nn.Module):
 
     def __init__(self, size_input_xy=128, size_input_z=28, channels=[1, 16, 32, 64, 128, 1024, 128, 1], n_ch_global=2,
-                 leakage=0.01, inner_xy=12, inner_z=3):
+                 alpha=0.01, inner_xy=12, inner_z=3):
         super().__init__()
         assert size_input_xy % 4 == 0 and size_input_z % 4 == 0
         self.n_ch_origin = channels[1]
@@ -23,7 +23,7 @@ class CaeBase(nn.Module):
         self.n_ch_global = n_ch_global
         self.n_input = channels[0]
         self.n_classes = channels[-1]
-        self.leakage = leakage
+        self.alpha = alpha
 
     def freeze(self, freeze=False):
         requires_grad = not freeze
@@ -32,51 +32,51 @@ class CaeBase(nn.Module):
 
 
 class Enc3D(CaeBase):
-    def __init__(self, size_input_xy, size_input_z, channels, n_ch_global, leakage):
-        super().__init__(size_input_xy, size_input_z, channels, n_ch_global, leakage, inner_xy=10, inner_z=3)
+    def __init__(self, size_input_xy, size_input_z, channels, n_ch_global, alpha):
+        super().__init__(size_input_xy, size_input_z, channels, n_ch_global, alpha, inner_xy=10, inner_z=3)
 
         self.encoder = nn.Sequential(
             nn.BatchNorm3d(self.n_input),
             nn.Conv3d(self.n_input, self.n_ch_origin, 3, stride=1, padding=(1, 0, 0)),
-            nn.LeakyReLU(self.leakage, True),
+            nn.ELU(self.alpha, True),
             nn.BatchNorm3d(self.n_ch_origin),
             nn.Conv3d(self.n_ch_origin, self.n_ch_origin, 3, stride=1, padding=(1, 0, 0)),
-            nn.LeakyReLU(self.leakage, True),
+            nn.ELU(self.alpha, True),
 
             nn.BatchNorm3d(self.n_ch_origin),
             nn.Conv3d(self.n_ch_origin, self.n_ch_down2x, 3, stride=2, padding=1),
-            nn.LeakyReLU(self.leakage, True),
+            nn.ELU(self.alpha, True),
 
             nn.BatchNorm3d(self.n_ch_down2x),
             nn.Conv3d(self.n_ch_down2x, self.n_ch_down2x, 3, stride=1, padding=(1, 0, 0)),
-            nn.LeakyReLU(self.leakage, True),
+            nn.ELU(self.alpha, True),
             nn.BatchNorm3d(self.n_ch_down2x),
             nn.Conv3d(self.n_ch_down2x, self.n_ch_down2x, 3, stride=1, padding=(1, 0, 0)),
-            nn.LeakyReLU(self.leakage, True),
+            nn.ELU(self.alpha, True),
 
             nn.BatchNorm3d(self.n_ch_down2x),
             nn.Conv3d(self.n_ch_down2x, self.n_ch_down4x, 3, stride=2, padding=1),
-            nn.LeakyReLU(self.leakage, True),
+            nn.ELU(self.alpha, True),
 
             nn.BatchNorm3d(self.n_ch_down4x),
             nn.Conv3d(self.n_ch_down4x, self.n_ch_down4x, 3, stride=1, padding=(1, 0, 0)),
-            nn.LeakyReLU(self.leakage, True),
+            nn.ELU(self.alpha, True),
             nn.BatchNorm3d(self.n_ch_down4x),
             nn.Conv3d(self.n_ch_down4x, self.n_ch_down4x, 3, stride=1, padding=(1, 0, 0)),
-            nn.LeakyReLU(self.leakage, True),
+            nn.ELU(self.alpha, True),
 
             nn.BatchNorm3d(self.n_ch_down4x),
             nn.Conv3d(self.n_ch_down4x, self.n_ch_down8x, 3, stride=2, padding=0),
-            nn.LeakyReLU(self.leakage, True),
+            nn.ELU(self.alpha, True),
 
             nn.BatchNorm3d(self.n_ch_down8x),
             nn.Conv3d(self.n_ch_down8x, self.n_ch_fc, 3, stride=1, padding=0),
-            nn.LeakyReLU(self.leakage, True),
+            nn.ELU(self.alpha, True),
         )
 
         self.convex_combine = nn.Sequential(
             nn.Linear(self.n_ch_global, 1),
-            nn.LeakyReLU(self.leakage, True)
+            nn.ELU(self.alpha, True)
         )
 
     def _interpolate(self, latent_core, latent_penu, step):
@@ -113,8 +113,8 @@ class Enc3D(CaeBase):
 
 
 class Enc3DCtp(Enc3D):
-    def __init__(self, size_input_xy, size_input_z, channels, n_ch_global, leakage, padding):
-        Enc3D.__init__(self, size_input_xy, size_input_z, channels, n_ch_global, leakage)
+    def __init__(self, size_input_xy, size_input_z, channels, n_ch_global, alpha, padding):
+        Enc3D.__init__(self, size_input_xy, size_input_z, channels, n_ch_global, alpha)
         assert channels[0] > 2, 'At least 3 channels required to process input'
         self._padding = padding
 
@@ -144,50 +144,50 @@ class Enc3DCtp(Enc3D):
 
 
 class Dec3D(CaeBase):
-    def __init__(self, size_input_xy, size_input_z, channels, n_ch_global, leakage):
-        super().__init__(size_input_xy, size_input_z, channels, n_ch_global, leakage, inner_xy=10, inner_z=3)
+    def __init__(self, size_input_xy, size_input_z, channels, n_ch_global, alpha):
+        super().__init__(size_input_xy, size_input_z, channels, n_ch_global, alpha, inner_xy=10, inner_z=3)
 
         self.decoder = nn.Sequential(
             nn.BatchNorm3d(self.n_ch_fc),
             nn.ConvTranspose3d(self.n_ch_fc, self.n_ch_down8x, 3, stride=1, padding=0, output_padding=0),
-            nn.LeakyReLU(leakage, True),
+            nn.ELU(alpha, True),
 
             nn.BatchNorm3d(self.n_ch_down8x),
             nn.ConvTranspose3d(self.n_ch_down8x, self.n_ch_down4x, 3, stride=2, padding=0, output_padding=0),
-            nn.LeakyReLU(leakage, True),
+            nn.ELU(alpha, True),
 
             nn.BatchNorm3d(self.n_ch_down4x),
             nn.Conv3d(self.n_ch_down4x, self.n_ch_down4x, 3, stride=1, padding=(1, 2, 2)),
-            nn.LeakyReLU(leakage, True),
+            nn.ELU(alpha, True),
             nn.BatchNorm3d(self.n_ch_down4x),
             nn.Conv3d(self.n_ch_down4x, self.n_ch_down2x, 3, stride=1, padding=(1, 2, 2)),
-            nn.LeakyReLU(leakage, True),
+            nn.ELU(alpha, True),
 
             nn.BatchNorm3d(self.n_ch_down2x),
             nn.ConvTranspose3d(self.n_ch_down2x, self.n_ch_down2x, 2, stride=2, padding=0, output_padding=0),
-            nn.LeakyReLU(leakage, True),
+            nn.ELU(alpha, True),
 
             nn.BatchNorm3d(self.n_ch_down2x),
             nn.Conv3d(self.n_ch_down2x, self.n_ch_down2x, 3, stride=1, padding=(1, 2, 2)),
-            nn.LeakyReLU(leakage, True),
+            nn.ELU(alpha, True),
             nn.BatchNorm3d(self.n_ch_down2x),
             nn.Conv3d(self.n_ch_down2x, self.n_ch_origin, 3, stride=1, padding=(1, 2, 2)),
-            nn.LeakyReLU(leakage, True),
+            nn.ELU(alpha, True),
 
             nn.BatchNorm3d(self.n_ch_origin),
             nn.ConvTranspose3d(self.n_ch_origin, self.n_ch_origin, 2, stride=2, padding=0, output_padding=0),
-            nn.LeakyReLU(leakage, True),
+            nn.ELU(alpha, True),
 
             nn.BatchNorm3d(self.n_ch_origin),
             nn.Conv3d(self.n_ch_origin, self.n_ch_origin, 3, stride=1, padding=(1, 2, 2)),
-            nn.LeakyReLU(leakage, True),
+            nn.ELU(alpha, True),
             nn.BatchNorm3d(self.n_ch_origin),
             nn.Conv3d(self.n_ch_origin, self.n_ch_origin, 3, stride=1, padding=(1, 2, 2)),
-            nn.LeakyReLU(leakage, True),
+            nn.ELU(alpha, True),
 
             nn.BatchNorm3d(self.n_ch_origin),
             nn.Conv3d(self.n_ch_origin, self.n_ch_origin, 1, stride=1, padding=0),
-            nn.LeakyReLU(leakage, True),
+            nn.ELU(alpha, True),
             nn.BatchNorm3d(self.n_ch_origin),
             nn.Conv3d(self.n_ch_origin, self.n_classes, 1, stride=1, padding=0),
             nn.Sigmoid()

@@ -9,7 +9,7 @@ def train():
     args = util.get_args_shape_training()
 
     # Params / Config
-    batchsize = 6  # 17 training, 6 validation
+    batchsize = 4  # 19/20 training, 4 validation
     learning_rate = 1e-3
     momentums_cae = (0.9, 0.999)
     weight_decay = 1e-5
@@ -21,14 +21,14 @@ def train():
     resample_size = int(args.xyoriginal * args.xyresample)
     pad = args.padding
     pad_value = 0
-    leakage = 0.01
+    alpha = 1.0
     cuda = True
 
     # CAE model
     enc = Enc3D(size_input_xy=resample_size, size_input_z=args.zsize,
-                channels=channels_cae, n_ch_global=n_globals, leakage=leakage)
+                channels=channels_cae, n_ch_global=n_globals, alpha=alpha)
     dec = Dec3D(size_input_xy=resample_size, size_input_z=args.zsize,
-                channels=channels_cae, n_ch_global=n_globals, leakage=leakage)
+                channels=channels_cae, n_ch_global=n_globals, alpha=alpha)
     cae = Cae3D(enc, dec)
     if cuda:
         cae = cae.cuda()
@@ -53,8 +53,8 @@ def train():
     valid_transform = common_transform + [data.ToTensor()]
     ds_train, ds_valid = data.get_stroke_shape_training_data(train_transform, valid_transform, args.fold, args.validsetsize,
                                                              batchsize=batchsize)
-    print('Size training set:', len(ds_train.sampler.indices), '| Size validation set:', len(ds_valid.sampler.indices),
-          '| Size batch:', batchsize)
+    print('Size training set:', len(ds_train.sampler.indices), 'samples | Size validation set:', len(ds_valid.sampler.indices),
+          'samples | Capacity batch:', batchsize, 'samples')
     print('# training batches:', len(ds_train), '| # validation batches:', len(ds_valid))
 
     # Training

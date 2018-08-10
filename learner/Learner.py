@@ -19,13 +19,16 @@ class Learner(Inference):
     be overridden by subclasses to specify the
     procedures required for a specific training.
     """
+    EXT_MODEL = '.model'
+    EXT_OPTIM = '.optim'
+    EXT_TRAIN = '.json'
 
     def __init__(self, dataloader_training: DataLoader, dataloader_validation: DataLoader, model: Module,
                  path_model: str, optimizer: Optimizer, scheduler: _LRScheduler, n_epochs: int,
                  path_training_metrics: str=None, path_outputs_base: str='/tmp/'):
         Inference.__init__(self, model, path_model, path_outputs_base)
-        self._path_optim = self._path_model.replace('.model', '.optim')
-        self._path_train = self._path_model.replace('.model', '.json')
+        self._path_optim = self._path_model.replace(self.EXT_MODEL, self.EXT_OPTIM)
+        self._path_train = self._path_model.replace(self.EXT_MODEL, self.EXT_TRAIN)
         assert dataloader_training.batch_size > 1, 'For normalization layers batch_size > 1 is required.'
         self._dataloader_training = dataloader_training
         self._dataloader_validation = dataloader_validation
@@ -63,6 +66,10 @@ class Learner(Inference):
         torch.save(self._optimizer.state_dict(), self._path_optim)
         with open(self._path_train, 'w') as fp:
             fp.write(jsonpickle.encode(self._metric_dtos))
+
+    def save_model(self, suffix=''):
+        torch.save(self._model.cpu(), self._path_model.replace(self.EXT_MODEL, suffix + self.EXT_MODEL))
+        self._model.cuda()
 
     def train_batch(self, batch: dict, epoch) -> MetricMeasuresDto:
         dto = self.inference_step(batch)
@@ -150,8 +157,7 @@ class Learner(Inference):
 
             if self._metric_dtos['validate'] and self._metric_dtos['validate'][-1].loss < min_loss:
                 min_loss = self._metric_dtos['validate'][-1].loss
-                torch.save(self._model.cpu(), self._path_model)
-                self._model.cuda()
+                self.save_model()
                 self.save_training()  # allows to continue if training has been interrupted
                 print('(New optimum: Training saved)', end=' ')
                 self.visualize_epoch(epoch)
@@ -164,3 +170,8 @@ class Learner(Inference):
                 fig.savefig(self._path_outputs_base + self.FN_VIS_BASE + 'plots.png', bbox_inches='tight', dpi=300)
                 del plot
                 del fig
+
+        # ------------ (5) SAVE FINAL MODEL / VISUALIZE ------------- #
+
+        self.save_model('_final')
+        self.visualize_epoch(epoch)
