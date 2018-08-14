@@ -38,10 +38,7 @@ class Learner(Inference):
         if path_training_metrics is None:
             self._metric_dtos = {'training': [], 'validate': []}
         else:
-            if self.is_cuda:  # restore model weights from previous training
-                self._model = torch.load(path_model).cuda()
-            else:
-                self._model = torch.load(path_model)
+            self.load_model(path_model, self.is_cuda)  # restore model weights from previous training
             self.load_training(path_training_metrics)  # restore training curves from previous training
             print('Continue training from files:', path_training_metrics, path_model, self._path_optim)
         assert len(self._metric_dtos['training']) == len(self._metric_dtos['validate']), 'Incomplete training data!'
@@ -55,6 +52,12 @@ class Learner(Inference):
 
     def get_start_min_loss(self):
         return numpy.Inf
+
+    def load_model(self, path, cuda=True):
+        if cuda:
+            self._model = torch.load(path).cuda()
+        else:
+            self._model = torch.load(path)
 
     def load_training(self, path):
         print('Loading:', self._path_train, ',', self._optimizer)

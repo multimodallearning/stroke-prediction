@@ -80,6 +80,9 @@ class Enc3D(CaeBase):
         )
 
     def _interpolate(self, latent_core, latent_penu, step):
+        assert step is not None, 'Step must be given for interpolation!'
+        if latent_core is None or latent_penu is None:
+            return None
         core_to_penumbra = latent_penu - latent_core
         results = []
         for batch_sample in range(step.size()[0]):
@@ -98,18 +101,22 @@ class Enc3D(CaeBase):
         step = dto.given_variables.time_to_treatment
         return step
 
-    def _forward_shape(self, dto: CaeDto, step):
+    def forward(self, dto: CaeDto):
+        step = self._get_step(dto)
+        assert dto.latents.gtruth._is_empty()  # Don't accidentally overwrite other results by code mistakes
+        assert dto.latents.inputs._is_empty()  # Don't accidentally overwrite other results by code mistakes
         dto.latents.gtruth.core = self._forward_single(dto.given_variables.gtruth.core)
         dto.latents.gtruth.penu = self._forward_single(dto.given_variables.gtruth.penu)
         dto.latents.gtruth.lesion = self._forward_single(dto.given_variables.gtruth.lesion)
         dto.latents.gtruth.interpolation = self._interpolate(dto.latents.gtruth.core,
                                                              dto.latents.gtruth.penu,
                                                              step)
+        dto.latents.inputs.core = self._forward_single(dto.given_variables.inputs.core)
+        dto.latents.inputs.penu = self._forward_single(dto.given_variables.inputs.penu)
+        dto.latents.inputs.interpolation = self._interpolate(dto.latents.inputs.core,
+                                                             dto.latents.inputs.penu,
+                                                             step)
         return dto
-
-    def forward(self, dto: CaeDto):
-        step = self._get_step(dto)
-        return self._forward_shape(dto, step)
 
 
 class Enc3DCtp(Enc3D):
@@ -118,7 +125,8 @@ class Enc3DCtp(Enc3D):
         assert channels[0] > 2, 'At least 3 channels required to process input'
         self._padding = padding
 
-    def _forward_shape_ctp(self, dto: CaeDto, step):
+    def forward(self, dto: CaeDto):
+        step = self._get_step(dto)
         cbv = dto.given_variables.inputs.core[:, :, self._padding[0]:-self._padding[0],
                                                     self._padding[1]:-self._padding[1],
                                                     self._padding[2]:-self._padding[2]]
@@ -137,10 +145,6 @@ class Enc3DCtp(Enc3D):
                                                              dto.latents.gtruth.penu,
                                                              step)
         return dto
-
-    def forward(self, dto: CaeDto):
-        step = self._get_step(dto)
-        return self._forward_shape_ctp(dto, step)
 
 
 class Dec3D(CaeBase):
@@ -199,6 +203,8 @@ class Dec3D(CaeBase):
         return self.decoder(input_latent)
 
     def _forward_gtruth(self, dto: CaeDto):
+        assert dto.reconstructions.gtruth._is_empty()  # Don't accidentally overwrite other results by code mistakes
+        assert dto.reconstructions.inputs._is_empty()  # Don't accidentally overwrite other results by code mistakes
         dto.reconstructions.gtruth.core = self._forward_single(dto.latents.gtruth.core)
         dto.reconstructions.gtruth.penu = self._forward_single(dto.latents.gtruth.penu)
         dto.reconstructions.gtruth.lesion = self._forward_single(dto.latents.gtruth.lesion)
@@ -222,6 +228,10 @@ class Cae3D(nn.Module):
         dto = self.enc(dto)
         dto = self.dec(dto)
         return dto
+
+    def freeze(self, freeze: bool):
+        self.enc.freeze(freeze)
+        self.dec.freeze(freeze)
 
 
 class Cae3DCtp(Cae3D):

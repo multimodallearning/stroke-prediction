@@ -31,3 +31,13 @@ class Dto():
             if isinstance(val, Dto):
                 result += val.__str__(indent=(indent + '    '))
         return result
+
+
+    def _is_empty(self):
+        for key in sorted(self.__dict__.keys()):
+            val = self.__dict__[key]
+            if val is not None:
+                return False
+            if isinstance(val, Dto):
+                val._is_empty()
+        return True

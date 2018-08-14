@@ -31,6 +31,9 @@ class Tester(Inference):
     def batch_metrics_step(self, dto: Dto):
         return MetricMeasuresDtoInit.init_dto()
 
+    def _fn(self, case_id, type, suffix):
+        return self._path_outputs_base + '_' + str(case_id) + str(type) + str(suffix) + '.nii.gz'
+
     def save_inference(self, dto: Dto, batch: dict):
         pass
 

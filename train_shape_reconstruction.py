@@ -5,11 +5,8 @@ from common.model.Cae3D import Cae3D, Enc3D, Dec3D
 from common import data, util, metrics
 
 
-def train():
-    args = util.get_args_shape_training()
-
+def train(args):
     # Params / Config
-    batchsize = 4  # 19/20 training, 4 validation
     learning_rate = 1e-3
     momentums_cae = (0.9, 0.999)
     weight_decay = 1e-5
@@ -51,10 +48,13 @@ def train():
                         data.PadImages(pad[0], pad[1], pad[2], pad_value=pad_value)]
     train_transform = common_transform + [data.ElasticDeform(), data.ToTensor()]
     valid_transform = common_transform + [data.ToTensor()]
-    ds_train, ds_valid = data.get_stroke_shape_training_data(train_transform, valid_transform, args.fold, args.validsetsize,
-                                                             batchsize=batchsize)
+    modalities = ['_CBV_reg1_downsampled', '_TTD_reg1_downsampled']  # dummy data not used to train shape reconstruction
+    labels = ['_CBVmap_subset_reg1_downsampled', '_TTDmap_subset_reg1_downsampled',
+              '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled']
+    ds_train, ds_valid = data.get_stroke_shape_training_data(modalities, labels, train_transform, valid_transform,
+                                                             args.fold, args.validsetsize, batchsize=args.batchsize)
     print('Size training set:', len(ds_train.sampler.indices), 'samples | Size validation set:', len(ds_valid.sampler.indices),
-          'samples | Capacity batch:', batchsize, 'samples')
+          'samples | Capacity batch:', args.batchsize, 'samples')
     print('# training batches:', len(ds_train), '| # validation batches:', len(ds_valid))
 
     # Training
@@ -66,5 +66,6 @@ def train():
 
 if __name__ == '__main__':
     print(datetime.datetime.now())
-    train()
+    args = util.get_args_shape_training()
+    train(args)
     print(datetime.datetime.now())

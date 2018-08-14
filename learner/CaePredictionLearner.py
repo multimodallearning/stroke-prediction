@@ -1,67 +1,52 @@
 from learner.Learner import Learner
 from common.dto.CaeDto import CaeDto
-from common.inference.CaeInference import CaeInference
+from common.inference.CaeEncInference import CaeEncInference
+from common import data, util, metrics
 import common.dto.MetricMeasuresDto as MetricMeasuresDtoInit
 import matplotlib.pyplot as plt
 import torch
-from common import data, util, metrics
 import numpy
 
 
-class CaeReconstructionLearner(Learner, CaeInference):
-    """ A Learner to train a CAE on the reconstruction of
-    shape segmentations. Uses CaeDto data transfer objects.
+class CaePredictionLearner(Learner, CaeEncInference):
+    """ A Learner to train the CAE on the prediction based
+    on Unet segmentations and compares latent codes with
+    the previous shape encoder codes.
     """
-    FN_VIS_BASE = '_cae1_'
+    FN_VIS_BASE = '_cae2_'
     N_EPOCHS_ADAPT_BETA1 = 4
 
-    def __init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer, scheduler,
-                 n_epochs, path_training_metrics, path_outputs_base, criterion, normalization_hours_penumbra=10):
+    def __init__(self, dataloader_training, dataloader_validation, cae_model, new_enc, path_cae_model, optimizer,
+                 scheduler, n_epochs, path_training_metrics, path_outputs_base, criterion,
+                 normalization_hours_penumbra=10):
         Learner.__init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer,
                          scheduler, n_epochs, path_training_metrics=path_training_metrics,
                          path_outputs_base=path_outputs_base)
-        CaeInference.__init__(self, cae_model, path_cae_model, path_outputs_base, normalization_hours_penumbra)
-                              # TODO: This needs some refactoring (double initialization of model, path etc)
+        CaeEncInference.__init__(self, cae_model, new_enc, path_cae_model, path_outputs_base,
+                                 normalization_hours_penumbra)
         self._criterion = criterion  # main loss criterion
 
-    def adapt_betas(self, epoch):
-        betas = self._optimizer.defaults['betas']
-        if epoch < self.N_EPOCHS_ADAPT_BETA1:
-            betas = list(betas)
-            betas[0] -= 0.1 * (self.N_EPOCHS_ADAPT_BETA1 - epoch)
-            betas = tuple(betas)
-            for param_group in self._optimizer.param_groups:
-                param_group['betas'] = betas
-            print('Momentum betas have been set to:', param_group['betas'], end=' ')
-        elif epoch == self.N_EPOCHS_ADAPT_BETA1:
-            for param_group in self._optimizer.param_groups:
-                param_group['betas'] = betas
-            print('Momentum betas have been set to:', param_group['betas'], end=' ')
-
-    def get_start_epoch(self):
-        if self._metric_dtos['training']:
-            return len([dto.loss for dto in self._metric_dtos['training']])
-        return 0
-
-    def get_start_min_loss(self):
-        if self._metric_dtos['validate']:
-            return min([dto.loss for dto in self._metric_dtos['validate']])
-        return numpy.Inf
+    def load_model(self, path_cae, path_enc, cuda=True):
+        Learner.load_model(self, path_cae, cuda)
+        if cuda:
+            self._new_enc = torch.load(path_enc).cuda()
+        else:
+            self._new_enc = torch.load(path_enc)
 
     def loss_step(self, dto: CaeDto, epoch):
         loss = 0.0
         divd = 6
 
-        diff_penu_fuct = dto.reconstructions.gtruth.penu - dto.reconstructions.gtruth.interpolation
-        diff_penu_core = dto.reconstructions.gtruth.penu - dto.reconstructions.gtruth.core
+        diff_penu_fuct = dto.reconstructions.inputs.penu - dto.reconstructions.inputs.interpolation
+        diff_penu_core = dto.reconstructions.inputs.penu - dto.reconstructions.inputs.core
         loss += 1 * torch.mean(torch.abs(diff_penu_fuct) - diff_penu_fuct)
         loss += 1 * torch.mean(torch.abs(diff_penu_core) - diff_penu_core)
 
-        loss += 1 * self._criterion(dto.reconstructions.gtruth.core, dto.given_variables.gtruth.core)
-        loss += 1 * self._criterion(dto.reconstructions.gtruth.penu, dto.given_variables.gtruth.penu)
-        loss += 1 * self._criterion(dto.reconstructions.gtruth.lesion, dto.given_variables.gtruth.lesion)
+        loss += 1 * self._criterion(dto.reconstructions.gtruth.core, dto.given_variables.inputs.core)
+        loss += 1 * self._criterion(dto.reconstructions.gtruth.penu, dto.given_variables.inputs.penu)
 
-        loss += 1 * torch.mean(torch.abs(dto.latents.gtruth.interpolation - dto.latents.gtruth.lesion))
+        loss += 1 * torch.mean(torch.abs(dto.latents.gtruth.core - dto.latents.inputs.core))
+        loss += 1 * torch.mean(torch.abs(dto.latents.gtruth.penu - dto.latents.inputs.penu))
 
         return loss / divd
 

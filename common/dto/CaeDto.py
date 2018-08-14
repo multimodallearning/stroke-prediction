@@ -11,7 +11,7 @@ class CaeDto(Dto):
         self.latents = reconstructions
 
 
-def init_dto(global_variables, time_to_treatment, type_core, type_penumbra, cbv, ttd,
+def init_dto(global_variables, time_to_treatment, type_core, type_penumbra, inputs_core, inputs_penu,
              gtruth_core, gtruth_penumbra, gtruth_lesion):
     """
     Inits a CaeDto with the given variables.
@@ -19,8 +19,8 @@ def init_dto(global_variables, time_to_treatment, type_core, type_penumbra, cbv,
     :param time_to_treatment:   global clinical scalar variable time_to_treatment
     :param type_core:           aux value to represent core
     :param type_penumbra:       aux value to represent penumbra
-    :param cbv:                 CTP CBV image
-    :param ttd:                 CTP TTD image
+    :param inputs_core:         input data for core, can be CTP CBV image, or its segmentation from Unet
+    :param inputs_penu:         input data for penu, can be CTP TTD image, or its segmentation from Unet
     :param gtruth_core:         manual segmentation mask for core
     :param gtruth_penumbra:     manual segmentation mask for penumbra
     :param gtruth_lesion:       manual segmentation mask for follow-up lesion
@@ -30,7 +30,7 @@ def init_dto(global_variables, time_to_treatment, type_core, type_penumbra, cbv,
     given_variables = Dto(globals=global_variables,
                           time_to_treatment=time_to_treatment,
                           scalar_types=Dto(core=type_core, penu=type_penumbra),
-                          inputs=Dto(core=cbv, penu=ttd),
+                          inputs=Dto(core=inputs_core, penu=inputs_penu),
                           gtruth=Dto(core=gtruth_core, penu=gtruth_penumbra, lesion=gtruth_lesion))
 
     latents = Dto(inputs=Dto(core=None, penu=None, interpolation=None),

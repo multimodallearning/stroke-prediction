@@ -144,11 +144,17 @@ def split_data_loader3D(modalities, labels, indices, batch_size, random_seed=Non
     return (train_loader, valid_loader)
 
 
-def get_stroke_shape_training_data(train_transform, valid_transform, fold_indices, ratio, seed=4, batchsize=2):
-    modalities = ['_CBV_reg1_downsampled', '_TTD_reg1_downsampled']
-    labels = ['_CBVmap_subset_reg1_downsampled', '_TTDmap_subset_reg1_downsampled',
-              '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled']
+def get_stroke_shape_training_data(modalities, labels, train_transform, valid_transform, fold_indices, ratio, seed=4,
+                                   batchsize=2):
+    ds_train, ds_valid = split_data_loader3D(modalities, labels, fold_indices, batchsize, random_seed=seed,
+                                             valid_size=ratio, train_transform=train_transform,
+                                             valid_transform=valid_transform, num_workers=0)
 
+    return ds_train, ds_valid
+
+
+def get_stroke_prediction_training_data(modalities, labels, train_transform, valid_transform, fold_indices, ratio,
+                                        seed=4, batchsize=2):
     ds_train, ds_valid = split_data_loader3D(modalities, labels, fold_indices, batchsize, random_seed=seed,
                                              valid_size=ratio, train_transform=train_transform,
                                              valid_transform=valid_transform, num_workers=0)

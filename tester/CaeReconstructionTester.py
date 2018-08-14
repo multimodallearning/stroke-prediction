@@ -25,10 +25,7 @@ class CaeReconstructionTester(Tester, CaeInference):
                                                            dto.given_variables.gtruth.penu, self.is_cuda)
         return batch_metrics
 
-    def _fn(self, case_id, type, suffix):
-        return self._path_outputs_base + '_' + str(case_id) + str(type) + str(suffix) + '.nii.gz'
-
-    def save_inference(self, dto: CaeDto, batch: dict, suffix=None):
+    def save_inference(self, dto: CaeDto, batch: dict, suffix=''):
         case_id = int(batch[data.KEY_CASE_ID])
         # Output results on which metrics have been computed
         nifph = nib.load('/share/data_zoe1/lucas/Linda_Segmentations/' + str(case_id) + '/train' + str(case_id) +

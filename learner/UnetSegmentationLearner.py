@@ -17,7 +17,6 @@ class UnetSegmentationLearner(Learner, UnetInference):
         Learner.__init__(self, dataloader_training, dataloader_validation, unet_model, path_unet_model, optimizer,
                          scheduler, n_epochs, path_training_metrics=path_training_metrics,
                          path_outputs_base=path_outputs_base)
-        self._path_model = path_unet_model
         self._criterion = criterion  # main loss criterion
 
     def loss_step(self, dto: UnetDto, epoch):

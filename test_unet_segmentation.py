@@ -4,8 +4,7 @@ from common.model.Unet3D import Unet3D
 from common import data, util
 
 
-def test():
-    args = util.get_args_unet_training()
+def test(args):
 
     # Params / Config
     modalities = ['_CBV_reg1_downsampled', '_TTD_reg1_downsampled']
@@ -31,5 +30,6 @@ def test():
 
 if __name__ == '__main__':
     print(datetime.datetime.now())
-    test()
+    args = util.get_args_unet_training()
+    test(args)
     print(datetime.datetime.now())
