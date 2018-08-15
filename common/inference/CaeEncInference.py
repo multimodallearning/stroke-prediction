@@ -1,6 +1,7 @@
 from common.model.Cae3D import Cae3D, Enc3D
 from common.inference.CaeInference import CaeInference
 from common.dto.CaeDto import CaeDto
+import common.dto.CaeDto as CaeDtoUtil
 from torch.autograd import Variable
 from common import data
 
@@ -29,8 +30,13 @@ class CaeEncInference(CaeInference):
 
     def inference_step(self, batch: dict, step=None):
         dto = self.init_clinical_variables(batch, step)
+
+        dto.mode = CaeDtoUtil.MODE_INPUTS
         dto = self.init_unet_segm_variables(batch, dto)
         dto = self._new_enc(dto)
+
+        dto.mode = CaeDtoUtil.MODE_GTRUTH
         dto = self.init_gtruth_segm_variables(batch, dto)
         dto = self._model(dto)
+
         return dto

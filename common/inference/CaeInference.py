@@ -1,7 +1,7 @@
 from common.model.Cae3D import Cae3D
 from common.inference.Inference import Inference
 from torch.autograd import Variable
-import common.dto.CaeDto as CaeDtoInit
+import common.dto.CaeDto as CaeDtoUtil
 import torch
 from common import data
 from common.dto.CaeDto import CaeDto
@@ -41,7 +41,7 @@ class CaeInference(Inference):
             type_core = type_core.cuda()
             type_penumbra = type_penumbra.cuda()
 
-        return CaeDtoInit.init_dto(globals_incl_time, time_to_treatment.unsqueeze(2).unsqueeze(3).unsqueeze(4),
+        return CaeDtoUtil.init_dto(globals_incl_time, time_to_treatment.unsqueeze(2).unsqueeze(3).unsqueeze(4),
                                    type_core, type_penumbra, None, None, None, None, None)
 
     def init_gtruth_segm_variables(self, batch: dict, dto: CaeDto):
@@ -62,5 +62,6 @@ class CaeInference(Inference):
 
     def inference_step(self, batch: dict, step=None):
         dto = self.init_clinical_variables(batch, step)
+        dto.mode = CaeDtoUtil.MODE_GTRUTH
         dto = self.init_gtruth_segm_variables(batch, dto)
         return self.infer(dto)

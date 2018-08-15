@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import common.data as data
 from common.dto.CaeDto import CaeDto
+import common.dto.CaeDto as CaeDtoUtil
 
 
 class CaeBase(nn.Module):
@@ -103,19 +104,21 @@ class Enc3D(CaeBase):
 
     def forward(self, dto: CaeDto):
         step = self._get_step(dto)
-        assert dto.latents.gtruth._is_empty()  # Don't accidentally overwrite other results by code mistakes
-        assert dto.latents.inputs._is_empty()  # Don't accidentally overwrite other results by code mistakes
-        dto.latents.gtruth.core = self._forward_single(dto.given_variables.gtruth.core)
-        dto.latents.gtruth.penu = self._forward_single(dto.given_variables.gtruth.penu)
-        dto.latents.gtruth.lesion = self._forward_single(dto.given_variables.gtruth.lesion)
-        dto.latents.gtruth.interpolation = self._interpolate(dto.latents.gtruth.core,
-                                                             dto.latents.gtruth.penu,
-                                                             step)
-        dto.latents.inputs.core = self._forward_single(dto.given_variables.inputs.core)
-        dto.latents.inputs.penu = self._forward_single(dto.given_variables.inputs.penu)
-        dto.latents.inputs.interpolation = self._interpolate(dto.latents.inputs.core,
-                                                             dto.latents.inputs.penu,
-                                                             step)
+        if dto.mode == CaeDtoUtil.MODE_GTRUTH or dto.mode == CaeDtoUtil.MODE_DEFAULT:
+            assert dto.latents.gtruth._is_empty()  # Don't accidentally overwrite other results by code mistakes
+            dto.latents.gtruth.core = self._forward_single(dto.given_variables.gtruth.core)
+            dto.latents.gtruth.penu = self._forward_single(dto.given_variables.gtruth.penu)
+            dto.latents.gtruth.lesion = self._forward_single(dto.given_variables.gtruth.lesion)
+            dto.latents.gtruth.interpolation = self._interpolate(dto.latents.gtruth.core,
+                                                                 dto.latents.gtruth.penu,
+                                                                 step)
+        if dto.mode == CaeDtoUtil.MODE_INPUTS or dto.mode == CaeDtoUtil.MODE_DEFAULT:
+            assert dto.latents.inputs._is_empty()  # Don't accidentally overwrite other results by code mistakes
+            dto.latents.inputs.core = self._forward_single(dto.given_variables.inputs.core)
+            dto.latents.inputs.penu = self._forward_single(dto.given_variables.inputs.penu)
+            dto.latents.inputs.interpolation = self._interpolate(dto.latents.inputs.core,
+                                                                 dto.latents.inputs.penu,
+                                                                 step)
         return dto
 
 
@@ -133,17 +136,16 @@ class Enc3DCtp(Enc3D):
         ttd = dto.given_variables.inputs.penu[:, :, self._padding[0]:-self._padding[0],
                                                     self._padding[1]:-self._padding[1],
                                                     self._padding[2]:-self._padding[2]]
-        cat_core = torch.cat((dto.given_variables.gtruth.core, cbv, ttd), dim=data.DIM_CHANNEL_TORCH3D_5)
-        cat_penu = torch.cat((dto.given_variables.gtruth.penu, cbv, ttd), dim=data.DIM_CHANNEL_TORCH3D_5)
-        cat_lesion = torch.cat((dto.given_variables.gtruth.lesion, cbv, ttd), dim=data.DIM_CHANNEL_TORCH3D_5)
-        del cbv
-        del ttd
-        dto.latents.gtruth.core = self._forward_single(cat_core)
-        dto.latents.gtruth.penu = self._forward_single(cat_penu)
-        dto.latents.gtruth.lesion = self._forward_single(cat_lesion)
-        dto.latents.gtruth.interpolation = self._interpolate(dto.latents.gtruth.core,
-                                                             dto.latents.gtruth.penu,
-                                                             step)
+        if dto.mode == CaeDtoUtil.MODE_GTRUTH or dto.mode == CaeDtoUtil.MODE_DEFAULT:
+            cat_core = torch.cat((dto.given_variables.gtruth.core, cbv, ttd), dim=data.DIM_CHANNEL_TORCH3D_5)
+            cat_penu = torch.cat((dto.given_variables.gtruth.penu, cbv, ttd), dim=data.DIM_CHANNEL_TORCH3D_5)
+            cat_lesion = torch.cat((dto.given_variables.gtruth.lesion, cbv, ttd), dim=data.DIM_CHANNEL_TORCH3D_5)
+            dto.latents.gtruth.core = self._forward_single(cat_core)
+            dto.latents.gtruth.penu = self._forward_single(cat_penu)
+            dto.latents.gtruth.lesion = self._forward_single(cat_lesion)
+            dto.latents.gtruth.interpolation = self._interpolate(dto.latents.gtruth.core,
+                                                                 dto.latents.gtruth.penu,
+                                                                 step)
         return dto
 
 
@@ -203,15 +205,17 @@ class Dec3D(CaeBase):
         return self.decoder(input_latent)
 
     def _forward_gtruth(self, dto: CaeDto):
-        assert dto.reconstructions.gtruth._is_empty()  # Don't accidentally overwrite other results by code mistakes
-        assert dto.reconstructions.inputs._is_empty()  # Don't accidentally overwrite other results by code mistakes
-        dto.reconstructions.gtruth.core = self._forward_single(dto.latents.gtruth.core)
-        dto.reconstructions.gtruth.penu = self._forward_single(dto.latents.gtruth.penu)
-        dto.reconstructions.gtruth.lesion = self._forward_single(dto.latents.gtruth.lesion)
-        dto.reconstructions.gtruth.interpolation = self._forward_single(dto.latents.gtruth.interpolation)
-        dto.reconstructions.inputs.core = self._forward_single(dto.latents.inputs.core)
-        dto.reconstructions.inputs.penu = self._forward_single(dto.latents.inputs.penu)
-        dto.reconstructions.inputs.interpolation = self._forward_single(dto.latents.inputs.interpolation)
+        if dto.mode == CaeDtoUtil.MODE_GTRUTH or dto.mode == CaeDtoUtil.MODE_DEFAULT:
+            assert dto.reconstructions.gtruth._is_empty()  # Don't accidentally overwrite other results by code mistakes
+            dto.reconstructions.gtruth.core = self._forward_single(dto.latents.gtruth.core)
+            dto.reconstructions.gtruth.penu = self._forward_single(dto.latents.gtruth.penu)
+            dto.reconstructions.gtruth.lesion = self._forward_single(dto.latents.gtruth.lesion)
+            dto.reconstructions.gtruth.interpolation = self._forward_single(dto.latents.gtruth.interpolation)
+        if dto.mode == CaeDtoUtil.MODE_INPUTS or dto.mode == CaeDtoUtil.MODE_DEFAULT:
+            assert dto.reconstructions.inputs._is_empty()  # Don't accidentally overwrite other results by code mistakes
+            dto.reconstructions.inputs.core = self._forward_single(dto.latents.inputs.core)
+            dto.reconstructions.inputs.penu = self._forward_single(dto.latents.inputs.penu)
+            dto.reconstructions.inputs.interpolation = self._forward_single(dto.latents.inputs.interpolation)
         return dto
 
     def forward(self, dto: CaeDto):
