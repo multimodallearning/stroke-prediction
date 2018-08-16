@@ -10,7 +10,7 @@ import numpy
 class UnetSegmentationLearner(Learner, UnetInference):
     """ A Learner to train a Unet on shape segmentations.
     """
-    FN_VIS_BASE = '_unet_'
+    FNB_MARKS = '_unet_'
 
     def __init__(self, dataloader_training, dataloader_validation, unet_model, path_unet_model, optimizer, scheduler,
                  n_epochs, path_training_metrics, path_outputs_base, criterion):

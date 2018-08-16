@@ -19,22 +19,29 @@ class Learner(Inference):
     be overridden by subclasses to specify the
     procedures required for a specific training.
     """
-    EXT_MODEL = '.model'
-    EXT_OPTIM = '.optim'
-    EXT_TRAIN = '.json'
+    FNB_MODEL = 'model'      # filename base for model data
+    FNB_OPTIM = 'optimizer'  # filename base for optimizer state dict
+    FNB_TRAIN = 'training'   # filename base for training data
+    FNB_PLOTS = 'plots'      # filename base for plots form training
+    FNB_IMAGE = 'visual'     # filename base for sample visualizations
+    FNB_MARKS = '_learner'   # filename base for specific learner
+    EXT_MODEL = '.model'     # filename extension for model data
+    EXT_OPTIM = '.optim'     # filename extension for optimizer state dict
+    EXT_TRAIN = '.json'      # filename extension for training data
+    EXT_IMAGE = '.png'       # filename extension for any image data
 
     def __init__(self, dataloader_training: DataLoader, dataloader_validation: DataLoader, model: Module,
-                 path_model: str, optimizer: Optimizer, scheduler: _LRScheduler, n_epochs: int,
-                 path_training_metrics: str=None, path_outputs_base: str='/tmp/'):
+                 optimizer: Optimizer, scheduler: _LRScheduler, n_epochs: int, continue_previous_training: False,
+                 path_previous_base: str='/tmp/stroke-prediction', path_outputs_base: str='/tmp/stroke-prediction'):
+        path_model_load = self.path('load', self.FNB_MODEL)
         Inference.__init__(self, model, path_model, path_outputs_base)
-        self._path_optim = self._path_model.replace(self.EXT_MODEL, self.EXT_OPTIM)
-        self._path_train = self._path_model.replace(self.EXT_MODEL, self.EXT_TRAIN)
         assert dataloader_training.batch_size > 1, 'For normalization layers batch_size > 1 is required.'
         self._dataloader_training = dataloader_training
         self._dataloader_validation = dataloader_validation
         self._optimizer = optimizer
         self._scheduler = scheduler
         self._n_epochs = n_epochs
+        self._path_previous_base = path_previous_base
         if path_training_metrics is None:
             self._metric_dtos = {'training': [], 'validate': []}
         else:
@@ -42,6 +49,27 @@ class Learner(Inference):
             self.load_training(path_training_metrics)  # restore training curves from previous training
             print('Continue training from files:', path_training_metrics, path_model, self._path_optim)
         assert len(self._metric_dtos['training']) == len(self._metric_dtos['validate']), 'Incomplete training data!'
+
+    def path(self, mode: str, type: str, suffix: str=''):
+        if mode == 'load':
+            base_path = self._path_previous_base
+        elif mode == 'save':
+            base_path = self._path_outputs_base
+        else:
+            return None
+
+        if type == self.FNB_MODEL:
+            return base_path + self.FNB_MARKS + suffix + self.EXT_MODEL
+        elif type == self.FNB_OPTIM:
+            return base_path + self.FNB_MARKS + suffix + self.EXT_OPTIM
+        elif type == self.FNB_TRAIN:
+            return base_path + self.FNB_MARKS + suffix + self.EXT_TRAIN
+        elif type == self.FNB_PLOTS:
+            return base_path + self.FNB_MARKS + suffix + self.EXT_IMAGE
+        elif type == self.FNB_IMAGE:
+            return base_path + self.FNB_MARKS + suffix + self.EXT_IMAGE
+        else:
+            return None
 
     @abstractmethod
     def loss_step(self, dto: Dto, epoch):

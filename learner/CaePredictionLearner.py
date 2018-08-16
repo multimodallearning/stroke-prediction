@@ -26,12 +26,20 @@ class CaePredictionLearner(Learner, CaeEncInference):
                                  normalization_hours_penumbra)
         self._criterion = criterion  # main loss criterion
 
+        # After loading previous, set new names:
+        self._path_model = self._path_model.replace(self.EXT_MODEL, '_phase2' + self.EXT_MODEL)
+        self._path_optim = self._path_optim.replace(self.EXT_OPTIM, '_phase2' + self.EXT_OPTIM)
+        self._path_train = self._path_train.replace(self.EXT_TRAIN, '_phase2' + self.EXT_TRAIN)
+
     def load_model(self, path_cae, path_enc, cuda=True):
         Learner.load_model(self, path_cae, cuda)
         if cuda:
             self._new_enc = torch.load(path_enc).cuda()
         else:
             self._new_enc = torch.load(path_enc)
+
+    def adapt_betas(self, epoch):
+        pass
 
     def loss_step(self, dto: CaeDto, epoch):
         loss = 0.0

@@ -12,7 +12,7 @@ class CaeReconstructionLearner(Learner, CaeInference):
     """ A Learner to train a CAE on the reconstruction of
     shape segmentations. Uses CaeDto data transfer objects.
     """
-    FN_VIS_BASE = '_cae1_'
+    FNB_MARKS = '_cae1_'
     N_EPOCHS_ADAPT_BETA1 = 4
 
     def __init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer, scheduler,

@@ -37,7 +37,8 @@ class Dto():
         for key in sorted(self.__dict__.keys()):
             val = self.__dict__[key]
             if val is not None:
-                return False
-            if isinstance(val, Dto):
-                val._is_empty()
+                if isinstance(val, Dto):
+                    val._is_empty()
+                else:
+                    return False
         return True

@@ -31,7 +31,7 @@ def train(args):
     # Model params
     params = [p for p in enc.parameters() if p.requires_grad]
     print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
-          '/ total: cae', sum([p.nelement() for p in cae.parameters()]))
+          '/ total new enc', sum([p.nelement() for p in cae.parameters()]))
 
     # Optimizer with scheduler
     optimizer = torch.optim.Adam(params, lr=learning_rate, weight_decay=weight_decay, betas=momentums_cae)
