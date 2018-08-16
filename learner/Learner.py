@@ -34,7 +34,7 @@ class Learner(Inference):
                  optimizer: Optimizer, scheduler: _LRScheduler, n_epochs: int, continue_previous_training: False,
                  path_previous_base: str='/tmp/stroke-prediction', path_outputs_base: str='/tmp/stroke-prediction'):
         path_model_load = self.path('load', self.FNB_MODEL)
-        Inference.__init__(self, model, path_model, path_outputs_base)
+        Inference.__init__(self, model, path_model_load, path_outputs_base)
         assert dataloader_training.batch_size > 1, 'For normalization layers batch_size > 1 is required.'
         self._dataloader_training = dataloader_training
         self._dataloader_validation = dataloader_validation
@@ -42,12 +42,12 @@ class Learner(Inference):
         self._scheduler = scheduler
         self._n_epochs = n_epochs
         self._path_previous_base = path_previous_base
-        if path_training_metrics is None:
-            self._metric_dtos = {'training': [], 'validate': []}
+        if continue_previous_training:
+            self.load_model(path_previous_base, self.is_cuda)  # restore model weights from previous training
+            self.load_training(path_previous_base)  # restore training curves from previous training
+            print('Continue training from path:', path_previous_base, '[...]')
         else:
-            self.load_model(path_model, self.is_cuda)  # restore model weights from previous training
-            self.load_training(path_training_metrics)  # restore training curves from previous training
-            print('Continue training from files:', path_training_metrics, path_model, self._path_optim)
+            self._metric_dtos = {'training': [], 'validate': []}
         assert len(self._metric_dtos['training']) == len(self._metric_dtos['validate']), 'Incomplete training data!'
 
     def path(self, mode: str, type: str, suffix: str=''):
@@ -81,25 +81,30 @@ class Learner(Inference):
     def get_start_min_loss(self):
         return numpy.Inf
 
-    def load_model(self, path, cuda=True):
+    def load_model(self, cuda=True):
+        path_model = self.path('load', self.FNB_MODEL)
         if cuda:
-            self._model = torch.load(path).cuda()
+            self._model = torch.load(path_model).cuda()
         else:
-            self._model = torch.load(path)
+            self._model = torch.load(path_model)
 
     def load_training(self, path):
-        print('Loading:', self._path_train, ',', self._optimizer)
-        self._optimizer.load_state_dict(torch.load(self._path_optim))
-        with open(path, 'r') as fp:
+        path_training = self.path('load', self.FNB_TRAIN)
+        path_optimizer = self.path('load', self.FNB_OPTIM)
+        print('Loading:', path_training, ',', path_optimizer)
+        self._optimizer.load_state_dict(torch.load(path_optimizer))
+        with open(path_training, 'r') as fp:
             self._metric_dtos = jsonpickle.decode(fp.read())
 
     def save_training(self):
-        torch.save(self._optimizer.state_dict(), self._path_optim)
-        with open(self._path_train, 'w') as fp:
+        path_training = self.path('save', self.FNB_TRAIN)
+        path_optimizer = self.path('save', self.FNB_OPTIM)
+        torch.save(self._optimizer.state_dict(), path_optimizer)
+        with open(path_training, 'w') as fp:
             fp.write(jsonpickle.encode(self._metric_dtos))
 
     def save_model(self, suffix=''):
-        torch.save(self._model.cpu(), self._path_model.replace(self.EXT_MODEL, suffix + self.EXT_MODEL))
+        torch.save(self._model.cpu(), path_model = self.path('save', self.FNB_MODEL))
         self._model.cuda()
 
     def train_batch(self, batch: dict, epoch) -> MetricMeasuresDto:
