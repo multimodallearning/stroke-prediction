@@ -15,13 +15,16 @@ class CaeReconstructionLearner(Learner, CaeInference):
     FNB_MARKS = '_cae1_'
     N_EPOCHS_ADAPT_BETA1 = 4
 
-    def __init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer, scheduler,
-                 n_epochs, path_training_metrics, path_outputs_base, criterion, normalization_hours_penumbra=10):
-        Learner.__init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer,
-                         scheduler, n_epochs, path_training_metrics=path_training_metrics,
-                         path_outputs_base=path_outputs_base)
-        CaeInference.__init__(self, cae_model, path_cae_model, path_outputs_base, normalization_hours_penumbra)
-                              # TODO: This needs some refactoring (double initialization of model, path etc)
+    def __init__(self, dataloader_training, dataloader_validation, cae_model, optimizer, scheduler, n_epochs,
+                 continue_previous_training, path_previous_base, path_outputs_base, criterion,
+                 normalization_hours_penumbra=10):
+        print('CAE learner, init Learner')
+        Learner.__init__(self, dataloader_training, dataloader_validation, cae_model, optimizer, scheduler, n_epochs,
+                         continue_previous_training, path_previous_base, path_outputs_base)
+        print('CAE learner, init CAE inference')
+        CaeInference.__init__(self, cae_model, self.path('load', self.FNB_MODEL), path_outputs_base,
+                              normalization_hours_penumbra)
+                              # TODO: This needs some refactoring? (double initialization of model, path etc)
         self._criterion = criterion  # main loss criterion
 
     def adapt_betas(self, epoch):

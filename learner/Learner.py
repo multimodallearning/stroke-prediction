@@ -31,10 +31,12 @@ class Learner(Inference):
     EXT_IMAGE = '.png'       # filename extension for any image data
 
     def __init__(self, dataloader_training: DataLoader, dataloader_validation: DataLoader, model: Module,
-                 optimizer: Optimizer, scheduler: _LRScheduler, n_epochs: int, continue_previous_training: False,
+                 optimizer: Optimizer, scheduler: _LRScheduler, n_epochs: int, continue_previous_training: bool=False,
                  path_previous_base: str='/tmp/stroke-prediction', path_outputs_base: str='/tmp/stroke-prediction'):
-        path_model_load = self.path('load', self.FNB_MODEL)
-        Inference.__init__(self, model, path_model_load, path_outputs_base)
+        print('Learner check init')
+        if not self.INFERENCE_INITALIZED:
+            print('Learner, init Inference')
+            Inference.__init__(self, model, self.path('load', self.FNB_MODEL), path_outputs_base)
         assert dataloader_training.batch_size > 1, 'For normalization layers batch_size > 1 is required.'
         self._dataloader_training = dataloader_training
         self._dataloader_validation = dataloader_validation
@@ -104,7 +106,7 @@ class Learner(Inference):
             fp.write(jsonpickle.encode(self._metric_dtos))
 
     def save_model(self, suffix=''):
-        torch.save(self._model.cpu(), path_model = self.path('save', self.FNB_MODEL))
+        torch.save(self._model.cpu(), path_model = self.path('save', self.FNB_MODEL, suffix))
         self._model.cuda()
 
     def train_batch(self, batch: dict, epoch) -> MetricMeasuresDto:

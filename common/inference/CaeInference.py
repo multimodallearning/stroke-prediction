@@ -12,7 +12,10 @@ class CaeInference(Inference):
     i.e. feed-forward of CAE
     """
     def __init__(self, model:Cae3D, path_model, path_outputs_base='/tmp/', normalization_hours_penumbra = 10):
-        Inference.__init__(self, model, path_model, path_outputs_base)
+        print('CAE inference check init')
+        if not self.INFERENCE_INITALIZED:
+            print('CAE inference, init Inference')
+            Inference.__init__(self, model, path_model, path_outputs_base)
         self._normalization_hours_penumbra = normalization_hours_penumbra
 
     def _get_normalized_time(self, batch):

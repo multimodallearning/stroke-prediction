@@ -10,6 +10,7 @@ class Inference():
 
     @abstractmethod
     def __init__(self, model, path_model, path_outputs_base):
+        self.INFERENCE_INITALIZED = True
         self._model = model
         self._path_model = path_model
         self._path_outputs_base = path_outputs_base
