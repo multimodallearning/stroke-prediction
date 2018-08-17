@@ -9,17 +9,13 @@ def train(args):
     learning_rate = 1e-3
     momentums_cae = (0.9, 0.999)
     weight_decay = 1e-5
-    path_training_metrics = args.continuetraining  # --continuetraining /share/data_zoe1/lucas/Linda_Segmentations/tmp/tmp_shape_f3.json
     criterion = metrics.BatchDiceLoss([1.0])  # nn.BCELoss()
-    path_saved_model = args.caepath
-    channels_cae = args.channelscae
-    n_globals = args.globals  # type(core/penu), tO_to_tA, NHISS, sex, age
-    resample_size = int(args.xyoriginal * args.xyresample)
     pad = args.padding
     pad_value = 0
     cuda = True
 
     # CAE model
+    path_saved_model = '/data_zoe1/lucas/Linda_Segmentations/tmp/tmp_shape1_phase1.model'
     cae = torch.load(path_saved_model)
     enc = cae.enc
     cae = torch.load(path_saved_model)
@@ -56,9 +52,11 @@ def train(args):
     print('# training batches:', len(ds_train), '| # validation batches:', len(ds_valid))
 
     # Training
-    learner = CaePredictionLearner(ds_train, ds_valid, cae, enc, path_saved_model, optimizer, scheduler,
-                                   n_epochs=args.epochs, path_training_metrics=path_training_metrics,
-                                   path_outputs_base=args.outbasepath, criterion=criterion)
+    learner = CaePredictionLearner(ds_train, ds_valid, cae, enc, optimizer, scheduler,
+                                   n_epochs=args.epochs,
+                                   path_previous_base=args.inbasepath,
+                                   path_outputs_base=args.outbasepath,
+                                   criterion=criterion)
     learner.run_training()
 
 

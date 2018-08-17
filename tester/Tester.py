@@ -14,12 +14,11 @@ class Tester(Inference):
     """
 
     def __init__(self, dataloader: DataLoader, path_model: str, path_outputs_base: str='/tmp/'):
-        Inference.__init__(self, torch.load(path_model), path_model, path_outputs_base)
+        Inference.__init__(self, torch.load(path_model))
         assert dataloader.batch_size == 1, "You must ensure a batch size of 1 for correct case metric measures."
         self._dataloader = dataloader
         self._path_outputs_base = path_outputs_base
-        for p in self._model.parameters():
-            p.requires_grad = False
+        self._model.freeze(True)
         self._model.eval()
 
     def infer_batch(self, batch: dict):

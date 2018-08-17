@@ -8,8 +8,7 @@ def test(args):
 
     # Params / Config
     modalities = ['_CBV_reg1_downsampled', '_TTD_reg1_downsampled']
-    labels = ['_CBVmap_subset_reg1_downsampled', '_TTDmap_subset_reg1_downsampled',
-              '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled']
+    labels = ['_CBVmap_subset_reg1_downsampled', '_TTDmap_subset_reg1_downsampled']
     path_saved_model = args.unetpath
     pad = args.padding
     pad_value = 0
@@ -24,7 +23,7 @@ def test(args):
     print('Size test set:', len(ds_test.sampler.indices), '| # batches:', len(ds_test))
 
     # Single case evaluation
-    tester = UnetSegmentationTester(ds_test, path_saved_model, args.outbasepath)
+    tester = UnetSegmentationTester(ds_test, path_saved_model, args.outbasepath, pad)
     tester.run_inference()
 
 

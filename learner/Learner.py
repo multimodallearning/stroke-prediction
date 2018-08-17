@@ -31,23 +31,27 @@ class Learner(Inference):
     EXT_IMAGE = '.png'       # filename extension for any image data
 
     def __init__(self, dataloader_training: DataLoader, dataloader_validation: DataLoader, model: Module,
-                 optimizer: Optimizer, scheduler: _LRScheduler, n_epochs: int, continue_previous_training: bool=False,
-                 path_previous_base: str='/tmp/stroke-prediction', path_outputs_base: str='/tmp/stroke-prediction'):
-        print('Learner check init')
-        if not self.INFERENCE_INITALIZED:
-            print('Learner, init Inference')
-            Inference.__init__(self, model, self.path('load', self.FNB_MODEL), path_outputs_base)
+                 optimizer: Optimizer, scheduler: _LRScheduler, n_epochs: int, path_previous_base: str = None,
+                 path_outputs_base: str = '/tmp/stroke-prediction'):
+        # init inference
+        Inference.__init__(self, model)
+
+        # init learning data and optimizing schedule
         assert dataloader_training.batch_size > 1, 'For normalization layers batch_size > 1 is required.'
         self._dataloader_training = dataloader_training
         self._dataloader_validation = dataloader_validation
         self._optimizer = optimizer
         self._scheduler = scheduler
         self._n_epochs = n_epochs
+
+        self._path_outputs_base = path_outputs_base
         self._path_previous_base = path_previous_base
-        if continue_previous_training:
-            self.load_model(path_previous_base, self.is_cuda)  # restore model weights from previous training
-            self.load_training(path_previous_base)  # restore training curves from previous training
-            print('Continue training from path:', path_previous_base, '[...]')
+
+        # load previous training data to continue
+        if path_previous_base is not None:
+            self.load_model(self.is_cuda)
+            self.load_training()            # restore training curves from previous training
+            print('Continue training', path_previous_base, '...')
         else:
             self._metric_dtos = {'training': [], 'validate': []}
         assert len(self._metric_dtos['training']) == len(self._metric_dtos['validate']), 'Incomplete training data!'
@@ -90,10 +94,10 @@ class Learner(Inference):
         else:
             self._model = torch.load(path_model)
 
-    def load_training(self, path):
+    def load_training(self):
         path_training = self.path('load', self.FNB_TRAIN)
         path_optimizer = self.path('load', self.FNB_OPTIM)
-        print('Loading:', path_training, ',', path_optimizer)
+        print('Loading:', path_training, path_optimizer)
         self._optimizer.load_state_dict(torch.load(path_optimizer))
         with open(path_training, 'r') as fp:
             self._metric_dtos = jsonpickle.decode(fp.read())
@@ -106,7 +110,7 @@ class Learner(Inference):
             fp.write(jsonpickle.encode(self._metric_dtos))
 
     def save_model(self, suffix=''):
-        torch.save(self._model.cpu(), path_model = self.path('save', self.FNB_MODEL, suffix))
+        torch.save(self._model.cpu(), self.path('save', self.FNB_MODEL, suffix))
         self._model.cuda()
 
     def train_batch(self, batch: dict, epoch) -> MetricMeasuresDto:

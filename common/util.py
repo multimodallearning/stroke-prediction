@@ -49,7 +49,6 @@ class ExpParser(argparse.ArgumentParser):
         self.add_argument('--xyresample', type=int, help='Factor for resampling slices', default=0.5)
         self.add_argument('--zsize', type=int, help='Number of z slices', default=28)
         self.add_argument('--padding', type=int, nargs='+', help='Padding of patches', default=[20, 20, 20])
-        self.add_argument('--continuetraining', type=str, help='Provide a *.json to continue training.', default=None)
         self.add_argument('--lrsteps', type=int, nargs='+', help='MultiStepLR epochs', default=[])
 
     def parse_args(self, args=None, namespace=None):
@@ -61,17 +60,13 @@ class ExpParser(argparse.ArgumentParser):
 class CAEParser(ExpParser):
     def __init__(self):
         super().__init__()
-        self.add_argument('caepath', type=str, help='Path to model of Shape CAE',
-                          default='/share/data_zoe1/Linda_Segmentations/tmp/cae_shape.model')
         self.add_argument('--epochs', type=int, help='Number of epochs', default=300)
         self.add_argument('--batchsize', type=int, help='Batch size', default=4)
         self.add_argument('--globals', type=int, help='Number of global variables', default=5)
-        self.add_argument('--channelscae', type=int, nargs='+', help='CAE channels',
-                          default=[1, 24, 32, 48, 64, 500, 200, 1])
-        self.add_argument('--normalize', type=int, help='Normalization value corresponding to penumbra (hours)',
-                          default=10)
-        self.add_argument('--outbasepath', type=str, help='Path and filename base for outputs',
-                          default='/share/data_zoe1/lucas/Linda_Segmentations/tmp/shape')
+        self.add_argument('--channelscae', type=int, nargs='+', help='CAE channels', default=[1, 16, 24, 32, 100, 200, 1])
+        self.add_argument('--normalize', type=int, help='Normalization corresponding to penumbra (hours)', default=10)
+        self.add_argument('--inbasepath', type=str, help='Path and filename base for loading', default=None)
+        self.add_argument('--outbasepath', type=str, help='Path and filename base for saving', default='/tmp/tmp_out')
 
 
 class UnetParser(ExpParser):

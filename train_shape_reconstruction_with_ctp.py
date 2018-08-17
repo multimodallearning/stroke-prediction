@@ -60,8 +60,7 @@ def train():
 
     # Training
     learner = CaeReconstructionLearner(ds_train, ds_valid, cae, path_saved_model, optimizer, scheduler,
-                                       n_epochs=args.epochs, path_training_metrics=path_training_metrics,
-                                       path_outputs_base=args.outbasepath, criterion=criterion)
+                                       path_outputs_base=args.outbasepath)
     learner.run_training()
 
 

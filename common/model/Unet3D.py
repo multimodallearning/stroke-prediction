@@ -78,6 +78,11 @@ class Unet3D(nn.Module):
 
         return dto
 
+    def freeze(self, freeze=False):
+        requires_grad = not freeze
+        for param in self.parameters():
+            param.requires_grad = requires_grad
+
 
 class LargeUnet3D(nn.Module):
     def __init__(self, channels=[2, 32, 64, 128, 256, 128, 64, 32, 32, 2], channel_dim=1, channels_crop=[2,3,4]):

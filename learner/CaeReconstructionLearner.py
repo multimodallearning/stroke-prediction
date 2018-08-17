@@ -12,19 +12,15 @@ class CaeReconstructionLearner(Learner, CaeInference):
     """ A Learner to train a CAE on the reconstruction of
     shape segmentations. Uses CaeDto data transfer objects.
     """
-    FNB_MARKS = '_cae1_'
+    FN_VIS_BASE = '_cae1_'
+    FNB_MARKS = '_phase1'
     N_EPOCHS_ADAPT_BETA1 = 4
 
     def __init__(self, dataloader_training, dataloader_validation, cae_model, optimizer, scheduler, n_epochs,
-                 continue_previous_training, path_previous_base, path_outputs_base, criterion,
-                 normalization_hours_penumbra=10):
-        print('CAE learner, init Learner')
+                 path_previous_base, path_outputs_base, criterion, normalization_hours_penumbra=10):
         Learner.__init__(self, dataloader_training, dataloader_validation, cae_model, optimizer, scheduler, n_epochs,
-                         continue_previous_training, path_previous_base, path_outputs_base)
-        print('CAE learner, init CAE inference')
-        CaeInference.__init__(self, cae_model, self.path('load', self.FNB_MODEL), path_outputs_base,
-                              normalization_hours_penumbra)
-                              # TODO: This needs some refactoring? (double initialization of model, path etc)
+                         path_previous_base, path_outputs_base)
+        CaeInference.__init__(self, cae_model, normalization_hours_penumbra)  # TODO: refactor double initialization?!
         self._criterion = criterion  # main loss criterion
 
     def adapt_betas(self, epoch):

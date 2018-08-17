@@ -5,7 +5,6 @@ from common import data, util, metrics
 import common.dto.MetricMeasuresDto as MetricMeasuresDtoInit
 import matplotlib.pyplot as plt
 import torch
-import numpy
 
 
 class CaePredictionLearner(Learner, CaeEncInference):
@@ -14,29 +13,28 @@ class CaePredictionLearner(Learner, CaeEncInference):
     the previous shape encoder codes.
     """
     FN_VIS_BASE = '_cae2_'
+    FNB_MARKS = '_phase2'
     N_EPOCHS_ADAPT_BETA1 = 4
 
-    def __init__(self, dataloader_training, dataloader_validation, cae_model, new_enc, path_cae_model, optimizer,
-                 scheduler, n_epochs, path_training_metrics, path_outputs_base, criterion,
-                 normalization_hours_penumbra=10):
-        Learner.__init__(self, dataloader_training, dataloader_validation, cae_model, path_cae_model, optimizer,
-                         scheduler, n_epochs, path_training_metrics=path_training_metrics,
-                         path_outputs_base=path_outputs_base)
-        CaeEncInference.__init__(self, cae_model, new_enc, path_cae_model, path_outputs_base,
-                                 normalization_hours_penumbra)
+    def __init__(self, dataloader_training, dataloader_validation, cae_model, enc_model, optimizer, scheduler, n_epochs,
+                 path_previous_base, path_outputs_base, criterion, normalization_hours_penumbra=10):
+        Learner.__init__(self, dataloader_training, dataloader_validation, cae_model, optimizer, scheduler, n_epochs,
+                         path_previous_base, path_outputs_base)
+        CaeEncInference.__init__(self, cae_model, enc_model, normalization_hours_penumbra)
+        self._model.freeze(True)
         self._criterion = criterion  # main loss criterion
 
-        # After loading previous, set new names:
-        self._path_model = self._path_model.replace(self.EXT_MODEL, '_phase2' + self.EXT_MODEL)
-        self._path_optim = self._path_optim.replace(self.EXT_OPTIM, '_phase2' + self.EXT_OPTIM)
-        self._path_train = self._path_train.replace(self.EXT_TRAIN, '_phase2' + self.EXT_TRAIN)
-
-    def load_model(self, path_cae, path_enc, cuda=True):
-        Learner.load_model(self, path_cae, cuda)
+    def load_model(self, cuda=True):
+        Learner.load_model(self, self.is_cuda)
         if cuda:
-            self._new_enc = torch.load(path_enc).cuda()
+            self._new_enc = torch.load(self.path('load', self.FNB_MODEL, '_enc')).cuda()
         else:
-            self._new_enc = torch.load(path_enc)
+            self._new_enc = torch.load(self.path('load', self.FNB_MODEL, '_enc'))
+
+    def save_model(self, suffix=''):
+        Learner.save_model(self, suffix)
+        torch.save(self._new_enc.cpu(), self.path('save', self.FNB_MODEL, '_enc' + suffix))
+        self._new_enc.cuda()
 
     def adapt_betas(self, epoch):
         pass

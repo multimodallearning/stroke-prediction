@@ -204,7 +204,7 @@ class Dec3D(CaeBase):
             return None
         return self.decoder(input_latent)
 
-    def _forward_gtruth(self, dto: CaeDto):
+    def forward(self, dto: CaeDto):
         if dto.mode == CaeDtoUtil.MODE_GTRUTH or dto.mode == CaeDtoUtil.MODE_DEFAULT:
             assert dto.reconstructions.gtruth._is_empty()  # Don't accidentally overwrite other results by code mistakes
             dto.reconstructions.gtruth.core = self._forward_single(dto.latents.gtruth.core)
@@ -217,9 +217,6 @@ class Dec3D(CaeBase):
             dto.reconstructions.inputs.penu = self._forward_single(dto.latents.inputs.penu)
             dto.reconstructions.inputs.interpolation = self._forward_single(dto.latents.inputs.interpolation)
         return dto
-
-    def forward(self, dto: CaeDto):
-        return self._forward_gtruth(dto)
 
 
 class Cae3D(nn.Module):

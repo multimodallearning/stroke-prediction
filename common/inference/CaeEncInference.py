@@ -10,9 +10,8 @@ class CaeEncInference(CaeInference):
     """Common inference for training and testing,
     i.e. feed-forward of CAE and the previous Encoder
     """
-    def __init__(self, model:Cae3D, new_enc:Enc3D, path_model, path_outputs_base='/tmp/',
-                 normalization_hours_penumbra = 10):
-        CaeInference.__init__(self, model, path_model, path_outputs_base, normalization_hours_penumbra)
+    def __init__(self, model:Cae3D, new_enc:Enc3D, normalization_hours_penumbra = 10):
+        CaeInference.__init__(self, model, normalization_hours_penumbra)
         self._new_enc = new_enc
 
     def infer(self, dto: CaeDto):

@@ -7,13 +7,13 @@ class Inference():
     IMSHOW_VMAX_CBV = 12
     IMSHOW_VMAX_TTD = 40
     FN_VIS_BASE = '_visual_'
+    INFERENCE_INITALIZED = False
 
     @abstractmethod
-    def __init__(self, model, path_model, path_outputs_base):
-        self.INFERENCE_INITALIZED = True
-        self._model = model
-        self._path_model = path_model
-        self._path_outputs_base = path_outputs_base
+    def __init__(self, model):
+        if not self.INFERENCE_INITALIZED:
+            self._model = model
+            self.INFERENCE_INITALIZED = True
 
     @abstractmethod
     def inference_step(self, batch: dict):

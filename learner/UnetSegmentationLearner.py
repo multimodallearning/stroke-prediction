@@ -10,13 +10,12 @@ import numpy
 class UnetSegmentationLearner(Learner, UnetInference):
     """ A Learner to train a Unet on shape segmentations.
     """
-    FNB_MARKS = '_unet_'
+    FNB_MARKS = '_unet'
 
-    def __init__(self, dataloader_training, dataloader_validation, unet_model, path_unet_model, optimizer, scheduler,
-                 n_epochs, path_training_metrics, path_outputs_base, criterion):
-        Learner.__init__(self, dataloader_training, dataloader_validation, unet_model, path_unet_model, optimizer,
-                         scheduler, n_epochs, path_training_metrics=path_training_metrics,
-                         path_outputs_base=path_outputs_base)
+    def __init__(self, dataloader_training, dataloader_validation, unet_model, optimizer, scheduler, n_epochs,
+                 criterion, path_previous_base=None, path_outputs_base='/tmp/unet-segmentation'):
+        Learner.__init__(dataloader_training, dataloader_validation, unet_model, optimizer, scheduler, n_epochs,
+                         path_previous_base, path_outputs_base)
         self._criterion = criterion  # main loss criterion
 
     def loss_step(self, dto: UnetDto, epoch):

@@ -9,8 +9,8 @@ class UnetInference(Inference):
     """Common inference for training and testing,
     i.e. feed-forward of Unet
     """
-    def __init__(self, model:Unet3D, path_model, path_outputs_base='/tmp/'):
-        Inference.__init__(self, model, path_model, path_outputs_base)
+    def __init__(self, model:Unet3D):
+        Inference.__init__(self, model)
 
     def inference_step(self, batch):
         input_modalities = Variable(batch[data.KEY_IMAGES])

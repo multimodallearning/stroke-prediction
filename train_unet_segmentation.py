@@ -13,7 +13,6 @@ def train():
     learning_rate = 1e-3
     momentums_cae = (0.99, 0.999)
     criterion = metrics.BatchDiceLoss([1.0])  # nn.BCELoss()
-    path_training_metrics = args.continuetraining
     path_saved_model = args.unetpath
     channels = args.channels
     pad = args.padding
@@ -54,9 +53,8 @@ def train():
     print('# training batches:', len(ds_train), '| # validation batches:', len(ds_valid))
 
     # Training
-    learner = UnetSegmentationLearner(ds_train, ds_valid, unet, path_saved_model, optimizer, scheduler,
-                                      n_epochs=args.epochs, path_training_metrics=path_training_metrics,
-                                      path_outputs_base=args.outbasepath, criterion=criterion)
+    learner = UnetSegmentationLearner(ds_train, ds_valid, unet, path_saved_model, optimizer, scheduler, criterion,
+                                      path_previous_base=args.inbasepath, path_outputs_base=args.outbasepath)
     learner.run_training()
 
 

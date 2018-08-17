@@ -10,9 +10,7 @@ def train(args):
     learning_rate = 1e-3
     momentums_cae = (0.9, 0.999)
     weight_decay = 1e-5
-    path_training_metrics = args.continuetraining  # --continuetraining /share/data_zoe1/lucas/Linda_Segmentations/tmp/tmp_shape_f3.json
     criterion = metrics.BatchDiceLoss([1.0])  # nn.BCELoss()
-    path_saved_model = args.caepath
     channels_cae = args.channelscae
     n_globals = args.globals  # type(core/penu), tO_to_tA, NHISS, sex, age
     resample_size = int(args.xyoriginal * args.xyresample)
@@ -58,9 +56,11 @@ def train(args):
     print('# training batches:', len(ds_train), '| # validation batches:', len(ds_valid))
 
     # Training
-    learner = CaeReconstructionLearner(ds_train, ds_valid, cae, path_saved_model, optimizer, scheduler,
-                                       n_epochs=args.epochs, path_training_metrics=path_training_metrics,
-                                       path_outputs_base=args.outbasepath, criterion=criterion)
+    learner = CaeReconstructionLearner(ds_train, ds_valid, cae, optimizer, scheduler,
+                                       n_epochs=args.epochs,
+                                       path_previous_base=args.inbasepath,
+                                       path_outputs_base=args.outbasepath,
+                                       criterion=criterion)
     learner.run_training()
 
 
