@@ -13,7 +13,7 @@ class CaePredictionLearner(Learner, CaeEncInference):
     the previous shape encoder codes.
     """
     FN_VIS_BASE = '_cae2_'
-    FNB_MARKS = '_phase2'
+    FNB_MARKS = '_cae2'
     N_EPOCHS_ADAPT_BETA1 = 4
 
     def __init__(self, dataloader_training, dataloader_validation, cae_model, enc_model, optimizer, scheduler, n_epochs,
@@ -48,9 +48,9 @@ class CaePredictionLearner(Learner, CaeEncInference):
         loss += 1 * torch.mean(torch.abs(diff_penu_fuct) - diff_penu_fuct)
         loss += 1 * torch.mean(torch.abs(diff_penu_core) - diff_penu_core)
 
-        loss += 1 * self._criterion(dto.reconstructions.gtruth.core, dto.given_variables.inputs.core)
-        loss += 1 * self._criterion(dto.reconstructions.gtruth.penu, dto.given_variables.inputs.penu)
+        loss += 1 * self._criterion(dto.reconstructions.inputs.interpolation, dto.given_variables.gtruth.lesion)
 
+        loss += 1 * torch.mean(torch.abs(dto.latents.gtruth.interpolation - dto.latents.inputs.interpolation))
         loss += 1 * torch.mean(torch.abs(dto.latents.gtruth.core - dto.latents.inputs.core))
         loss += 1 * torch.mean(torch.abs(dto.latents.gtruth.penu - dto.latents.inputs.penu))
 
@@ -92,8 +92,6 @@ class CaePredictionLearner(Learner, CaeEncInference):
     def visualize_epoch(self, epoch):
         visual_samples, visual_times = util.get_vis_samples(self._dataloader_training, self._dataloader_validation)
 
-        pad = [20, 20, 20]
-
         f, axarr = plt.subplots(len(visual_samples), 15)
         inc = 0
         for sample, time in zip(visual_samples, visual_times):
@@ -107,11 +105,8 @@ class CaePredictionLearner(Learner, CaeEncInference):
                     col += 1
                 col += 1
 
-            zslice = 34
-            axarr[inc, 0].imshow(sample[data.KEY_IMAGES].numpy()[0, 0, zslice, pad[1]:-pad[1], pad[2]:-pad[2]],
-                                 vmin=0, vmax=self.IMSHOW_VMAX_CBV, cmap='jet')
-            axarr[inc, 1].imshow(sample[data.KEY_IMAGES].numpy()[0, 1, zslice, pad[1]:-pad[1], pad[2]:-pad[2]],
-                                 vmin=0, vmax=self.IMSHOW_VMAX_TTD, cmap='jet')
+            axarr[inc, 0].imshow(sample[data.KEY_IMAGES].numpy()[0, 0, 14, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[inc, 1].imshow(sample[data.KEY_IMAGES].numpy()[0, 1, 14, :, :], vmin=0, vmax=1, cmap='gray')
             axarr[inc, 2].imshow(dto.given_variables.gtruth.lesion.cpu().data.numpy()[0, 0, 14, :, :],
                                  vmin=0, vmax=1, cmap='gray')
             axarr[inc, 4].imshow(dto.given_variables.gtruth.core.cpu().data.numpy()[0, 0, 14, :, :],

@@ -14,8 +14,6 @@ def train(args):
     channels_cae = args.channelscae
     n_globals = args.globals  # type(core/penu), tO_to_tA, NHISS, sex, age
     resample_size = int(args.xyoriginal * args.xyresample)
-    pad = args.padding
-    pad_value = 0
     alpha = 1.0
     cuda = True
 
@@ -42,8 +40,7 @@ def train(args):
 
     # Data
     common_transform = [data.ResamplePlaneXY(args.xyresample),
-                        data.HemisphericFlipFixedToCaseId(split_id=args.hemisflipid),
-                        data.PadImages(pad[0], pad[1], pad[2], pad_value=pad_value)]
+                        data.HemisphericFlipFixedToCaseId(split_id=args.hemisflipid)]
     train_transform = common_transform + [data.ElasticDeform(), data.ToTensor()]
     valid_transform = common_transform + [data.ToTensor()]
     modalities = ['_CBV_reg1_downsampled', '_TTD_reg1_downsampled']  # dummy data not used to train shape reconstruction

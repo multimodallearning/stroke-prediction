@@ -13,7 +13,7 @@ class CaeReconstructionLearner(Learner, CaeInference):
     shape segmentations. Uses CaeDto data transfer objects.
     """
     FN_VIS_BASE = '_cae1_'
-    FNB_MARKS = '_phase1'
+    FNB_MARKS = '_cae1'
     N_EPOCHS_ADAPT_BETA1 = 4
 
     def __init__(self, dataloader_training, dataloader_validation, cae_model, optimizer, scheduler, n_epochs,
@@ -100,8 +100,6 @@ class CaeReconstructionLearner(Learner, CaeInference):
     def visualize_epoch(self, epoch):
         visual_samples, visual_times = util.get_vis_samples(self._dataloader_training, self._dataloader_validation)
 
-        pad = [20, 20, 20]
-
         f, axarr = plt.subplots(len(visual_samples), 15)
         inc = 0
         for sample, time in zip(visual_samples, visual_times):
@@ -115,10 +113,9 @@ class CaeReconstructionLearner(Learner, CaeInference):
                     col += 1
                 col += 1
 
-            zslice = 34
-            axarr[inc, 0].imshow(sample[data.KEY_IMAGES].numpy()[0, 0, zslice, pad[1]:-pad[1], pad[2]:-pad[2]],
+            axarr[inc, 0].imshow(sample[data.KEY_IMAGES].numpy()[0, 0, 14, :, :],
                                  vmin=0, vmax=self.IMSHOW_VMAX_CBV, cmap='jet')
-            axarr[inc, 1].imshow(sample[data.KEY_IMAGES].numpy()[0, 1, zslice, pad[1]:-pad[1], pad[2]:-pad[2]],
+            axarr[inc, 1].imshow(sample[data.KEY_IMAGES].numpy()[0, 1, 14, :, :],
                                  vmin=0, vmax=self.IMSHOW_VMAX_TTD, cmap='jet')
             axarr[inc, 2].imshow(dto.given_variables.gtruth.lesion.cpu().data.numpy()[0, 0, 14, :, :],
                                  vmin=0, vmax=1, cmap='gray')

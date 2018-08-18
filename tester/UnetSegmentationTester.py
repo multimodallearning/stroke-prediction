@@ -25,8 +25,8 @@ class UnetSegmentationTester(Tester, UnetInference):
     def _transpose_unpad_zoom(self, image):
         image = np.transpose(image, (4, 3, 2, 1, 0))
         if self._pad is not None:
-            image = image[self._pad[0]:-self._pad[0], self._pad[1]:-self._pad[1], self._pad[2]:-self._pad[2], 0, 0]
-        return ndi.zoom(image, zoom=(2, 2, 1))
+            image = image[self._pad[0]:-self._pad[0], self._pad[1]:-self._pad[1], self._pad[2]:-self._pad[2], :, :]
+        return ndi.zoom(image[:, :, :, 0, 0], zoom=(2, 2, 1))
 
     def save_inference(self, dto: UnetDto, batch: dict, suffix=''):
         case_id = int(batch[data.KEY_CASE_ID])

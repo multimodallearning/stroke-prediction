@@ -10,8 +10,6 @@ def train(args):
     momentums_cae = (0.9, 0.999)
     weight_decay = 1e-5
     criterion = metrics.BatchDiceLoss([1.0])  # nn.BCELoss()
-    pad = args.padding
-    pad_value = 0
     cuda = True
 
     # CAE model
@@ -27,7 +25,7 @@ def train(args):
     # Model params
     params = [p for p in enc.parameters() if p.requires_grad]
     print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
-          '/ total new enc', sum([p.nelement() for p in cae.parameters()]))
+          '/ total new enc + old dec', sum([p.nelement() for p in cae.parameters()]))
 
     # Optimizer with scheduler
     optimizer = torch.optim.Adam(params, lr=learning_rate, weight_decay=weight_decay, betas=momentums_cae)
@@ -38,8 +36,7 @@ def train(args):
 
     # Data
     common_transform = [data.ResamplePlaneXY(args.xyresample),
-                        data.HemisphericFlipFixedToCaseId(split_id=args.hemisflipid),
-                        data.PadImages(pad[0], pad[1], pad[2], pad_value=pad_value)]
+                        data.HemisphericFlipFixedToCaseId(split_id=args.hemisflipid)]
     train_transform = common_transform + [data.ElasticDeform(), data.ToTensor()]
     valid_transform = common_transform + [data.ToTensor()]
     modalities = ['_unet_core', '_unet_penu']

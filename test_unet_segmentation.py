@@ -23,7 +23,7 @@ def test(args):
     print('Size test set:', len(ds_test.sampler.indices), '| # batches:', len(ds_test))
 
     # Single case evaluation
-    tester = UnetSegmentationTester(ds_test, path_saved_model, args.outbasepath, pad)
+    tester = UnetSegmentationTester(ds_test, path_saved_model, args.outbasepath, None)
     tester.run_inference()
 
 
