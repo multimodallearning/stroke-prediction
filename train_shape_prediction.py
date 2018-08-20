@@ -2,6 +2,7 @@ import torch
 import datetime
 from learner.CaePredictionLearner import CaePredictionLearner
 from common import data, util, metrics
+from common.model.Cae3D import Enc3D
 
 
 def train(args):
@@ -10,14 +11,24 @@ def train(args):
     momentums_cae = (0.9, 0.999)
     weight_decay = 1e-5
     criterion = metrics.BatchDiceLoss([1.0])  # nn.BCELoss()
+    resample_size = int(args.xyoriginal * args.xyresample)
+    n_globals = args.globals  # type(core/penu), tO_to_tA, NHISS, sex, age
+    channels_enc = args.channelsenc
+    alpha = 1.0
     cuda = True
 
+    # TODO assert initbycae XOR channels_enc
+
     # CAE model
-    path_saved_model = '/data_zoe1/lucas/Linda_Segmentations/tmp/tmp_shape1_phase1.model'
-    cae = torch.load(path_saved_model)
-    enc = cae.enc
+    path_saved_model = args.caepath
     cae = torch.load(path_saved_model)
     cae.freeze(True)
+    if args.initbycae:
+        enc = torch.load(path_saved_model).enc
+    else:
+        enc = Enc3D(size_input_xy=resample_size, size_input_z=args.zsize,
+                    channels=channels_enc, n_ch_global=n_globals, alpha=alpha)
+
     if cuda:
         cae = cae.cuda()
         enc = enc.cuda()
@@ -25,7 +36,7 @@ def train(args):
     # Model params
     params = [p for p in enc.parameters() if p.requires_grad]
     print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
-          '/ total new enc + old dec', sum([p.nelement() for p in cae.parameters()]))
+          '/ total new enc + old cae', sum([p for p in enc.parameters()] + [p.nelement() for p in cae.parameters()]))
 
     # Optimizer with scheduler
     optimizer = torch.optim.Adam(params, lr=learning_rate, weight_decay=weight_decay, betas=momentums_cae)
@@ -37,7 +48,7 @@ def train(args):
     # Data
     common_transform = [data.ResamplePlaneXY(args.xyresample),
                         data.HemisphericFlipFixedToCaseId(split_id=args.hemisflipid)]
-    train_transform = common_transform + [data.ElasticDeform(), data.ToTensor()]
+    train_transform = common_transform + [data.ElasticDeform(apply_to_images=True), data.ToTensor()]
     valid_transform = common_transform + [data.ToTensor()]
     modalities = ['_unet_core', '_unet_penu']
     labels = ['_CBVmap_subset_reg1_downsampled', '_TTDmap_subset_reg1_downsampled',
@@ -59,6 +70,6 @@ def train(args):
 
 if __name__ == '__main__':
     print(datetime.datetime.now())
-    args = util.get_args_shape_training()
+    args = util.get_args_shape_prediction_training()
     train(args)
     print(datetime.datetime.now())

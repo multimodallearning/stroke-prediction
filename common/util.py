@@ -63,7 +63,6 @@ class CAEParser(ExpParser):
         self.add_argument('--epochs', type=int, help='Number of epochs', default=300)
         self.add_argument('--batchsize', type=int, help='Batch size', default=4)
         self.add_argument('--globals', type=int, help='Number of global variables', default=5)
-        self.add_argument('--channelscae', type=int, nargs='+', help='CAE channels', default=[1, 16, 24, 32, 100, 200, 1])
         self.add_argument('--normalize', type=int, help='Normalization corresponding to penumbra (hours)', default=10)
         self.add_argument('--inbasepath', type=str, help='Path and filename base for loading', default=None)
         self.add_argument('--outbasepath', type=str, help='Path and filename base for saving', default='/tmp/tmp_out')
@@ -103,6 +102,16 @@ def get_args_sdm():
 
 def get_args_shape_training():
     parser = CAEParser()
+    parser.add_argument('--channelscae', type=int, nargs='+', help='CAE channels', default=[1, 16, 24, 32, 100, 200, 1])
+    args = parser.parse_args()
+    return args
+
+
+def get_args_shape_prediction_training():
+    parser = CAEParser()
+    parser.add_argument('caepath', type=str, help='Path to previously trained cae phase1 model')
+    parser.add_argument('--channelsenc', type=int, nargs='+', help='CAE channels', default=[1, 16, 24, 32, 100, 200, 1])
+    parser.add_argument('--initbycae', action='store_true', help='Init enc weights by cae\'s enc', default=False)
     args = parser.parse_args()
     return args
 
