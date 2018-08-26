@@ -2,11 +2,11 @@ from common.inference.CaeInference import CaeInference
 from common.dto.CaeDto import CaeDto
 from common.dto.MetricMeasuresDto import MetricMeasuresDto
 import common.dto.MetricMeasuresDto as MetricMeasuresDtoInit
+from common import metrics, data
 from tester.Tester import Tester
 import scipy.ndimage.interpolation as ndi
 import nibabel as nib
 import numpy as np
-from common import metrics, data
 
 
 class CaeReconstructionTester(Tester, CaeInference):

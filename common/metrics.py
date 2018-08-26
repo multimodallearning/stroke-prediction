@@ -28,19 +28,7 @@ class BatchDiceLoss(LossModule):
         return 1.0 - loss
 
 
-def binary_measures_torch(result, target, cuda, binary_threshold=0.5):
-    if cuda:
-        result = result.cpu()
-        target = target.cpu()
-
-    if isinstance(result, Variable):
-        result = result.data
-    if isinstance(target, Variable):
-        target = target.data
-
-    result = result.numpy()
-    target = target.numpy()
-
+def binary_measures_numpy(result, target, binary_threshold=0.5):
     result_binary = (result > binary_threshold).astype(numpy.uint8)
     target_binary = (target > binary_threshold).astype(numpy.uint8)
 
@@ -56,3 +44,19 @@ def binary_measures_torch(result, target, cuda, binary_threshold=0.5):
         result.assd = mpm.assd(result_binary, target_binary)
 
     return result
+
+
+def binary_measures_torch(result, target, cuda, binary_threshold=0.5):
+    if cuda:
+        result = result.cpu()
+        target = target.cpu()
+
+    if isinstance(result, Variable):
+        result = result.data
+    if isinstance(target, Variable):
+        target = target.data
+
+    result = result.numpy()
+    target = target.numpy()
+
+    return binary_measures_numpy(result, target, binary_threshold=binary_threshold)

@@ -1,6 +1,6 @@
-from common.model.Unet3D import Unet3D
-import common.dto.UnetDto as UnetDtoInit
-from common import data, util
+#from common.model.Unet3D import Unet3D  TODO Unet live segmentation
+#import common.dto.UnetDto as UnetDtoInit  TODO Unet live segmentation
+from common import data, util, metrics
 import torch
 import numpy as np
 import nibabel as nib
@@ -66,30 +66,26 @@ def infer():
 
     # Params / Config
     normalization_hours_penumbra = 10
-    channels_unet = args.channels
-    pad = args.padding
+    #channels_unet = args.channels  TODO Unet live segmentation
+    #pad = args.padding  TODO Unet live segmentation
 
     transform = [data.ResamplePlaneXY(args.xyresample),
                  data.HemisphericFlipFixedToCaseId(split_id=args.hemisflipid),
-                 data.PadImages(pad[0], pad[1], pad[2], pad_value=0),
+                 #data.PadImages(pad[0], pad[1], pad[2], pad_value=0),  TODO Unet live segmentation
                  data.ToTensor()]
 
-    ds_test = data.get_testdata(modalities=['_CBV_reg1_downsampled', '_TTD_reg1_downsampled'],
+    ds_test = data.get_testdata(modalities=['_unet_core', '_unet_penu'],  # modalities=['_CBV_reg1_downsampled', '_TTD_reg1_downsampled'],  TODO Unet live segmentation
                                 labels=['_CBVmap_subset_reg1_downsampled', '_TTDmap_subset_reg1_downsampled',
                                         '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled'],
                                 transform=transform,
                                 indices=args.fold)
 
     # Unet
-    unet = None
-    if not args.groundtruth:
-        unet = Unet3D(channels=channels_unet)
-        unet.load_state_dict(torch.load(args.unet))
-        unet.train(False)  # fixate regularization for forward-only!
-
-    running_dc = []
-    running_hd = []
-    running_assd = []
+    #unet = None  TODO Unet live segmentation
+    #if not args.groundtruth:  TODO Unet live segmentation
+    #    unet = Unet3D(channels=channels_unet)  TODO Unet live segmentation
+    #    unet.load_state_dict(torch.load(args.unet))  TODO Unet live segmentation
+    #    unet.train(False)  # fixate regularization for forward-only!  TODO Unet live segmentation
 
     for sample in ds_test:
         case_id = sample[data.KEY_CASE_ID].cpu().numpy()[0]
@@ -104,10 +100,12 @@ def infer():
             core = Variable(sample[data.KEY_LABELS][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
             penu = Variable(sample[data.KEY_LABELS][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
         else:
-            dto = UnetDtoInit.init_dto(Variable(sample[data.KEY_IMAGES]), None, None)
-            dto = unet(dto)
-            core = dto.outputs.core
-            penu = dto.outputs.penu,
+            #dto = UnetDtoInit.init_dto(Variable(sample[data.KEY_IMAGES]), None, None)  TODO Unet live segmentation
+            #dto = unet(dto)  TODO Unet live segmentation
+            #core = dto.outputs.core  TODO Unet live segmentation
+            #penu = dto.outputs.penu,  TODO Unet live segmentation
+            core = Variable(sample[data.KEY_IMAGES][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
+            penu = Variable(sample[data.KEY_IMAGES][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
 
         ta_to_tr = sample[data.KEY_GLOBAL][:, 1, :, :, :].squeeze().unsqueeze(data.DIM_CHANNEL_TORCH3D_5)
         time_to_treatment = Variable(ta_to_tr.type(torch.FloatTensor) / normalization)
@@ -120,7 +118,7 @@ def infer():
                                   interpolation=time_to_treatment.data.cpu().numpy().squeeze(), zoom=12,
                                   resample=args.downsample)
 
-        print('TO --> TR', float(time_to_treatment))
+        print(int(sample[data.KEY_CASE_ID]), 'TO-->TR', float(time_to_treatment))
 
         if args.visualinspection:
             fig, axes = plt.subplots(3, 4)
@@ -142,14 +140,18 @@ def infer():
             axes[2, 3].imshow(recon_penu[16, :, :] > 0, cmap='gray', vmin=0, vmax=1)
             plt.show()
 
-        dc, hd, assd = util.compute_binary_measure_numpy((recon_intp > 0).astype(np.float), lesion.cpu().data.numpy())
-        running_dc.append(dc)
-        running_hd.append(hd)
-        running_assd.append(assd)
+        results = metrics.binary_measures_numpy((recon_intp > 0).astype(np.float),
+                                                lesion.cpu().data.numpy()[0, 0, :, :, :], binary_threshold=0.5)
 
-        with open('sdm_results.txt', 'a') as f:
-            print('Evaluate case: {} - DC:{:.3}, HD:{:.3}, ASSD:{:.3}'.format(case_id,
-                np.mean(running_dc), np.mean(running_hd),  np.mean(running_assd)), file=f)
+        c_res = metrics.binary_measures_numpy((recon_core < 0).astype(np.float),
+                                               core.cpu().data.numpy()[0, 0, :, :, :], binary_threshold=0.5)
+
+        p_res = metrics.binary_measures_numpy((recon_penu > 0).astype(np.float),
+                                               penu.cpu().data.numpy()[0, 0, :, :, :], binary_threshold=0.5)
+
+        with open('/data_zoe1/lucas/Linda_Segmentations/tmp/sdm_results.txt', 'a') as f:
+            print('Evaluate case: {} - DC:{:.3}, HD:{:.3}, ASSD:{:.3}, Core recon DC:{:.3}, Penu recon DC:{:.3}'.format(case_id,
+                results.dc, results.hd,  results.assd, c_res.dc, p_res.dc), file=f)
 
         zoomed = ndi.interpolation.zoom(recon_intp.transpose((2, 1, 0)), zoom=(2, 2, 1))
         nib.save(nib.Nifti1Image((zoomed > 0).astype(np.float32), nifph), args.outbasepath + '_' + str(case_id) + '_lesion.nii.gz')
