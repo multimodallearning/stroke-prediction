@@ -75,11 +75,6 @@ class Enc3D(CaeBase):
             nn.ELU(self.alpha, True),
         )
 
-        self.convex_combine = nn.Sequential(
-            nn.Linear(self.n_ch_global, 1),
-            nn.ELU(self.alpha, True)
-        )
-
     def _interpolate(self, latent_core, latent_penu, step):
         assert step is not None, 'Step must be given for interpolation!'
         if latent_core is None or latent_penu is None:
@@ -104,6 +99,7 @@ class Enc3D(CaeBase):
 
     def forward(self, dto: CaeDto):
         step = self._get_step(dto)
+
         if dto.mode == CaeDtoUtil.MODE_GTRUTH or dto.mode == CaeDtoUtil.MODE_DEFAULT:
             assert dto.latents.gtruth._is_empty()  # Don't accidentally overwrite other results by code mistakes
             dto.latents.gtruth.core = self._forward_single(dto.given_variables.gtruth.core)
@@ -120,6 +116,23 @@ class Enc3D(CaeBase):
                                                                  dto.latents.inputs.penu,
                                                                  step)
         return dto
+
+
+class Enc3DStep(Enc3D):
+    def __init__(self, size_input_xy, size_input_z, channels, n_ch_global, alpha):
+        super().__init__(size_input_xy, size_input_z, channels, n_ch_global, alpha)
+
+        self.step = nn.Sequential(
+            nn.Linear(self.n_ch_globals, self.n_ch_globals),
+            nn.ELU(self.alpha, True),
+            nn.Linear(self.n_ch_globals, self.n_ch_globals // 2),
+            nn.ELU(self.alpha, True),
+            nn.Linear(self.n_ch_globals // 2, 1)
+        )
+
+    def _get_step(self, dto: CaeDto):
+        step = self.step(dto.given_variables.globals)
+        return step
 
 
 class Enc3DCtp(Enc3D):
