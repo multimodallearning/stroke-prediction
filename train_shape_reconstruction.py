@@ -1,7 +1,7 @@
 import torch
 import datetime
 from learner.CaeReconstructionLearner import CaeReconstructionLearner
-from common.model.Cae3D import Cae3D, Enc3D, Dec3D
+from common.model.Cae3D import Cae3D, Enc3D, Enc3DStep, Dec3D
 from common import data, util, metrics
 
 
@@ -18,8 +18,12 @@ def train(args):
     cuda = True
 
     # CAE model
-    enc = Enc3D(size_input_xy=resample_size, size_input_z=args.zsize,
-                channels=channels_cae, n_ch_global=n_globals, alpha=alpha)
+    if args.steplearning:
+        enc = Enc3DStep(size_input_xy=resample_size, size_input_z=args.zsize,
+                        channels=channels_cae, n_ch_global=n_globals, alpha=alpha)
+    else:
+        enc = Enc3D(size_input_xy=resample_size, size_input_z=args.zsize,
+                    channels=channels_cae, n_ch_global=n_globals, alpha=alpha)
     dec = Dec3D(size_input_xy=resample_size, size_input_z=args.zsize,
                 channels=channels_cae, n_ch_global=n_globals, alpha=alpha)
     cae = Cae3D(enc, dec)
@@ -39,13 +43,14 @@ def train(args):
         scheduler = None
 
     # Data
-    common_transform = [data.ResamplePlaneXY(args.xyresample),
-                        data.HemisphericFlipFixedToCaseId(split_id=args.hemisflipid)]
-    train_transform = common_transform + [data.ElasticDeform(), data.ToTensor()]
+    common_transform = [data.ResamplePlaneXY(args.xyresample)]  # before: FixedToCaseId(split_id=args.hemisflipid)]
+    train_transform = common_transform + [data.HemisphericFlip(), data.ElasticDeform(), data.ToTensor()]
     valid_transform = common_transform + [data.ToTensor()]
-    modalities = ['_CBV_reg1_downsampled', '_TTD_reg1_downsampled']  # dummy data not used to train shape reconstruction
+
+    modalities = ['_CBV_reg1_downsampled', '_TTD_reg1_downsampled']  # dummy data only needed for visualization
     labels = ['_CBVmap_subset_reg1_downsampled', '_TTDmap_subset_reg1_downsampled',
               '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled']
+
     ds_train, ds_valid = data.get_stroke_shape_training_data(modalities, labels, train_transform, valid_transform,
                                                              args.fold, args.validsetsize, batchsize=args.batchsize)
     print('Size training set:', len(ds_train.sampler.indices), 'samples | Size validation set:', len(ds_valid.sampler.indices),

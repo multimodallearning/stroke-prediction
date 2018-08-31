@@ -66,6 +66,7 @@ class CAEParser(ExpParser):
         self.add_argument('--normalize', type=int, help='Normalization corresponding to penumbra (hours)', default=10)
         self.add_argument('--inbasepath', type=str, help='Path and filename base for loading', default=None)
         self.add_argument('--outbasepath', type=str, help='Path and filename base for saving', default='/tmp/tmp_out')
+        self.add_argument('--steplearning', action='store_true', help='Also learn interpolation step from clinical data', default=False)
 
 
 class UnetParser(ExpParser):

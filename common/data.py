@@ -36,7 +36,7 @@ class StrokeLindaDataset3D(Dataset):
     ROW_OFFSET = 1
     COL_OFFSET = 1
 
-    def __init__(self, root_dir=PATH_ROOT, modalities='', labels='', clinical=PATH_CSV, transform=None,
+    def __init__(self, root_dir=PATH_ROOT, modalities=[], labels=[], clinical=PATH_CSV, transform=None,
                  single_case_id=None):
         self._root_dir = root_dir
         self._clinical = self._load_clinical_data_from_csv(clinical, row_offset=self.ROW_OFFSET, col_offset=0)
@@ -80,15 +80,18 @@ class StrokeLindaDataset3D(Dataset):
 
         for value in clinical_data:
             result[KEY_GLOBAL].append(float(value))
-        result[KEY_GLOBAL] = np.array(result[KEY_GLOBAL]).reshape((1, 1, 1, len(clinical_data)))
+        if result[KEY_GLOBAL]:
+            result[KEY_GLOBAL] = np.array(result[KEY_GLOBAL]).reshape((1, 1, 1, len(clinical_data)))
 
         for label in self._labels:
             result[KEY_LABELS].append(self._load_image_data_from_nifti(case_id, label))
-        result[KEY_LABELS] = np.concatenate(result[KEY_LABELS], axis=DIM_CHANNEL_NUMPY_3D)
+        if result[KEY_LABELS]:
+            result[KEY_LABELS] = np.concatenate(result[KEY_LABELS], axis=DIM_CHANNEL_NUMPY_3D)
 
         for modality in self._modalities:
             result[KEY_IMAGES].append(self._load_image_data_from_nifti(case_id, modality))
-        result[KEY_IMAGES] = np.concatenate(result[KEY_IMAGES], axis=DIM_CHANNEL_NUMPY_3D)
+        if result[KEY_IMAGES]:
+            result[KEY_IMAGES] = np.concatenate(result[KEY_IMAGES], axis=DIM_CHANNEL_NUMPY_3D)
 
         if self._transform:
             result = self._transform(result)
@@ -97,7 +100,7 @@ class StrokeLindaDataset3D(Dataset):
 
 
 def emptyCopyFromSample(sample):
-    result = {KEY_CASE_ID: int(sample[KEY_CASE_ID])}
+    result = {KEY_CASE_ID: int(sample[KEY_CASE_ID]), KEY_IMAGES: [], KEY_LABELS: [], KEY_GLOBAL: []}
     return result
 
 
@@ -191,9 +194,27 @@ class HemisphericFlipFixedToCaseId(object):
     def __call__(self, sample):
         if int(sample[KEY_CASE_ID]) > self.split_id:
             result = emptyCopyFromSample(sample)
-            result[KEY_IMAGES] = np.flip(sample[KEY_IMAGES], DIM_HORIZONTAL_NUMPY_3D).copy()
-            result[KEY_LABELS] = np.flip(sample[KEY_LABELS], DIM_HORIZONTAL_NUMPY_3D).copy()
-            result[KEY_GLOBAL] = np.flip(sample[KEY_GLOBAL], DIM_HORIZONTAL_NUMPY_3D).copy()
+            if sample[KEY_IMAGES] != []:
+                result[KEY_IMAGES] = np.flip(sample[KEY_IMAGES], DIM_HORIZONTAL_NUMPY_3D).copy()
+            if sample[KEY_LABELS] != []:
+                result[KEY_LABELS] = np.flip(sample[KEY_LABELS], DIM_HORIZONTAL_NUMPY_3D).copy()
+            if sample[KEY_GLOBAL] != []:
+                result[KEY_GLOBAL] = np.flip(sample[KEY_GLOBAL], DIM_HORIZONTAL_NUMPY_3D).copy()
+            return result
+        return sample
+
+
+class HemisphericFlip(object):
+    """Flip numpy images along X-axis."""
+    def __call__(self, sample):
+        if random.random() > 0.5:
+            result = emptyCopyFromSample(sample)
+            if sample[KEY_IMAGES] != []:
+                result[KEY_IMAGES] = np.flip(sample[KEY_IMAGES], DIM_HORIZONTAL_NUMPY_3D).copy()
+            if sample[KEY_LABELS] != []:
+                result[KEY_LABELS] = np.flip(sample[KEY_LABELS], DIM_HORIZONTAL_NUMPY_3D).copy()
+            if sample[KEY_GLOBAL] != []:
+                result[KEY_GLOBAL] = np.flip(sample[KEY_GLOBAL], DIM_HORIZONTAL_NUMPY_3D).copy()
             return result
         return sample
 
@@ -216,8 +237,14 @@ class RandomPatch(object):
         rand_z = random.randint(0, sz - self._d)
 
         result = emptyCopyFromSample(sample)
-        result[KEY_IMAGES] = sample[KEY_IMAGES][rand_x: rand_x + self._w, rand_y: rand_y + self._h, rand_z: rand_z + self._d, :]
-        result[KEY_LABELS] = sample[KEY_LABELS][rand_x: rand_x + self._w - 2 * self._padx, rand_y: rand_y + self._h - 2 * self._pady, rand_z: rand_z + self._d - 2 * self._padz, :]
+        if sample[KEY_IMAGES] != []:
+            result[KEY_IMAGES] = sample[KEY_IMAGES][rand_x: rand_x + self._w,
+                                                    rand_y: rand_y + self._h,
+                                                    rand_z: rand_z + self._d, :]
+        if sample[KEY_LABELS] != []:
+            result[KEY_LABELS] = sample[KEY_LABELS][rand_x: rand_x + self._w - 2 * self._padx,
+                                                    rand_y: rand_y + self._h - 2 * self._pady,
+                                                    rand_z: rand_z + self._d - 2 * self._padz, :]
         result[KEY_GLOBAL] = sample[KEY_GLOBAL]
 
         return result
@@ -234,8 +261,9 @@ class PadImages(object):
     def __call__(self, sample):
         sx, sy, sz, sc = sample[KEY_IMAGES].shape
         result = emptyCopyFromSample(sample)
-        result[KEY_IMAGES] = np.ones((sx + 2 * self._padx, sy + 2 * self._pady, sz + 2 * self._padz, sc), dtype=np.float32) * self._pad_value
-        result[KEY_IMAGES][self._padx:-self._padx, self._pady:-self._pady, self._padz:-self._padz, :] = sample[KEY_IMAGES]
+        if sample[KEY_IMAGES] != []:
+            result[KEY_IMAGES] = np.ones((sx + 2 * self._padx, sy + 2 * self._pady, sz + 2 * self._padz, sc), dtype=np.float32) * self._pad_value
+            result[KEY_IMAGES][self._padx:-self._padx, self._pady:-self._pady, self._padz:-self._padz, :] = sample[KEY_IMAGES]
         result[KEY_LABELS] = sample[KEY_LABELS]
         result[KEY_GLOBAL] = sample[KEY_GLOBAL]
         return result
@@ -246,9 +274,12 @@ class ToTensor(object):
 
     def __call__(self, sample):
         result = emptyCopyFromSample(sample)
-        result[KEY_IMAGES] = torch.from_numpy(sample[KEY_IMAGES]).permute(3, 2, 1, 0)
-        result[KEY_LABELS] = torch.from_numpy(sample[KEY_LABELS]).permute(3, 2, 1, 0)
-        result[KEY_GLOBAL] = torch.from_numpy(sample[KEY_GLOBAL]).permute(3, 2, 1, 0)
+        if sample[KEY_IMAGES] != []:
+            result[KEY_IMAGES] = torch.from_numpy(sample[KEY_IMAGES]).permute(3, 2, 1, 0)
+        if sample[KEY_LABELS] != []:
+            result[KEY_LABELS] = torch.from_numpy(sample[KEY_LABELS]).permute(3, 2, 1, 0)
+        if sample[KEY_GLOBAL] != []:
+            result[KEY_GLOBAL] = torch.from_numpy(sample[KEY_GLOBAL]).permute(3, 2, 1, 0)
         return result
 
 
@@ -286,7 +317,7 @@ class ElasticDeform(object):
         for c in range(1, sample[KEY_LABELS].shape[3]):
             sample[KEY_LABELS][:, :, :, c], _ = self.elastic_transform(sample[KEY_LABELS][:, :, :, c], self._alpha,
                                                                        self._sigma, random_state=random_state)
-        if self._apply_to_images:
+        if self._apply_to_images and sample[KEY_IMAGES] != []:
             for c in range(sample[KEY_IMAGES].shape[3]):
                 sample[KEY_IMAGES][:, :, :, c], _ = self.elastic_transform(sample[KEY_IMAGES][:, :, :, c], self._alpha,
                                                                            self._sigma, random_state=random_state)
@@ -304,14 +335,20 @@ class ResamplePlaneXY(object):
 
     def __call__(self, sample):
         result = emptyCopyFromSample(sample)
-        sx, sy = ndi.zoom(sample[KEY_IMAGES][:, :, 0], self._scale_factor, order=0).shape[0:2]  # just for init
-        result[KEY_IMAGES] = sample[KEY_IMAGES][:sx, :sy, :, :]  # just for init correctly sized array with random values
-        result[KEY_LABELS] = sample[KEY_LABELS][:sx, :sy, :, :]  # just for init correctly sized array with random values
         result[KEY_GLOBAL] = sample[KEY_GLOBAL]
-        for c in range(sample[KEY_IMAGES].shape[DIM_CHANNEL_NUMPY_3D]):
-            for z in range(sample[KEY_IMAGES].shape[DIM_DEPTH_NUMPY_3D]):
-                result[KEY_IMAGES][:, :, z, c] = ndi.zoom(sample[KEY_IMAGES][:, :, z, c], self._scale_factor, order=self._order)
-        for c in range(sample[KEY_LABELS].shape[DIM_CHANNEL_NUMPY_3D]):
-            for z in range(sample[KEY_LABELS].shape[DIM_DEPTH_NUMPY_3D]):
-                result[KEY_LABELS][:, :, z, c] = ndi.zoom(sample[KEY_LABELS][:, :, z, c], self._scale_factor, order=self._order)
+
+        if sample[KEY_IMAGES] != []:
+            sx, sy = ndi.zoom(sample[KEY_IMAGES][:, :, 0], self._scale_factor, order=0).shape[0:2]  # just for init
+            result[KEY_IMAGES] = sample[KEY_IMAGES][:sx, :sy, :, :]  # just for init correctly sized array with random values
+            for c in range(sample[KEY_IMAGES].shape[DIM_CHANNEL_NUMPY_3D]):
+                for z in range(sample[KEY_IMAGES].shape[DIM_DEPTH_NUMPY_3D]):
+                    result[KEY_IMAGES][:, :, z, c] = ndi.zoom(sample[KEY_IMAGES][:, :, z, c], self._scale_factor, order=self._order)
+
+        if sample[KEY_LABELS] != []:
+            sx, sy = ndi.zoom(sample[KEY_LABELS][:, :, 0], self._scale_factor, order=0).shape[0:2]  # just for init
+            result[KEY_LABELS] = sample[KEY_LABELS][:sx, :sy, :, :]  # just for init correctly sized array with random values
+            for c in range(sample[KEY_LABELS].shape[DIM_CHANNEL_NUMPY_3D]):
+                for z in range(sample[KEY_LABELS].shape[DIM_DEPTH_NUMPY_3D]):
+                    result[KEY_LABELS][:, :, z, c] = ndi.zoom(sample[KEY_LABELS][:, :, z, c], self._scale_factor, order=self._order)
+
         return result

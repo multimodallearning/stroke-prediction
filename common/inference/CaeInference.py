@@ -19,13 +19,11 @@ class CaeInference(Inference):
         to_to_ta = batch[data.KEY_GLOBAL][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5).type(torch.FloatTensor)
         normalization = torch.ones(to_to_ta.size()[0], 1).type(torch.FloatTensor) * \
                         self._normalization_hours_penumbra - to_to_ta.squeeze().unsqueeze(data.DIM_CHANNEL_TORCH3D_5)
-        return to_to_ta, normalization
+        return normalization
 
     def init_clinical_variables(self, batch: dict, step=None):
-        to_to_ta, normalization = self._get_normalized_time(batch)
-
-        globals_no_times = batch[data.KEY_GLOBAL][:, 2:, :, :, :].type(torch.FloatTensor)
-        globals_incl_time = Variable(torch.cat((to_to_ta, globals_no_times), dim=data.DIM_CHANNEL_TORCH3D_5))
+        normalization = self._get_normalized_time(batch)
+        globals_incl_time = Variable(batch[data.KEY_GLOBAL].type(torch.FloatTensor))
         type_core = Variable(torch.zeros(globals_incl_time.size()[0], 1, 1, 1, 1))
         type_penumbra = Variable(torch.ones(globals_incl_time.size()[0], 1, 1, 1, 1))
 
@@ -62,6 +60,6 @@ class CaeInference(Inference):
 
     def inference_step(self, batch: dict, step=None):
         dto = self.init_clinical_variables(batch, step)
-        dto.mode = CaeDtoUtil.MODE_GTRUTH
+        dto.mode = CaeDtoUtil.FLAG_GTRUTH
         dto = self.init_gtruth_segm_variables(batch, dto)
         return self.infer(dto)

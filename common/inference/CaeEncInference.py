@@ -30,12 +30,12 @@ class CaeEncInference(CaeInference):
     def inference_step(self, batch: dict, step=None):
         dto = self.init_clinical_variables(batch, step)
 
-        dto.mode = CaeDtoUtil.MODE_INPUTS
+        dto.mode = CaeDtoUtil.FLAG_INPUTS
         dto = self.init_unet_segm_variables(batch, dto)
         dto = self._new_enc(dto)
         dto = self._model.dec(dto)
 
-        dto.mode = CaeDtoUtil.MODE_GTRUTH
+        dto.mode = CaeDtoUtil.FLAG_GTRUTH
         dto = self.init_gtruth_segm_variables(batch, dto)
         dto = self._model(dto)
 

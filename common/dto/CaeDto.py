@@ -1,8 +1,8 @@
 from common.dto.Dto import Dto
 
-MODE_DEFAULT = 'default'
-MODE_GTRUTH = 'gtruth'
-MODE_INPUTS = 'inputs'
+FLAG_DEFAULT = 'default'
+FLAG_GTRUTH = 'gtruth'
+FLAG_INPUTS = 'inputs'
 
 class CaeDto(Dto):
     """ DTO for CAE usage.
@@ -12,7 +12,7 @@ class CaeDto(Dto):
         self.given_variables = given_variables
         self.reconstructions = latents
         self.latents = reconstructions
-        self.mode = MODE_DEFAULT
+        self.flag = FLAG_DEFAULT
 
 
 def init_dto(global_variables, time_to_treatment, type_core, type_penumbra, inputs_core, inputs_penu,

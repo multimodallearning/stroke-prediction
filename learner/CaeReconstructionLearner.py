@@ -48,8 +48,11 @@ class CaeReconstructionLearner(Learner, CaeInference):
         return numpy.Inf
 
     def loss_step(self, dto: CaeDto, epoch):
+        factor = min(0.04 * max(0, epoch - 25), 1)
+        print(factor, end=' ')
+
         loss = 0.0
-        divd = 6
+        divd = 5 + factor
 
         diff_penu_fuct = dto.reconstructions.gtruth.penu - dto.reconstructions.gtruth.interpolation
         diff_penu_core = dto.reconstructions.gtruth.penu - dto.reconstructions.gtruth.core
@@ -60,7 +63,7 @@ class CaeReconstructionLearner(Learner, CaeInference):
         loss += 1 * self._criterion(dto.reconstructions.gtruth.penu, dto.given_variables.gtruth.penu)
         loss += 1 * self._criterion(dto.reconstructions.gtruth.lesion, dto.given_variables.gtruth.lesion)
 
-        loss += 1 * torch.mean(torch.abs(dto.latents.gtruth.interpolation - dto.latents.gtruth.lesion))
+        loss += factor * torch.mean(torch.abs(dto.latents.gtruth.interpolation - dto.latents.gtruth.lesion))
 
         return loss / divd
 

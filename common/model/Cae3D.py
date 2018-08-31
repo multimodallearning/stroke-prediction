@@ -100,7 +100,7 @@ class Enc3D(CaeBase):
     def forward(self, dto: CaeDto):
         step = self._get_step(dto)
 
-        if dto.mode == CaeDtoUtil.MODE_GTRUTH or dto.mode == CaeDtoUtil.MODE_DEFAULT:
+        if dto.flag == CaeDtoUtil.FLAG_GTRUTH or dto.flag == CaeDtoUtil.FLAG_DEFAULT:
             assert dto.latents.gtruth._is_empty()  # Don't accidentally overwrite other results by code mistakes
             dto.latents.gtruth.core = self._forward_single(dto.given_variables.gtruth.core)
             dto.latents.gtruth.penu = self._forward_single(dto.given_variables.gtruth.penu)
@@ -108,7 +108,7 @@ class Enc3D(CaeBase):
             dto.latents.gtruth.interpolation = self._interpolate(dto.latents.gtruth.core,
                                                                  dto.latents.gtruth.penu,
                                                                  step)
-        if dto.mode == CaeDtoUtil.MODE_INPUTS or dto.mode == CaeDtoUtil.MODE_DEFAULT:
+        if dto.flag == CaeDtoUtil.FLAG_INPUTS or dto.flag == CaeDtoUtil.FLAG_DEFAULT:
             assert dto.latents.inputs._is_empty()  # Don't accidentally overwrite other results by code mistakes
             dto.latents.inputs.core = self._forward_single(dto.given_variables.inputs.core)
             dto.latents.inputs.penu = self._forward_single(dto.given_variables.inputs.penu)
@@ -123,16 +123,15 @@ class Enc3DStep(Enc3D):
         super().__init__(size_input_xy, size_input_z, channels, n_ch_global, alpha)
 
         self.step = nn.Sequential(
-            nn.Linear(self.n_ch_globals, self.n_ch_globals),
+            nn.Conv3d(self.n_ch_global, self.n_ch_global, 1),
             nn.ELU(self.alpha, True),
-            nn.Linear(self.n_ch_globals, self.n_ch_globals // 2),
-            nn.ELU(self.alpha, True),
-            nn.Linear(self.n_ch_globals // 2, 1)
+            nn.Conv3d(self.n_ch_global, 1, 1)
         )
 
     def _get_step(self, dto: CaeDto):
-        step = self.step(dto.given_variables.globals)
-        return step
+        return super()._get_step(dto)
+        #step = self.step(dto.given_variables.globals)
+        #return step
 
 
 class Enc3DCtp(Enc3D):
@@ -149,7 +148,7 @@ class Enc3DCtp(Enc3D):
         ttd = dto.given_variables.inputs.penu[:, :, self._padding[0]:-self._padding[0],
                                                     self._padding[1]:-self._padding[1],
                                                     self._padding[2]:-self._padding[2]]
-        if dto.mode == CaeDtoUtil.MODE_GTRUTH or dto.mode == CaeDtoUtil.MODE_DEFAULT:
+        if dto.flag == CaeDtoUtil.FLAG_GTRUTH or dto.flag == CaeDtoUtil.FLAG_DEFAULT:
             cat_core = torch.cat((dto.given_variables.gtruth.core, cbv, ttd), dim=data.DIM_CHANNEL_TORCH3D_5)
             cat_penu = torch.cat((dto.given_variables.gtruth.penu, cbv, ttd), dim=data.DIM_CHANNEL_TORCH3D_5)
             cat_lesion = torch.cat((dto.given_variables.gtruth.lesion, cbv, ttd), dim=data.DIM_CHANNEL_TORCH3D_5)
@@ -218,13 +217,13 @@ class Dec3D(CaeBase):
         return self.decoder(input_latent)
 
     def forward(self, dto: CaeDto):
-        if dto.mode == CaeDtoUtil.MODE_GTRUTH or dto.mode == CaeDtoUtil.MODE_DEFAULT:
+        if dto.flag == CaeDtoUtil.FLAG_GTRUTH or dto.flag == CaeDtoUtil.FLAG_DEFAULT:
             assert dto.reconstructions.gtruth._is_empty()  # Don't accidentally overwrite other results by code mistakes
             dto.reconstructions.gtruth.core = self._forward_single(dto.latents.gtruth.core)
             dto.reconstructions.gtruth.penu = self._forward_single(dto.latents.gtruth.penu)
             dto.reconstructions.gtruth.lesion = self._forward_single(dto.latents.gtruth.lesion)
             dto.reconstructions.gtruth.interpolation = self._forward_single(dto.latents.gtruth.interpolation)
-        if dto.mode == CaeDtoUtil.MODE_INPUTS or dto.mode == CaeDtoUtil.MODE_DEFAULT:
+        if dto.flag == CaeDtoUtil.FLAG_INPUTS or dto.flag == CaeDtoUtil.FLAG_DEFAULT:
             assert dto.reconstructions.inputs._is_empty()  # Don't accidentally overwrite other results by code mistakes
             dto.reconstructions.inputs.core = self._forward_single(dto.latents.inputs.core)
             dto.reconstructions.inputs.penu = self._forward_single(dto.latents.inputs.penu)
