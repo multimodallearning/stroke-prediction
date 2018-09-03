@@ -125,13 +125,15 @@ class Enc3DStep(Enc3D):
         self.step = nn.Sequential(
             nn.Conv3d(self.n_ch_global, self.n_ch_global, 1),
             nn.ELU(self.alpha, True),
-            nn.Conv3d(self.n_ch_global, 1, 1)
+            nn.Conv3d(self.n_ch_global, 1, 1),
+            nn.Sigmoid()
         )
 
+
     def _get_step(self, dto: CaeDto):
-        return super()._get_step(dto)
-        #step = self.step(dto.given_variables.globals)
-        #return step
+        step = self.step(dto.given_variables.globals)
+        print('step', step)
+        return step
 
 
 class Enc3DCtp(Enc3D):
