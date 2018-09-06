@@ -15,31 +15,35 @@ class CaeInference(Inference):
         Inference.__init__(self, model)
         self._normalization_hours_penumbra = normalization_hours_penumbra
 
-    def _get_normalized_time(self, batch):
+    def _get_normalization(self, batch):
         to_to_ta = batch[data.KEY_GLOBAL][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5).type(torch.FloatTensor)
         normalization = torch.ones(to_to_ta.size()[0], 1).type(torch.FloatTensor) * \
                         self._normalization_hours_penumbra - to_to_ta.squeeze().unsqueeze(data.DIM_CHANNEL_TORCH3D_5)
         return normalization
 
-    def init_clinical_variables(self, batch: dict, step=None):
-        normalization = self._get_normalized_time(batch)
-        globals_incl_time = Variable(batch[data.KEY_GLOBAL].type(torch.FloatTensor))
-        type_core = Variable(torch.zeros(globals_incl_time.size()[0], 1, 1, 1, 1))
-        type_penumbra = Variable(torch.ones(globals_incl_time.size()[0], 1, 1, 1, 1))
-
+    def get_time_to_treatment(self, batch, globals_incl_time, step):
+        normalization = self._get_normalization(batch)
         if step is None:
             ta_to_tr = batch[data.KEY_GLOBAL][:, 1, :, :, :].squeeze().unsqueeze(data.DIM_CHANNEL_TORCH3D_5)
             time_to_treatment = Variable(ta_to_tr.type(torch.FloatTensor) / normalization)
         else:
             time_to_treatment = Variable((step * torch.ones(globals_incl_time.size()[0], 1)) / normalization)
+        return time_to_treatment.unsqueeze(2).unsqueeze(3).unsqueeze(4)
+
+    def init_clinical_variables(self, batch: dict, step):
+        globals_incl_time = Variable(batch[data.KEY_GLOBAL].type(torch.FloatTensor))
+        type_core = Variable(torch.zeros(globals_incl_time.size()[0], 1, 1, 1, 1))
+        type_penumbra = Variable(torch.ones(globals_incl_time.size()[0], 1, 1, 1, 1))
+        time_to_treatment = self.get_time_to_treatment(batch, globals_incl_time, step)
 
         if self.is_cuda:
+            if time_to_treatment is not None:
+                time_to_treatment = time_to_treatment.cuda()
             globals_incl_time = globals_incl_time.cuda()
-            time_to_treatment = time_to_treatment.cuda()
             type_core = type_core.cuda()
             type_penumbra = type_penumbra.cuda()
 
-        return CaeDtoUtil.init_dto(globals_incl_time, time_to_treatment.unsqueeze(2).unsqueeze(3).unsqueeze(4),
+        return CaeDtoUtil.init_dto(globals_incl_time, time_to_treatment,
                                    type_core, type_penumbra, None, None, None, None, None)
 
     def init_gtruth_segm_variables(self, batch: dict, dto: CaeDto):

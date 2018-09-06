@@ -107,6 +107,13 @@ def get_args_shape_training():
     args = parser.parse_args()
     return args
 
+def get_args_step_training():
+    parser = CAEParser()
+    parser.add_argument('caepath', type=str, help='Path to previously trained cae phase1 model')
+    parser.add_argument('--channelscae', type=int, nargs='+', help='CAE channels', default=[1, 16, 24, 32, 100, 200, 1])
+    args = parser.parse_args()
+    return args
+
 
 def get_args_shape_prediction_training():
     parser = CAEParser()

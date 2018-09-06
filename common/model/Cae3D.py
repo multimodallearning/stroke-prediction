@@ -122,17 +122,23 @@ class Enc3DStep(Enc3D):
     def __init__(self, size_input_xy, size_input_z, channels, n_ch_global, alpha):
         super().__init__(size_input_xy, size_input_z, channels, n_ch_global, alpha)
 
-        self.step = nn.Sequential(
+        self.reduce = nn.Sequential(
             nn.Conv3d(self.n_ch_global, self.n_ch_global, 1),
             nn.ELU(self.alpha, True),
-            nn.Conv3d(self.n_ch_global, 1, 1),
-            nn.Sigmoid()
+            nn.Conv3d(self.n_ch_global, self.n_ch_global // 2, 1),
+            nn.ELU(self.alpha, True),
         )
 
+        self.step = nn.Conv3d(self.n_ch_global // 2, 1, 1)
+        torch.nn.init.normal(self.step.weight, 0, 0.001)  # crucial and important!
+        torch.nn.init.normal(self.step.bias, 0.5, 0.01)  # crucial and important!
+
+        self.sigmoid = nn.Sigmoid()  # slows down learning, but ensures [0,1] range and adds another non-linearity
 
     def _get_step(self, dto: CaeDto):
-        step = self.step(dto.given_variables.globals)
-        print('step', step)
+        step = dto.given_variables.time_to_treatment
+        if step is None:
+            step = self.sigmoid(self.step(self.reduce(dto.given_variables.globals)))
         return step
 
 
