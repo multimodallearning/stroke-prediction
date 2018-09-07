@@ -175,25 +175,29 @@ class Learner(Inference):
             for batch in self._dataloader_training:
                 epoch_metrics.add(self.train_batch(batch, epoch))
             epoch_metrics.div(len(self._dataloader_training))
+            del batch
 
             self.print_epoch(epoch, 'training', epoch_metrics)
             self._metric_dtos['training'].append(epoch_metrics)
             del epoch_metrics
-            del batch
 
             # ---------------------------- (2) VALIDATE ---------------------------- #
 
             self._model.eval()
 
-            epoch_metrics = MetricMeasuresDtoInit.init_dto()
-            for batch in self._dataloader_validation:
-                epoch_metrics.add(self.validate_batch(batch, epoch))
-            epoch_metrics.div(len(self._dataloader_validation))
+            if self._dataloader_validation is None:
+                epoch_metrics = MetricMeasuresDtoInit.init_dto(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                                               0.0, 0.0)
+            else:
+                epoch_metrics = MetricMeasuresDtoInit.init_dto()
+                for batch in self._dataloader_validation:
+                    epoch_metrics.add(self.validate_batch(batch, epoch))
+                epoch_metrics.div(len(self._dataloader_validation))
+                del batch
 
             self.print_epoch(epoch, 'validate', epoch_metrics)
             self._metric_dtos['validate'].append(epoch_metrics)
             del epoch_metrics
-            del batch
 
             # ------------ (3) SAVE MODEL / VISUALIZE (if new optimum) ------------ #
 
@@ -202,6 +206,9 @@ class Learner(Inference):
                 self.save_model()
                 self.save_training()  # allows to continue if training has been interrupted
                 print('(New optimum: Training saved)', end=' ')
+                self.visualize_epoch(epoch)
+
+            if epoch % 50 == 0:
                 self.visualize_epoch(epoch)
 
             # ----------------- (4) PLOT / SAVE EVALUATION METRICS ---------------- #

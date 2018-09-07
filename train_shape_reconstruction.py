@@ -7,6 +7,7 @@ from common import data, util, metrics
 
 def train(args):
     # Params / Config
+    use_validation = True
     learning_rate = 1e-3
     momentums_cae = (0.9, 0.999)
     weight_decay = 1e-5
@@ -52,10 +53,15 @@ def train(args):
               '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled']
 
     ds_train, ds_valid = data.get_stroke_shape_training_data(modalities, labels, train_transform, valid_transform,
-                                                             args.fold, args.validsetsize, batchsize=args.batchsize)
-    print('Size training set:', len(ds_train.sampler.indices), 'samples | Size validation set:', len(ds_valid.sampler.indices),
-          'samples | Capacity batch:', args.batchsize, 'samples')
-    print('# training batches:', len(ds_train), '| # validation batches:', len(ds_valid))
+                                                             args.fold, args.validsetsize, batchsize=args.batchsize, split=use_validation)
+    if use_validation:
+        print('Size training set:', len(ds_train.sampler.indices), 'samples | Size validation set:', len(ds_valid.sampler.indices),
+              'samples | Capacity batch:', args.batchsize, 'samples')
+        print('# training batches:', len(ds_train), '| # validation batches:', len(ds_valid))
+    else:
+        print('Size training set:', len(ds_train.sampler.indices),
+              'samples | Size validation set: 0 samples | Capacity batch:', args.batchsize, 'samples')
+        print('# training batches:', len(ds_train), '| # validation batches:', 0)
 
     # Training
     learner = CaeReconstructionLearner(ds_train, ds_valid, cae, optimizer, scheduler,

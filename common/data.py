@@ -147,22 +147,49 @@ def split_data_loader3D(modalities, labels, indices, batch_size, random_seed=Non
     return (train_loader, valid_loader)
 
 
-def get_stroke_shape_training_data(modalities, labels, train_transform, valid_transform, fold_indices, ratio, seed=4,
-                                   batchsize=2):
-    ds_train, ds_valid = split_data_loader3D(modalities, labels, fold_indices, batchsize, random_seed=seed,
-                                             valid_size=ratio, train_transform=train_transform,
-                                             valid_transform=valid_transform, num_workers=0)
+def single_data_loader3D(modalities, labels, indices, batch_size, random_seed=None, valid_size=0.5, shuffle=True,
+                         num_workers=4, pin_memory=False, train_transform=[]):
+    assert ((valid_size >= 0) and (valid_size <= 1)), "[!] valid_size should be in the range [0, 1]."
+    assert train_transform, "You must provide at least a numpy-to-torch transformation."
 
-    return ds_train, ds_valid
+    # load the dataset
+    dataset_train = StrokeLindaDataset3D(modalities=modalities, labels=labels,
+                                         transform=transforms.Compose(train_transform))
+
+    items = list(set(range(len(dataset_train))).intersection(set(indices)))
+
+    if shuffle == True:
+        random_state = np.random.RandomState(random_seed)
+        random_state.shuffle(items)
+
+    train_sampler = SubsetRandomSampler(items)
+
+    train_loader = DataLoader(dataset_train,
+                    batch_size=batch_size, sampler=train_sampler,
+                    num_workers=num_workers, pin_memory=pin_memory,
+                    worker_init_fn=set_np_seed)
+
+    return train_loader
+
+
+def get_stroke_shape_training_data(modalities, labels, train_transform, valid_transform, fold_indices, ratio, seed=4,
+                                   batchsize=2, split=True):
+    if split:
+        return split_data_loader3D(modalities, labels, fold_indices, batchsize, random_seed=seed,
+                                   valid_size=ratio, train_transform=train_transform,
+                                   valid_transform=valid_transform, num_workers=0)
+    return single_data_loader3D(modalities, labels, fold_indices, batchsize, random_seed=seed,
+                                valid_size=ratio, train_transform=train_transform, num_workers=0), None
 
 
 def get_stroke_prediction_training_data(modalities, labels, train_transform, valid_transform, fold_indices, ratio,
-                                        seed=4, batchsize=2):
-    ds_train, ds_valid = split_data_loader3D(modalities, labels, fold_indices, batchsize, random_seed=seed,
-                                             valid_size=ratio, train_transform=train_transform,
-                                             valid_transform=valid_transform, num_workers=0)
-
-    return ds_train, ds_valid
+                                        seed=4, batchsize=2, split=True):
+    if split:
+        return split_data_loader3D(modalities, labels, fold_indices, batchsize, random_seed=seed,
+                                   valid_size=ratio, train_transform=train_transform,
+                                   valid_transform=valid_transform, num_workers=0)
+    return single_data_loader3D(modalities, labels, fold_indices, batchsize, random_seed=seed,
+                                valid_size=ratio, train_transform=train_transform, num_workers=0), None
 
 
 def get_testdata(modalities, labels, indices, random_seed=None, shuffle=True, num_workers=4, pin_memory=False,

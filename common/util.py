@@ -19,16 +19,17 @@ def get_vis_samples(train_loader, valid_loader):
         visual_times.append(float(tA_to_tR_tmp))
         if len(visual_samples) > n_vis_samples / 2 - 1:
             break;
-    for i in valid_loader.sampler.indices:
-        sample = valid_loader.dataset[i]
-        sample[data.KEY_IMAGES] = sample[data.KEY_IMAGES].unsqueeze(0)
-        sample[data.KEY_LABELS] = sample[data.KEY_LABELS].unsqueeze(0)
-        sample[data.KEY_GLOBAL] = sample[data.KEY_GLOBAL].unsqueeze(0)
-        visual_samples.append(sample)
-        tA_to_tR_tmp = sample[data.KEY_GLOBAL][0, 1, :, :, :]
-        visual_times.append(float(tA_to_tR_tmp))
-        if len(visual_samples) > n_vis_samples - 1:
-            break;
+    if valid_loader is not None:
+        for i in valid_loader.sampler.indices:
+            sample = valid_loader.dataset[i]
+            sample[data.KEY_IMAGES] = sample[data.KEY_IMAGES].unsqueeze(0)
+            sample[data.KEY_LABELS] = sample[data.KEY_LABELS].unsqueeze(0)
+            sample[data.KEY_GLOBAL] = sample[data.KEY_GLOBAL].unsqueeze(0)
+            visual_samples.append(sample)
+            tA_to_tR_tmp = sample[data.KEY_GLOBAL][0, 1, :, :, :]
+            visual_times.append(float(tA_to_tR_tmp))
+            if len(visual_samples) > n_vis_samples - 1:
+                break;
 
     return visual_samples, visual_times
 
