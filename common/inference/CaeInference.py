@@ -21,13 +21,13 @@ class CaeInference(Inference):
                         self._normalization_hours_penumbra - to_to_ta.squeeze().unsqueeze(data.DIM_CHANNEL_TORCH3D_5)
         return normalization
 
-    def get_time_to_treatment(self, batch, globals_incl_time, step):
+    def get_time_to_treatment(self, batch, global_variables, step):
         normalization = self._get_normalization(batch)
         if step is None:
             ta_to_tr = batch[data.KEY_GLOBAL][:, 1, :, :, :].squeeze().unsqueeze(data.DIM_CHANNEL_TORCH3D_5)
             time_to_treatment = Variable(ta_to_tr.type(torch.FloatTensor) / normalization)
         else:
-            time_to_treatment = Variable((step * torch.ones(globals_incl_time.size()[0], 1)) / normalization)
+            time_to_treatment = Variable((step * torch.ones(global_variables.size()[0], 1)) / normalization)
         return time_to_treatment.unsqueeze(2).unsqueeze(3).unsqueeze(4)
 
     def init_clinical_variables(self, batch: dict, step):

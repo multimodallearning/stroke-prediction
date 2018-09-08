@@ -12,7 +12,7 @@ import numpy as np
 class CaeReconstructionTester(Tester, CaeInference):
     def __init__(self, dataloader, path_model, path_outputs_base='/tmp/', normalization_hours_penumbra=10):
         Tester.__init__(self, dataloader, path_model, path_outputs_base=path_outputs_base)
-        CaeInference.__init__(self, self._model, path_model, path_outputs_base, normalization_hours_penumbra)
+        CaeInference.__init__(self, self._model, normalization_hours_penumbra)
         # TODO: This needs some refactoring (double initialization of model, path etc)
 
     def batch_metrics_step(self, dto: CaeDto):
