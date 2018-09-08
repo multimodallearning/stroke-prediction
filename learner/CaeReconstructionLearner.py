@@ -1,3 +1,5 @@
+import matplotlib
+matplotlib.use('Agg')
 from learner.Learner import Learner
 from common.dto.CaeDto import CaeDto
 from common.inference.CaeInference import CaeInference
