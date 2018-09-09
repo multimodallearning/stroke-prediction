@@ -7,7 +7,7 @@ from common import data, util, metrics
 
 def train(args):
     # Params / Config
-    use_validation = True
+    use_validation = not args.steplearning
     learning_rate = 1e-3
     momentums_cae = (0.9, 0.999)
     weight_decay = 1e-5
