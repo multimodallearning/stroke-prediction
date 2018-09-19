@@ -31,13 +31,10 @@ class CaeReconstructionLearner(Learner, CaeInference):
             betas = list(betas)
             betas[0] -= 0.1 * (self.N_EPOCHS_ADAPT_BETA1 - epoch)
             betas = tuple(betas)
+        if not epoch > self.N_EPOCHS_ADAPT_BETA1:
             for param_group in self._optimizer.param_groups:
                 param_group['betas'] = betas
-            print('Momentum betas have been set to:', param_group['betas'], end=' ')
-        elif epoch == self.N_EPOCHS_ADAPT_BETA1:
-            for param_group in self._optimizer.param_groups:
-                param_group['betas'] = betas
-            print('Momentum betas have been set to:', param_group['betas'], end=' ')
+            print('\nEpoch', str(epoch + 1)+'/'+str(self._n_epochs), 'Momentum betas have been set to:', param_group['betas'], end=' ')
 
     def get_start_epoch(self):
         if self._metric_dtos['training']:
@@ -50,7 +47,7 @@ class CaeReconstructionLearner(Learner, CaeInference):
         return numpy.Inf
 
     def loss_step(self, dto: CaeDto, epoch):
-        factor = min(0.04 * max(0, epoch - 25), 1)
+        factor = min(0.04 * max(0, epoch - 1), 1)
         print(factor, end=' ')
 
         loss = 0.0
@@ -90,17 +87,27 @@ class CaeReconstructionLearner(Learner, CaeInference):
                             epoch_metrics.penu.dc), end=' ')
 
     def plot_epoch(self, plot, epochs):
-        plot.plot(epochs, [dto.loss for dto in self._metric_dtos['training']], 'r-')
-        plot.plot(epochs, [dto.loss for dto in self._metric_dtos['validate']], 'g-')
-        plot.plot(epochs, [dto.lesion.dc for dto in self._metric_dtos['validate']], 'k-')
-        plot.plot(epochs, [dto.core.dc for dto in self._metric_dtos['validate']], 'c+')
-        plot.plot(epochs, [dto.penu.dc for dto in self._metric_dtos['validate']], 'm+')
-        plot.set_ylabel('L Train.(red)/Val.(green) | Dice Val. Lesion(b), Core(c), Penu(m)')
-        plot.set_ylim(0, 1)
-        ax2 = plot.twinx()
-        ax2.plot(epochs, [dto.lesion.assd for dto in self._metric_dtos['validate']], 'b-')
-        ax2.set_ylabel('Validation ASSD (blue)', color='b')
-        ax2.tick_params('y', colors='b')
+        if self._dataloader_validation is None:
+            plot.plot(epochs, [dto.loss for dto in self._metric_dtos['training']], 'r-')
+            plot.set_ylabel('Loss Training (r)')
+            plot.set_ylim(0, 0.6)
+            ax2 = plot.twinx()
+            ax2.plot(epochs, [dto.lesion.dc for dto in self._metric_dtos['training']], 'k-')
+            ax2.set_ylabel('Training Dice (b)')
+            ax2.tick_params('y', colors='k')
+            ax2.set_ylim(0, 1)
+        else:
+            plot.plot(epochs, [dto.loss for dto in self._metric_dtos['training']], 'r-')
+            plot.plot(epochs, [dto.loss for dto in self._metric_dtos['validate']], 'g-')
+            plot.plot(epochs, [dto.lesion.dc for dto in self._metric_dtos['validate']], 'k-')
+            plot.plot(epochs, [dto.core.dc for dto in self._metric_dtos['validate']], 'c+')
+            plot.plot(epochs, [dto.penu.dc for dto in self._metric_dtos['validate']], 'm+')
+            plot.set_ylabel('L Train.(red)/Val.(green) | Dice Val. Lesion(b), Core(c), Penu(m)')
+            plot.set_ylim(0, 1)
+            ax2 = plot.twinx()
+            ax2.plot(epochs, [dto.lesion.assd for dto in self._metric_dtos['validate']], 'b-')
+            ax2.set_ylabel('Validation ASSD (blue)', color='b')
+            ax2.tick_params('y', colors='b')
 
     def visualize_epoch(self, epoch):
         visual_samples, visual_times = util.get_vis_samples(self._dataloader_training, self._dataloader_validation)
@@ -110,11 +117,11 @@ class CaeReconstructionLearner(Learner, CaeInference):
         for sample, time in zip(visual_samples, visual_times):
 
             col = 3
-            for step in [None, -10, -1, 0, 1, 2, 3, 4, 5, 20]:
+            for step in [None, float(time), -10, 0, 1, 2, 3, 4, 5, 10]:
                 dto = self.inference_step(sample, step)
                 axarr[inc, col].imshow(dto.reconstructions.gtruth.interpolation.cpu().data.numpy()[0, 0, 14, :, :],
                                        vmin=0, vmax=1, cmap='gray')
-                if col == 3:
+                if col == 4:
                     col += 1
                 col += 1
 
@@ -124,7 +131,7 @@ class CaeReconstructionLearner(Learner, CaeInference):
                                  vmin=0, vmax=self.IMSHOW_VMAX_TTD, cmap='jet')
             axarr[inc, 2].imshow(dto.given_variables.gtruth.lesion.cpu().data.numpy()[0, 0, 14, :, :],
                                  vmin=0, vmax=1, cmap='gray')
-            axarr[inc, 4].imshow(dto.given_variables.gtruth.core.cpu().data.numpy()[0, 0, 14, :, :],
+            axarr[inc, 5].imshow(dto.given_variables.gtruth.core.cpu().data.numpy()[0, 0, 14, :, :],
                                  vmin=0, vmax=1, cmap='gray')
             axarr[inc, 14].imshow(dto.given_variables.gtruth.penu.cpu().data.numpy()[0, 0, 14, :, :],
                                   vmin=0, vmax=1, cmap='gray')
@@ -132,11 +139,10 @@ class CaeReconstructionLearner(Learner, CaeInference):
             del sample
             del dto
 
-            titles = ['CBV', 'TTD', 'Lesion', 'p(' +
-                      ('{:03.1f}'.format(float(time)))
-                      + 'h)', 'Core', 'p(-10h)', 'p(-1h)', 'p(0h)', 'p(1h)', 'p(2h)', 'p(3h)', 'p(4h)', 'p(5h)',
-                      'p(20h)',
-                      'Penumbra']
+            titles = ['CBV', 'TTD', 'Lesion',
+                      'p(' + ('{:03.1f}'.format(float(time))) + 'h?)',
+                      'p(' + ('{:03.1f}'.format(float(time))) + 'h!)',
+                      'Core', 'p(-10h)', 'p(0h)', 'p(1h)', 'p(2h)', 'p(3h)', 'p(4h)', 'p(5h)', 'p(10h)', 'Penumbra']
 
             for ax, title in zip(axarr[inc], titles):
                 ax.set_title(title)

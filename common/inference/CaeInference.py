@@ -44,7 +44,7 @@ class CaeInference(Inference):
             type_penumbra = type_penumbra.cuda()
 
         return CaeDtoUtil.init_dto(globals_incl_time, time_to_treatment,
-                                   type_core, type_penumbra, None, None, None, None, None)
+                                   type_core, type_penumbra, None, None, None, None, None, None, None)
 
     def init_gtruth_segm_variables(self, batch: dict, dto: CaeDto):
         core_gt = Variable(batch[data.KEY_LABELS][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))

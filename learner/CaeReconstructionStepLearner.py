@@ -4,7 +4,7 @@ from torch.autograd import Variable
 import torch
 
 
-class CaeStepLearner(CaeReconstructionLearner):
+class CaeReconstructionStepLearner(CaeReconstructionLearner):
     """ A Learner to learn best interpolation steps for the
     reconstruction shape space. Uses CaeDto data transfer objects.
     """

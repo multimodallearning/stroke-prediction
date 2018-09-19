@@ -5,8 +5,7 @@ from common import data
 # ======================= DETERMINISTIC DATA ===========================
 
 
-def get_vis_samples(train_loader, valid_loader):
-    n_vis_samples = 6
+def get_vis_samples(train_loader, valid_loader, n_vis_samples=6):
     visual_samples = []
     visual_times = []
     for i in train_loader.sampler.indices:
@@ -18,7 +17,8 @@ def get_vis_samples(train_loader, valid_loader):
         tA_to_tR_tmp = sample[data.KEY_GLOBAL][0, 1, :, :, :]
         visual_times.append(float(tA_to_tR_tmp))
         if len(visual_samples) > n_vis_samples / 2 - 1:
-            break;
+            if valid_loader is not None or len(visual_samples) > n_vis_samples - 1:
+                break;
     if valid_loader is not None:
         for i in valid_loader.sampler.indices:
             sample = valid_loader.dataset[i]

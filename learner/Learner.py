@@ -19,6 +19,8 @@ class Learner(Inference):
     be overridden by subclasses to specify the
     procedures required for a specific training.
     """
+    CHECKPOINT_MODEL = 25    # every CHECKPOINT epoch
+    CHECKPOINT_VISUAL = 5    # every CHECKPOINT epoch
     FNB_MODEL = 'model'      # filename base for model data
     FNB_OPTIM = 'optimizer'  # filename base for optimizer state dict
     FNB_TRAIN = 'training'   # filename base for training data
@@ -194,8 +196,8 @@ class Learner(Inference):
                     epoch_metrics.add(self.validate_batch(batch, epoch))
                 epoch_metrics.div(len(self._dataloader_validation))
                 del batch
+                self.print_epoch(epoch, 'validate', epoch_metrics)
 
-            self.print_epoch(epoch, 'validate', epoch_metrics)
             self._metric_dtos['validate'].append(epoch_metrics)
             del epoch_metrics
 
@@ -208,7 +210,11 @@ class Learner(Inference):
                 print('(New optimum: Training saved)', end=' ')
                 self.visualize_epoch(epoch)
 
-            if epoch % 50 == 0:
+            if epoch % self.CHECKPOINT_MODEL == 0:
+                self.save_model('_' + str(epoch))
+                self.save_training()
+
+            if epoch % self.CHECKPOINT_VISUAL == 0:
                 self.visualize_epoch(epoch)
 
             # ----------------- (4) PLOT / SAVE EVALUATION METRICS ---------------- #
