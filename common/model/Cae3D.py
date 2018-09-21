@@ -150,10 +150,10 @@ class Enc3DCtp(Enc3D):
 
     def forward(self, dto: CaeDto):
         step = self._get_step(dto)
-        cbv = dto.given_variables.inputs.core[:, :, self._padding[0]:-self._padding[0],
+        cbv = dto.given_variables.inputs.cbv[:, :, self._padding[0]:-self._padding[0],
                                                     self._padding[1]:-self._padding[1],
                                                     self._padding[2]:-self._padding[2]]
-        ttd = dto.given_variables.inputs.penu[:, :, self._padding[0]:-self._padding[0],
+        ttd = dto.given_variables.inputs.ttd[:, :, self._padding[0]:-self._padding[0],
                                                     self._padding[1]:-self._padding[1],
                                                     self._padding[2]:-self._padding[2]]
         if dto.flag == CaeDtoUtil.FLAG_GTRUTH or dto.flag == CaeDtoUtil.FLAG_DEFAULT:

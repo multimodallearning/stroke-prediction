@@ -1,7 +1,8 @@
 import torch
 import datetime
 from learner.CaeMultiChannelReconstructionStepLearner import CaeMultiChannelReconstructionStepLearner
-from common.model.CaeElemInt3D import Cae3D, Enc3D, Dec3D
+from common.model.CaeMCElemInt3D import Enc3D
+from common.model.CaeElemInt3D import Cae3D, Dec3D
 from common import data, util, metrics
 
 
