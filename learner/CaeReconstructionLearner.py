@@ -93,7 +93,9 @@ class CaeReconstructionLearner(Learner, CaeInference):
             plot.set_ylim(0, 0.6)
             ax2 = plot.twinx()
             ax2.plot(epochs, [dto.lesion.dc for dto in self._metric_dtos['training']], 'k-')
-            ax2.set_ylabel('Training Dice (b)')
+            ax2.plot(epochs, [dto.core.dc for dto in self._metric_dtos['training']], 'c-')
+            ax2.plot(epochs, [dto.penu.dc for dto in self._metric_dtos['training']], 'm-')
+            ax2.set_ylabel('Training Dice Lesion(b), Core(c), Penu(m)')
             ax2.tick_params('y', colors='k')
             ax2.set_ylim(0, 1)
         else:
