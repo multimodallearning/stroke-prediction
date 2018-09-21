@@ -26,7 +26,7 @@ def test():
     # Fold-wise evaluation according to fold indices and fold model for all folds and model path provided as arguments:
     for i, path in enumerate(args.path):
         print('Model ' + path + ' of fold ' + str(i+1) + '/' + str(len(args.fold)) + ' with indices: ' + str(args.fold[i]))
-        ds_test = data.get_testdata(modalities=modalities, labels=labels, transform=transform, indices=args.fold[i])
+        ds_test = data.get_testdata_full(modalities=modalities, labels=labels, transform=transform, indices=args.fold[i])
         print('Size test set:', len(ds_test.sampler.indices), '| # batches:', len(ds_test))
         # Single case evaluation for all cases in fold
         tester = CaeReconstructionTesterCurve(ds_test, path, args.outbasepath, normalization_hours_penumbra, steps)

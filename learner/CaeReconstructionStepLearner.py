@@ -10,7 +10,6 @@ class CaeReconstructionStepLearner(CaeReconstructionLearner):
     """
     FN_VIS_BASE = '_cae1step_'
     FNB_MARKS = '_cae1step'
-    N_EPOCHS_ADAPT_BETA1 = 4
 
     def loss_step(self, dto: CaeDto, epoch):
         loss = 0.0

@@ -18,7 +18,7 @@ def test(args):
     transform = [data.ResamplePlaneXY(args.xyresample),
                  data.PadImages(pad[0], pad[1], pad[2], pad_value=pad_value),
                  data.ToTensor()]
-    ds_test = data.get_testdata(modalities=modalities, labels=labels, transform=transform, indices=args.fold)
+    ds_test = data.get_testdata_full(modalities=modalities, labels=labels, transform=transform, indices=args.fold)
 
     print('Size test set:', len(ds_test.sampler.indices), '| # batches:', len(ds_test))
 

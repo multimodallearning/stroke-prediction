@@ -147,8 +147,8 @@ def split_data_loader3D(modalities, labels, indices, batch_size, random_seed=Non
     return (train_loader, valid_loader)
 
 
-def single_data_loader3D(modalities, labels, indices, batch_size, random_seed=None, shuffle=True,
-                         num_workers=4, pin_memory=False, train_transform=[]):
+def single_data_loader3D_full(modalities, labels, indices, batch_size, random_seed=None, shuffle=True,
+                              num_workers=4, pin_memory=False, train_transform=[]):
     assert train_transform, "You must provide at least a numpy-to-torch transformation."
 
     # load the dataset
@@ -177,8 +177,8 @@ def get_stroke_shape_training_data(modalities, labels, train_transform, valid_tr
         return split_data_loader3D(modalities, labels, fold_indices, batchsize, random_seed=seed,
                                    valid_size=ratio, train_transform=train_transform,
                                    valid_transform=valid_transform, num_workers=0)
-    return single_data_loader3D(modalities, labels, fold_indices, batchsize, random_seed=seed,
-                                train_transform=train_transform, num_workers=0), None
+    return single_data_loader3D_full(modalities, labels, fold_indices, batchsize, random_seed=seed,
+                                     train_transform=train_transform, num_workers=0), None
 
 
 def get_stroke_prediction_training_data(modalities, labels, train_transform, valid_transform, fold_indices, ratio,
@@ -187,15 +187,16 @@ def get_stroke_prediction_training_data(modalities, labels, train_transform, val
         return split_data_loader3D(modalities, labels, fold_indices, batchsize, random_seed=seed,
                                    valid_size=ratio, train_transform=train_transform,
                                    valid_transform=valid_transform, num_workers=0)
-    return single_data_loader3D(modalities, labels, fold_indices, batchsize, random_seed=seed,
-                                valid_size=ratio, train_transform=train_transform, num_workers=0), None
+    return single_data_loader3D_full(modalities, labels, fold_indices, batchsize, random_seed=seed,
+                                     valid_size=ratio, train_transform=train_transform, num_workers=0), None
 
 
-def get_testdata(modalities, labels, indices, random_seed=None, shuffle=True, num_workers=4, pin_memory=False,
-                 transform=[]):
+def get_testdata_full(modalities, labels, indices, random_seed=None, shuffle=True, num_workers=4, pin_memory=False,
+                      transform=[]):
     assert transform, "You must provide at least a numpy-to-torch transformation."
 
-    dataset = StrokeLindaDataset3D(modalities=modalities, labels=labels, transform=transforms.Compose(transform))
+    dataset = StrokeLindaDataset3D(modalities=modalities, labels=labels, transform=transforms.Compose(transform),
+                                   clinical='/share/data_zoe1/lucas/Linda_Segmentations/clinical_cleaned_full.csv')
 
     items = list(set(range(len(dataset))).intersection(set(indices)))
 

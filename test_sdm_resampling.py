@@ -74,11 +74,11 @@ def infer():
                  #data.PadImages(pad[0], pad[1], pad[2], pad_value=0),  TODO Unet live segmentation
                  data.ToTensor()]
 
-    ds_test = data.get_testdata(modalities=['_unet_core', '_unet_penu'],  # modalities=['_CBV_reg1_downsampled', '_TTD_reg1_downsampled'],  TODO Unet live segmentation
-                                labels=['_CBVmap_subset_reg1_downsampled', '_TTDmap_subset_reg1_downsampled',
+    ds_test = data.get_testdata_full(modalities=['_unet_core', '_unet_penu'],  # modalities=['_CBV_reg1_downsampled', '_TTD_reg1_downsampled'],  TODO Unet live segmentation
+                                     labels=['_CBVmap_subset_reg1_downsampled', '_TTDmap_subset_reg1_downsampled',
                                         '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled'],
-                                transform=transform,
-                                indices=args.fold)
+                                     transform=transform,
+                                     indices=args.fold)
 
     # Unet
     #unet = None  TODO Unet live segmentation
