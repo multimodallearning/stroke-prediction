@@ -24,4 +24,4 @@ class UnetInference(Inference):
 
         dto = UnetDtoUtil.init_dto(input_modalities, core_gt, penu_gt)
 
-        return self._model(dto)
+        return self.model(dto)

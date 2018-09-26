@@ -1,6 +1,6 @@
 import torch
 import datetime
-from learner.CaeMultiChannelReconstructionStepLearner import CaeMultiChannelReconstructionStepLearner
+from learner.CaeMcReconstructionStepLearner import CaeMcReconstructionStepLearner
 from common.model.CaeMCElemInt3D import Enc3D
 from common.model.CaeElemInt3D import Cae3D, Dec3D
 from common import data, util, metrics
@@ -40,7 +40,7 @@ def train(args):
         scheduler = None
 
     # Data
-    common_transform = [data.ResamplePlaneXY(args.xyresample)]  # before: FixedToCaseId(split_id=args.hemisflipid)]
+    common_transform = [data.ClipImages(min=0), data.ResamplePlaneXY(args.xyresample)]  # before: FixedToCaseId(split_id=args.hemisflipid)]
     train_transform = common_transform + [data.HemisphericFlip(), data.ElasticDeform(), data.ToTensor()]
     valid_transform = common_transform + [data.ToTensor()]
 
@@ -60,11 +60,11 @@ def train(args):
         print('# training batches:', len(ds_train), '| # validation batches:', 0)
 
     # Training
-    learner = CaeMultiChannelReconstructionStepLearner(ds_train, ds_valid, cae, optimizer, scheduler,
-                                                        n_epochs=args.epochs,
-                                                        path_previous_base=args.inbasepath,
-                                                        path_outputs_base=args.outbasepath,
-                                                        criterion=criterion)
+    learner = CaeMcReconstructionStepLearner(ds_train, ds_valid, cae, optimizer, scheduler,
+                                             n_epochs=args.epochs,
+                                             path_previous_base=args.inbasepath,
+                                             path_outputs_base=args.outbasepath,
+                                             criterion=criterion)
     learner.run_training()
 
 

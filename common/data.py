@@ -231,6 +231,18 @@ class HemisphericFlipFixedToCaseId(object):
         return sample
 
 
+class ClipImages(object):
+    def __init__(self, min=None, max=None):
+        self.min = min
+        self.max = max
+
+    """Clip numpy images at min and max value."""
+    def __call__(self, sample):
+        if sample[KEY_IMAGES] != []:
+            result[KEY_IMAGES] = np.clip(sample[KEY_IMAGES], self.min, self.max).copy()
+        return result
+
+
 class HemisphericFlip(object):
     """Flip numpy images along X-axis."""
     def __call__(self, sample):

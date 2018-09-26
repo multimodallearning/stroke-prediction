@@ -1,4 +1,5 @@
 from learner.CaeReconstructionStepLearner import CaeReconstructionStepLearner
+from common.inference.CaeMcInference import CaeMcInference
 import common.dto.MetricMeasuresDto as MetricMeasuresDtoInit
 from common.dto.CaeDto import CaeDto
 import common.dto.CaeDto as CaeDtoUtil
@@ -7,29 +8,20 @@ from common import data, metrics, util
 import matplotlib.pyplot as plt
 
 
-class CaeMultiChannelReconstructionStepLearner(CaeReconstructionStepLearner):
+class CaeMcReconstructionStepLearner(CaeReconstructionStepLearner, CaeMcInference):
     """ A Learner to learn best interpolation steps for the
     reconstruction shape space. Uses CaeDto data transfer objects.
     """
     FN_VIS_BASE = '_cae1MCstep_'
     FNB_MARKS = '_cae1MCstep'
 
-    def init_perfusion_variables(self, batch: dict, dto: CaeDto):
-        cbv = Variable(batch[data.KEY_IMAGES][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
-        ttd = Variable(batch[data.KEY_IMAGES][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
-        if self.is_cuda:
-            cbv = cbv.cuda()
-            ttd = ttd.cuda()
-        dto.given_variables.inputs.cbv = cbv
-        dto.given_variables.inputs.ttd = ttd
-        return dto
-
-    def inference_step(self, batch: dict, step=None):
-        dto = self.init_clinical_variables(batch, step)
-        dto = self.init_perfusion_variables(batch, dto)
-        dto.mode = CaeDtoUtil.FLAG_GTRUTH
-        dto = self.init_gtruth_segm_variables(batch, dto)
-        return self.infer(dto)
+    def __init__(self, dataloader_training, dataloader_validation, cae_model, optimizer, scheduler, n_epochs,
+                 path_previous_base, path_outputs_base, criterion, normalization_hours_penumbra=10, init_inputs=False):
+        CaeReconstructionStepLearner.__init__(self, dataloader_training, dataloader_validation, cae_model, optimizer,
+                                              scheduler, n_epochs, path_previous_base, path_outputs_base, criterion,
+                                              normalization_hours_penumbra)
+        CaeMcInference.__init__(self, cae_model, normalization_hours_penumbra=normalization_hours_penumbra,
+                                init_inputs=init_inputs)
 
     def batch_metrics_step(self, dto: CaeDto, epoch):
         batch_metrics = MetricMeasuresDtoInit.init_dto()

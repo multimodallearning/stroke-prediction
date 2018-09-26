@@ -12,7 +12,7 @@ class Inference():
     @abstractmethod
     def __init__(self, model):
         if not self.INFERENCE_INITALIZED:
-            self._model = model
+            self.model = model
             self.INFERENCE_INITALIZED = True
 
     @abstractmethod
@@ -21,4 +21,4 @@ class Inference():
 
     @property
     def is_cuda(self) -> bool:
-        return next(self._model.parameters()).is_cuda
+        return next(self.model.parameters()).is_cuda

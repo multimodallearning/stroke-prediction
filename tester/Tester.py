@@ -18,8 +18,8 @@ class Tester(Inference):
         assert dataloader.batch_size == 1, "You must ensure a batch size of 1 for correct case metric measures."
         self._dataloader = dataloader
         self._path_outputs_base = path_outputs_base
-        self._model.freeze(True)
-        self._model.eval()
+        self.model.freeze(True)
+        self.model.eval()
 
     def infer_batch(self, batch: dict):
         dto = self.inference_step(batch)

@@ -11,9 +11,13 @@ class CaeInference(Inference):
     """Common inference for training and testing,
     i.e. feed-forward of CAE
     """
-    def __init__(self, model:Cae3D, normalization_hours_penumbra = 10):
+
+    def __init__(self, model:Cae3D, normalization_hours_penumbra = 10, init_ctp=False, init_inputs=False):
         Inference.__init__(self, model)
         self._normalization_hours_penumbra = normalization_hours_penumbra
+        self._init_ctp = init_ctp
+        self._init_gtruth = True
+        self._init_inputs = init_inputs
 
     def _get_normalization(self, batch):
         to_to_ta = batch[data.KEY_GLOBAL][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5).type(torch.FloatTensor)
@@ -30,7 +34,18 @@ class CaeInference(Inference):
             time_to_treatment = Variable((step * torch.ones(global_variables.size()[0], 1)) / normalization)
         return time_to_treatment.unsqueeze(2).unsqueeze(3).unsqueeze(4)
 
-    def init_clinical_variables(self, batch: dict, step):
+
+    def _init_perfusion_variables(self, batch: dict, dto: CaeDto):
+        cbv = Variable(batch[data.KEY_IMAGES][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
+        ttd = Variable(batch[data.KEY_IMAGES][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
+        if self.is_cuda:
+            cbv = cbv.cuda()
+            ttd = ttd.cuda()
+        dto.given_variables.inputs.cbv = cbv
+        dto.given_variables.inputs.ttd = ttd
+        return dto
+
+    def _init_clinical_variables(self, batch: dict, step):
         globals_incl_time = Variable(batch[data.KEY_GLOBAL].type(torch.FloatTensor))
         type_core = Variable(torch.zeros(globals_incl_time.size()[0], 1, 1, 1, 1))
         type_penumbra = Variable(torch.ones(globals_incl_time.size()[0], 1, 1, 1, 1))
@@ -46,7 +61,7 @@ class CaeInference(Inference):
         return CaeDtoUtil.init_dto(globals_incl_time, time_to_treatment,
                                    type_core, type_penumbra, None, None, None, None, None, None, None)
 
-    def init_gtruth_segm_variables(self, batch: dict, dto: CaeDto):
+    def _init_gtruth_segm_variables(self, batch: dict, dto: CaeDto):
         core_gt = Variable(batch[data.KEY_LABELS][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
         penu_gt = Variable(batch[data.KEY_LABELS][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
         lesion_gt = Variable(batch[data.KEY_LABELS][:, 2, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
@@ -59,11 +74,34 @@ class CaeInference(Inference):
         dto.given_variables.gtruth.lesion = lesion_gt
         return dto
 
-    def infer(self, dto: CaeDto):
-        return self._model(dto)
+    def init_unet_segm_variables(self, batch: dict, dto: CaeDto):
+        unet_core = Variable(batch[data.KEY_IMAGES][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
+        unet_penu = Variable(batch[data.KEY_IMAGES][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
+        if self.is_cuda:
+            unet_core = unet_core.cuda()
+            unet_penu = unet_penu.cuda()
+        dto.given_variables.inputs.core = unet_core
+        dto.given_variables.inputs.penu = unet_penu
+        return dto
 
-    def inference_step(self, batch: dict, step=None):
-        dto = self.init_clinical_variables(batch, step)
-        dto.mode = CaeDtoUtil.FLAG_GTRUTH
-        dto = self.init_gtruth_segm_variables(batch, dto)
+    def init_dto(self, batch: dict, step=None):
+        dto = self._init_clinical_variables(batch, step)
+
+        if self._init_ctp:
+            dto.mode = CaeDtoUtil.FLAG_DEFAULT
+            dto = self._init_perfusion_variables(batch, dto)
+
+        if self._init_gtruth:
+            dto.mode = CaeDtoUtil.FLAG_GTRUTH
+            dto = self._init_gtruth_segm_variables(batch, dto)
+
+        if self._init_inputs:
+            dto.mode = CaeDtoUtil.FLAG_INPUTS
+            dto = self.init_unet_segm_variables(batch, dto)
+
+    def infer(self, dto: CaeDto):
+        return self.model(dto)
+
+    def inference_step(self, batch: dict, step):
+        dto = self.init_dto(batch, step)
         return self.infer(dto)
