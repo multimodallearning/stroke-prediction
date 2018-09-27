@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import common.data as data
 from common.dto.CaeDto import CaeDto
 import common.dto.CaeDto as CaeDtoUtil
 

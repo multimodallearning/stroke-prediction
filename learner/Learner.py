@@ -92,9 +92,9 @@ class Learner(Inference):
     def load_model(self, cuda=True):
         path_model = self.path('load', self.FNB_MODEL)
         if cuda:
-            self._model = torch.load(path_model).cuda()
+            self.model = torch.load(path_model).cuda()
         else:
-            self._model = torch.load(path_model)
+            self.model = torch.load(path_model)
 
     def load_training(self):
         path_training = self.path('load', self.FNB_TRAIN)
@@ -112,8 +112,8 @@ class Learner(Inference):
             fp.write(jsonpickle.encode(self._metric_dtos))
 
     def save_model(self, suffix=''):
-        torch.save(self._model.cpu(), self.path('save', self.FNB_MODEL, suffix))
-        self._model.cuda()
+        torch.save(self.model.cpu(), self.path('save', self.FNB_MODEL, suffix))
+        self.model.cuda()
 
     def train_batch(self, batch: dict, epoch) -> MetricMeasuresDto:
         dto = self.inference_step(batch)
@@ -171,7 +171,7 @@ class Learner(Inference):
 
             # ---------------------------- (1) TRAINING ---------------------------- #
 
-            self._model.train()
+            self.model.train()
 
             epoch_metrics = MetricMeasuresDtoInit.init_dto()
             for batch in self._dataloader_training:
@@ -185,7 +185,7 @@ class Learner(Inference):
 
             # ---------------------------- (2) VALIDATE ---------------------------- #
 
-            self._model.eval()
+            self.model.eval()
 
             if self._dataloader_validation is None:
                 epoch_metrics = MetricMeasuresDtoInit.init_dto(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,

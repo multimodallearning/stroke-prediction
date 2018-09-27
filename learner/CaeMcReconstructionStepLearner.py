@@ -2,10 +2,7 @@ from learner.CaeReconstructionStepLearner import CaeReconstructionStepLearner
 from common.inference.CaeMcInference import CaeMcInference
 import common.dto.MetricMeasuresDto as MetricMeasuresDtoInit
 from common.dto.CaeDto import CaeDto
-import common.dto.CaeDto as CaeDtoUtil
-from torch.autograd import Variable
-from common import data, metrics, util
-import matplotlib.pyplot as plt
+from common import data, metrics
 
 
 class CaeMcReconstructionStepLearner(CaeReconstructionStepLearner, CaeMcInference):

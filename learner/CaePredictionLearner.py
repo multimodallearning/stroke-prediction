@@ -21,7 +21,7 @@ class CaePredictionLearner(Learner, CaeEncInference):
         Learner.__init__(self, dataloader_training, dataloader_validation, cae_model, optimizer, scheduler, n_epochs,
                          path_previous_base, path_outputs_base)
         CaeEncInference.__init__(self, cae_model, enc_model, normalization_hours_penumbra)
-        self._model.freeze(True)
+        self.model.freeze(True)
         self._criterion = criterion  # main loss criterion
 
     def load_model(self, cuda=True):

@@ -1,4 +1,5 @@
 from common.inference.CaeInference import CaeInference
+from common.model.Cae3D import Cae3D
 
 
 class CaeMcInference(CaeInference):

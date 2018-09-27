@@ -34,7 +34,6 @@ class CaeInference(Inference):
             time_to_treatment = Variable((step * torch.ones(global_variables.size()[0], 1)) / normalization)
         return time_to_treatment.unsqueeze(2).unsqueeze(3).unsqueeze(4)
 
-
     def _init_perfusion_variables(self, batch: dict, dto: CaeDto):
         cbv = Variable(batch[data.KEY_IMAGES][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
         ttd = Variable(batch[data.KEY_IMAGES][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5))
@@ -99,9 +98,11 @@ class CaeInference(Inference):
             dto.mode = CaeDtoUtil.FLAG_INPUTS
             dto = self.init_unet_segm_variables(batch, dto)
 
+        return dto
+
     def infer(self, dto: CaeDto):
         return self.model(dto)
 
-    def inference_step(self, batch: dict, step):
+    def inference_step(self, batch: dict, step=None):
         dto = self.init_dto(batch, step)
         return self.infer(dto)

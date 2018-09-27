@@ -2,8 +2,6 @@ from common.model.Cae3D import Cae3D, Enc3D
 from common.inference.CaeInference import CaeInference
 from common.dto.CaeDto import CaeDto
 import common.dto.CaeDto as CaeDtoUtil
-from torch.autograd import Variable
-from common import data
 
 
 class CaeEncInference(CaeInference):
