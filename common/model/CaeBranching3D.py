@@ -89,17 +89,15 @@ class Enc3D(CaeBase):
 
             nn.BatchNorm3d(n_ch_linear_half),
             nn.Conv3d(n_ch_linear_half, n_ch_linear_half, 3, stride=1, padding=0),
-            nn.ReLU(True),
+            nn.ReLU(True)
         )
 
         self.expand = nn.Sequential(
             nn.Conv3d(n_ch_linear_concat, self.n_ch_block5, 1),
-            nn.ReLU(True),
-            nn.Conv3d(self.n_ch_block5, self.n_ch_block5, 1),
-            nn.ReLU(True),
+            nn.ReLU(True)
         )
 
-        self.step = nn.Conv3d(self.n_ch_block5, 1, 1)
+        self.step = nn.Conv3d(self.n_ch_block5, self.n_ch_block5, 1)
         torch.nn.init.normal(self.step.weight, 0, 0.001)  # crucial and important!
         torch.nn.init.normal(self.step.bias, 0.5, 0.01)  # crucial and important!
 
