@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from common.dto.CaeDto import CaeDto
 import common.dto.CaeDto as CaeDtoUtil
+from common import data
 
 
 class CaeBase(nn.Module):
@@ -38,29 +39,29 @@ class Enc3D(CaeBase):
         self.trunk = nn.Sequential(
             nn.BatchNorm3d(self.n_input),
             nn.Conv3d(self.n_input, self.n_ch_block1, 3, stride=1, padding=(1, 0, 0)),
-            nn.ELU(self.alpha, True),
+            nn.ReLU(True),
             nn.BatchNorm3d(self.n_ch_block1),
             nn.Conv3d(self.n_ch_block1, self.n_ch_block1, 3, stride=1, padding=(1, 0, 0)),
-            nn.ELU(self.alpha, True),
+            nn.ReLU(True),
 
             nn.BatchNorm3d(self.n_ch_block1),
             nn.Conv3d(self.n_ch_block1, self.n_ch_block2, 3, stride=2, padding=1),
-            nn.ELU(self.alpha, True),
+            nn.ReLU(True),
 
             nn.BatchNorm3d(self.n_ch_block2),
             nn.Conv3d(self.n_ch_block2, self.n_ch_block2, 3, stride=1, padding=(1, 0, 0)),
-            nn.ELU(self.alpha, True),
+            nn.ReLU(True),
             nn.BatchNorm3d(self.n_ch_block2),
             nn.Conv3d(self.n_ch_block2, self.n_ch_block2, 3, stride=1, padding=(1, 0, 0)),
-            nn.ELU(self.alpha, True),
+            nn.ReLU(True),
 
             nn.BatchNorm3d(self.n_ch_block2),
             nn.Conv3d(self.n_ch_block2, self.n_ch_block3, 3, stride=2, padding=1),
-            nn.ELU(self.alpha, True),
+            nn.ReLU(True),
 
             nn.BatchNorm3d(self.n_ch_block3),
             nn.Conv3d(self.n_ch_block3, self.n_ch_block3, 3, stride=1, padding=(1, 0, 0)),
-            nn.ELU(self.alpha, True),
+            nn.ReLU(True),
             nn.BatchNorm3d(self.n_ch_block3),
             nn.Conv3d(self.n_ch_block3, self.n_ch_block3, 3, stride=1, padding=(1, 0, 0)),
             nn.ELU(self.alpha, True)
@@ -69,33 +70,36 @@ class Enc3D(CaeBase):
         self.branch_bottleneck = nn.Sequential(
             nn.BatchNorm3d(self.n_ch_block3),
             nn.Conv3d(self.n_ch_block3, self.n_ch_block4, 3, stride=2, padding=0),
-            nn.ELU(self.alpha, True),
+            nn.ReLU(True),
 
             nn.BatchNorm3d(self.n_ch_block4),
             nn.Conv3d(self.n_ch_block4, self.n_ch_block5, 3, stride=1, padding=0),
             nn.ELU(self.alpha, True)
         )
 
+        n_ch_linear_half = (self.n_ch_block5 - self.n_ch_global) // 2
+        n_ch_linear_concat = 2 * n_ch_linear_half + self.n_ch_global
+
         self.branch_step = nn.Sequential(
             nn.BatchNorm3d(self.n_ch_block3),
-            nn.Conv3d(self.n_ch_block3, self.n_ch_block2, 3, stride=2, padding=0),
-            nn.ELU(self.alpha, True),
+            nn.Conv3d(self.n_ch_block3, n_ch_linear_half, 3, stride=2, padding=0),
+            nn.ReLU(True),
 
             nn.MaxPool3d((1, 4, 4), (1, 4, 4)),
 
-            nn.BatchNorm3d(self.n_ch_block2),
-            nn.Conv3d(self.n_ch_block2, self.n_ch_block1, 3, stride=1, padding=0),
-            nn.ELU(self.alpha, True),
+            nn.BatchNorm3d(n_ch_linear_half),
+            nn.Conv3d(n_ch_linear_half, n_ch_linear_half, 3, stride=1, padding=0),
+            nn.ReLU(True),
         )
 
-        self.reduce = nn.Sequential(
-            nn.Conv3d(self.n_ch_global + 2 * self.n_ch_block1, self.n_ch_block1, 1),
-            nn.ELU(self.alpha, True),
-            nn.Conv3d(self.n_ch_block1, self.n_ch_global, 1),
-            nn.ELU(self.alpha, True),
+        self.expand = nn.Sequential(
+            nn.Conv3d(n_ch_linear_concat, self.n_ch_block5, 1),
+            nn.ReLU(True),
+            nn.Conv3d(self.n_ch_block5, self.n_ch_block5, 1),
+            nn.ReLU(True),
         )
 
-        self.step = nn.Conv3d(self.n_ch_global, 1, 1)
+        self.step = nn.Conv3d(self.n_ch_block5, 1, 1)
         torch.nn.init.normal(self.step.weight, 0, 0.001)  # crucial and important!
         torch.nn.init.normal(self.step.bias, 0.5, 0.01)  # crucial and important!
 
@@ -126,8 +130,9 @@ class Enc3D(CaeBase):
 
     def _get_step(self, dto: CaeDto, step_core, step_penu):
         if dto.given_variables.time_to_treatment is None:
-            concatenated = torch.cat((dto.given_variables.globals, step_core, step_penu))
-            return self.sigmoid(self.step(self.reduce(concatenated)))
+            seq = (dto.given_variables.globals, step_core, step_penu)
+            concatenated = torch.cat(seq, dim=data.DIM_CHANNEL_TORCH3D_5)
+            return self.sigmoid(self.step(self.expand(concatenated)))
         assert not self.training  # provide step only for visualization
         return dto.given_variables.time_to_treatment
 
@@ -140,14 +145,6 @@ class Enc3D(CaeBase):
             step = self._get_step(dto, step_core, step_penu)
             dto.latents.gtruth.interpolation = self._interpolate(dto.latents.gtruth.core,
                                                                  dto.latents.gtruth.penu,
-                                                                 step)
-        if dto.flag == CaeDtoUtil.FLAG_INPUTS or dto.flag == CaeDtoUtil.FLAG_DEFAULT:
-            assert dto.latents.inputs._is_empty()  # Don't accidentally overwrite other results by code mistakes
-            dto.latents.inputs.core, step_core = self._forward_single(dto.given_variables.inputs.core)
-            dto.latents.inputs.penu, step_penu = self._forward_single(dto.given_variables.inputs.penu)
-            step = self._get_step(dto, step_core, step_penu)
-            dto.latents.inputs.interpolation = self._interpolate(dto.latents.inputs.core,
-                                                                 dto.latents.inputs.penu,
                                                                  step)
         return dto
 

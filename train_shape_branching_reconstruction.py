@@ -1,6 +1,6 @@
 import torch
 import datetime
-from learner.CaeReconstructionLearner import CaeReconstructionLearner
+from learner.CaeReconstructionStepLearner import CaeReconstructionStepLearner
 from common.model.CaeBranching3D import Cae3D, Enc3D, Dec3D
 from common import data, util, metrics
 
@@ -60,11 +60,11 @@ def train(args):
         print('# training batches:', len(ds_train), '| # validation batches:', 0)
 
     # Training
-    learner = CaeReconstructionLearner(ds_train, ds_valid, cae, optimizer, scheduler,
-                                       n_epochs=args.epochs,
-                                       path_previous_base=args.inbasepath,
-                                       path_outputs_base=args.outbasepath,
-                                       criterion=criterion)
+    learner = CaeReconstructionStepLearner(ds_train, ds_valid, cae, optimizer, scheduler,
+                                           n_epochs=args.epochs,
+                                           path_previous_base=args.inbasepath,
+                                           path_outputs_base=args.outbasepath,
+                                           criterion=criterion)
     learner.run_training()
 
 

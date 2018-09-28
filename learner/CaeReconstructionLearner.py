@@ -48,7 +48,6 @@ class CaeReconstructionLearner(Learner, CaeInference):
 
     def loss_step(self, dto: CaeDto, epoch):
         factor = min(0.04 * max(0, epoch - 1), 1)
-        print(factor, end=' ')
 
         loss = 0.0
         divd = 5 + factor
