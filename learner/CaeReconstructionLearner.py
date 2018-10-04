@@ -47,10 +47,10 @@ class CaeReconstructionLearner(Learner, CaeInference):
         return numpy.Inf
 
     def loss_step(self, dto: CaeDto, epoch):
-        factor = min(0.04 * max(0, epoch - 1), 1)
+        factor = min(0.25 * max(0, epoch - 1), 1)
 
         loss = 0.0
-        divd = 5 + factor
+        divd = 5 + factor  # only to have a nice scale when plotting
 
         diff_penu_fuct = dto.reconstructions.gtruth.penu - dto.reconstructions.gtruth.interpolation
         diff_penu_core = dto.reconstructions.gtruth.penu - dto.reconstructions.gtruth.core
@@ -59,7 +59,7 @@ class CaeReconstructionLearner(Learner, CaeInference):
 
         loss += 1 * self._criterion(dto.reconstructions.gtruth.core, dto.given_variables.gtruth.core)
         loss += 1 * self._criterion(dto.reconstructions.gtruth.penu, dto.given_variables.gtruth.penu)
-        loss += 1 * self._criterion(dto.reconstructions.gtruth.lesion, dto.given_variables.gtruth.lesion)
+        #loss += 1 * self._criterion(dto.reconstructions.gtruth.lesion, dto.given_variables.gtruth.lesion)
 
         loss += factor * torch.mean(torch.abs(dto.latents.gtruth.interpolation - dto.latents.gtruth.lesion))
 
@@ -117,12 +117,12 @@ class CaeReconstructionLearner(Learner, CaeInference):
         inc = 0
         for sample, time in zip(visual_samples, visual_times):
 
-            col = 3
-            for step in [None, float(time), -10, 0, 1, 2, 3, 4, 5, 10]:
+            col = 4
+            for step in [None, float(time), -10, 0, 1, 3, 5, 10, 16]:
                 dto = self.inference_step(sample, step)
                 axarr[inc, col].imshow(dto.reconstructions.gtruth.interpolation.cpu().data.numpy()[0, 0, 14, :, :],
                                        vmin=0, vmax=1, cmap='gray')
-                if col == 4:
+                if col == 5:
                     col += 1
                 col += 1
 
@@ -132,7 +132,9 @@ class CaeReconstructionLearner(Learner, CaeInference):
                                  vmin=0, vmax=self.IMSHOW_VMAX_TTD, cmap='jet')
             axarr[inc, 2].imshow(dto.given_variables.gtruth.lesion.cpu().data.numpy()[0, 0, 14, :, :],
                                  vmin=0, vmax=1, cmap='gray')
-            axarr[inc, 5].imshow(dto.given_variables.gtruth.core.cpu().data.numpy()[0, 0, 14, :, :],
+            axarr[inc, 3].imshow(dto.reconstructions.gtruth.lesion.cpu().data.numpy()[0, 0, 14, :, :],
+                                 vmin=0, vmax=1, cmap='gray')
+            axarr[inc, 6].imshow(dto.given_variables.gtruth.core.cpu().data.numpy()[0, 0, 14, :, :],
                                  vmin=0, vmax=1, cmap='gray')
             axarr[inc, 14].imshow(dto.given_variables.gtruth.penu.cpu().data.numpy()[0, 0, 14, :, :],
                                   vmin=0, vmax=1, cmap='gray')
@@ -140,10 +142,10 @@ class CaeReconstructionLearner(Learner, CaeInference):
             del sample
             del dto
 
-            titles = ['CBV', 'TTD', 'Lesion',
-                      'p(' + ('{:03.1f}'.format(float(time))) + 'h?)',
-                      'p(' + ('{:03.1f}'.format(float(time))) + 'h!)',
-                      'Core', 'p(-10h)', 'p(0h)', 'p(1h)', 'p(2h)', 'p(3h)', 'p(4h)', 'p(5h)', 'p(10h)', 'Penumbra']
+            titles = ['CBV', 'TTD', 'Lesion', 'R_Lesion',
+                      'p(?.?h)',
+                      'p(' + ('{:03.1f}'.format(float(time))) + 'h)',
+                      'Core', 'p(-10h)', 'R_Core', 'p(1h)', 'p(3h)', 'p(5h)', 'p(10h)', 'p(16h)', 'Penumbra']
 
             for ax, title in zip(axarr[inc], titles):
                 ax.set_title(title)

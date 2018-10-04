@@ -74,32 +74,37 @@ class Enc3D(CaeBase):
 
             nn.BatchNorm3d(self.n_ch_block4),
             nn.Conv3d(self.n_ch_block4, self.n_ch_block5, 3, stride=1, padding=0),
-            nn.ELU(self.alpha, True)
+            nn.ReLU(True)
         )
-
-        n_ch_linear_half = (self.n_ch_block5 - self.n_ch_global) // 2
-        n_ch_linear_concat = 2 * n_ch_linear_half + self.n_ch_global
 
         self.branch_step = nn.Sequential(
             nn.BatchNorm3d(self.n_ch_block3),
-            nn.Conv3d(self.n_ch_block3, n_ch_linear_half, 3, stride=2, padding=0),
+            nn.Conv3d(self.n_ch_block3, self.n_ch_block2, 3, stride=2, padding=0),
             nn.ReLU(True),
 
             nn.MaxPool3d((1, 4, 4), (1, 4, 4)),
 
-            nn.BatchNorm3d(n_ch_linear_half),
-            nn.Conv3d(n_ch_linear_half, n_ch_linear_half, 3, stride=1, padding=0),
+            nn.BatchNorm3d(self.n_ch_block2),
+            nn.Conv3d( self.n_ch_block2,  self.n_ch_block1, 3, stride=1, padding=0),
             nn.ReLU(True)
         )
 
-        self.expand = nn.Sequential(
-            nn.Conv3d(n_ch_linear_concat, self.n_ch_block5, 1),
+        n_ch_1 = self.n_ch_global  #+ 2 * self.n_ch_block1 TODO: STEP2
+        n_ch_2 = n_ch_1 * 2  #// 2    #(self.n_ch_block5 + n_ch_1) // 2
+        n_ch_3 = 1              #self.n_ch_block5
+
+        self.reduce = nn.Sequential(
+            nn.BatchNorm3d(n_ch_1),
+            nn.Conv3d(n_ch_1, n_ch_2, 1),
+            nn.ReLU(True),
+            nn.BatchNorm3d(n_ch_2),
+            nn.Conv3d(n_ch_2, n_ch_2, 1),
             nn.ReLU(True)
         )
 
-        self.step = nn.Conv3d(self.n_ch_block5, self.n_ch_block5, 1)
+        self.step = nn.Conv3d(n_ch_2, n_ch_3, 1)
         torch.nn.init.normal(self.step.weight, 0, 0.001)  # crucial and important!
-        torch.nn.init.normal(self.step.bias, 0.5, 0.01)  # crucial and important!
+        torch.nn.init.normal(self.step.bias, -2, 0.1)  # crucial and important!
 
         self.sigmoid = nn.Sigmoid()  # slows down learning, but ensures [0,1] range and adds another non-linearity
 
@@ -108,13 +113,9 @@ class Enc3D(CaeBase):
         if latent_core is None or latent_penu is None:
             return None
         core_to_penumbra = latent_penu - latent_core
-        results = []
-        for batch_sample in range(step.size()[0]):
-            results.append(
-                (latent_core[batch_sample, :, :, :, :] +
-                 step[batch_sample, :, :, :, :] * core_to_penumbra[batch_sample, :, :, :, :]).unsqueeze(0)
-            )
-        return torch.cat(results, dim=0)
+        if self.training:
+            print('DEBUG_: ', float(step[0]))
+        return latent_core + step * core_to_penumbra
 
     def _forward_single(self, input_image):
         if input_image is None:
@@ -129,8 +130,8 @@ class Enc3D(CaeBase):
     def _get_step(self, dto: CaeDto, step_core, step_penu):
         if dto.given_variables.time_to_treatment is None:
             seq = (dto.given_variables.globals, step_core, step_penu)
-            concatenated = torch.cat(seq, dim=data.DIM_CHANNEL_TORCH3D_5)
-            return self.sigmoid(self.step(self.expand(concatenated)))
+            concatenated = dto.given_variables.globals  # torch.cat(seq, dim=data.DIM_CHANNEL_TORCH3D_5) TODO: STEP2
+            return self.sigmoid(self.step(self.reduce(concatenated)))
         assert not self.training  # provide step only for visualization
         return dto.given_variables.time_to_treatment
 

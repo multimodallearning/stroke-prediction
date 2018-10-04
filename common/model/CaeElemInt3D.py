@@ -118,7 +118,7 @@ class Enc3D(CaeBase):
 
         self.step_map_generator1 = nn.Conv3d(self.n_ch_block5, self.n_ch_block5, 1, stride=1, padding=0)
         torch.nn.init.normal(self.step_map_generator1.weight, 0, 0.001)  # crucial and important!
-        torch.nn.init.normal(self.step_map_generator1.bias, 0.5, 0.01)  # crucial and important!
+        torch.nn.init.normal(self.step_map_generator1.bias, -2, 0.01)  # crucial and important!
 
         self.sigmoid = nn.Sigmoid()  # slows down learning, but ensures [0,1] range and adds another non-linearity
 
