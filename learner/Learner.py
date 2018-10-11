@@ -19,6 +19,7 @@ class Learner(Inference):
     be overridden by subclasses to specify the
     procedures required for a specific training.
     """
+    MIN_EPOCHS_MODEL = 150   # every CHECKPOINT epoch
     CHECKPOINT_MODEL = 25    # every CHECKPOINT epoch
     CHECKPOINT_VISUAL = 5    # every CHECKPOINT epoch
     FNB_MODEL = 'model'      # filename base for model data
@@ -205,12 +206,12 @@ class Learner(Inference):
 
             if self._metric_dtos['validate'] and self._metric_dtos['validate'][-1].loss < min_loss:
                 min_loss = self._metric_dtos['validate'][-1].loss
-                self.save_model()
+                self.save_model('_minimum')
                 self.save_training()  # allows to continue if training has been interrupted
                 print('(New optimum: Training saved)', end=' ')
                 self.visualize_epoch(epoch)
 
-            if epoch % self.CHECKPOINT_MODEL == 0:
+            if epoch > self.MIN_EPOCHS_MODEL and epoch % self.CHECKPOINT_MODEL == 0:
                 self.save_model('_' + str(epoch))
                 self.save_training()
 
@@ -229,4 +230,5 @@ class Learner(Inference):
         # ------------ (5) SAVE FINAL MODEL / VISUALIZE ------------- #
 
         self.save_model('_final')
+        self.save_training()
         self.visualize_epoch(epoch)

@@ -50,6 +50,10 @@ def train(args):
 
     ds_train, ds_valid = data.get_stroke_shape_training_data(modalities, labels, train_transform, valid_transform,
                                                              args.fold, args.validsetsize, batchsize=args.batchsize, split=use_validation)
+
+    if ds_valid is not None:
+        use_validation = True  # TODO for debug purposes
+
     if use_validation:
         print('Size training set:', len(ds_train.sampler.indices), 'samples | Size validation set:', len(ds_valid.sampler.indices),
               'samples | Capacity batch:', args.batchsize, 'samples')

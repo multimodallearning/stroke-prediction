@@ -157,7 +157,7 @@ def single_data_loader3D_full(modalities, labels, indices, batch_size, random_se
                                          clinical='/share/data_zoe1/lucas/Linda_Segmentations/clinical_cleaned_full.csv')
 
     items = list(set(range(len(dataset_train))).intersection(set(indices)))
-    print('Indices used for training:', items)
+    print('Indices used:', items)
 
     if shuffle == True:
         random_state = np.random.RandomState(random_seed)
@@ -177,8 +177,12 @@ def get_stroke_shape_training_data(modalities, labels, train_transform, valid_tr
         return split_data_loader3D(modalities, labels, fold_indices, batchsize, random_seed=seed,
                                    valid_size=ratio, train_transform=train_transform,
                                    valid_transform=valid_transform, num_workers=0)
+
+    tmp_valid = single_data_loader3D_full(modalities, labels, [0, 4, 8, 19, 21, 31], 3, random_seed=seed,
+                                     train_transform=[ResamplePlaneXY(.5), ToTensor()], num_workers=0)  # TODO for debug purposes
+
     return single_data_loader3D_full(modalities, labels, fold_indices, batchsize, random_seed=seed,
-                                     train_transform=train_transform, num_workers=0), None
+                                     train_transform=train_transform, num_workers=0), tmp_valid
 
 
 def get_stroke_prediction_training_data(modalities, labels, train_transform, valid_transform, fold_indices, ratio,
