@@ -2,11 +2,10 @@ import torch
 import torch.nn as nn
 from common.dto.CaeDto import CaeDto
 import common.dto.CaeDto as CaeDtoUtil
-from common import data
+from torch.nn.init import xavier_normal
 
 
 class CaeBase(nn.Module):
-
     def __init__(self, size_input_xy=128, size_input_z=28, channels=[1, 16, 32, 64, 128, 1024, 128, 1], n_ch_global=2,
                  alpha=0.01, inner_xy=12, inner_z=3):
         super().__init__()
@@ -30,6 +29,13 @@ class CaeBase(nn.Module):
         requires_grad = not freeze
         for param in self.parameters():
             param.requires_grad = requires_grad
+
+    @staticmethod
+    def weights_init(m):
+        classname = m.__class__.__name__
+        if classname.find('Conv') != -1 or classname.find('BatchNorm') != -1:
+            xavier_normal(m.weight.data)
+            xavier_normal(m.bias.data)
 
 
 class Enc3D(CaeBase):
@@ -89,9 +95,16 @@ class Enc3D(CaeBase):
             nn.ReLU(True)
         )
 
-        n_ch_1 = self.n_ch_global  #+ 2 * self.n_ch_block1 TODO: STEP2
-        n_ch_2 = n_ch_1 * 2  #// 2    #(self.n_ch_block5 + n_ch_1) // 2
-        n_ch_3 = 1              #self.n_ch_block5
+        n_ch_1 = self.n_ch_global
+        n_ch_3 = self.n_ch_block5  #1
+        n_ch_2 = (n_ch_1 + n_ch_3) // 2  #n_ch_1 * 2
+
+        # TODO: STEP2
+        '''
+        n_ch_1 = self.n_ch_global + 2 * self.n_ch_block1
+        n_ch_3 = self.n_ch_block5
+        n_ch_2 = (n_ch_1 + n_ch_3) // 2
+        '''
 
         self.reduce = nn.Sequential(
             nn.BatchNorm3d(n_ch_1),
@@ -101,6 +114,10 @@ class Enc3D(CaeBase):
             nn.Conv3d(n_ch_2, n_ch_2, 1),
             nn.ReLU(True)
         )
+
+        self.weights_init(self.trunk)
+        self.weights_init(self.branch_bottleneck)
+        self.weights_init(self.branch_step)
 
         self.step = nn.Conv3d(n_ch_2, n_ch_3, 1)
         torch.nn.init.normal(self.step.weight, 0, 0.001)  # crucial and important!
@@ -114,7 +131,7 @@ class Enc3D(CaeBase):
             return None
         core_to_penumbra = latent_penu - latent_core
         if self.training:
-            print('DEBUG_: ', float(step[0]))
+            print('[{:.3}]'.format(float(step[0][0])), end='')
         return latent_core + step * core_to_penumbra
 
     def _forward_single(self, input_image):
@@ -197,6 +214,8 @@ class Dec3D(CaeBase):
             nn.Conv3d(self.n_ch_block1, self.n_classes, 1, stride=1, padding=0),
             nn.Sigmoid()
         )
+
+        self.weights_init(self.decoder)
 
     def _forward_single(self, input_latent):
         if input_latent is None:

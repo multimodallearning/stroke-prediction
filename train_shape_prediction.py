@@ -64,7 +64,8 @@ def train(args):
                                    n_epochs=args.epochs,
                                    path_previous_base=args.inbasepath,
                                    path_outputs_base=args.outbasepath,
-                                   criterion=criterion)
+                                   criterion=criterion,
+                                   normalization_hours_penumbra=args.normalize)
     learner.run_training()
 
 
