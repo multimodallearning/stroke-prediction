@@ -11,8 +11,11 @@ from torch.utils.data.sampler import SubsetRandomSampler
 
 import numpy as np
 import scipy.ndimage as ndi
-from scipy.ndimage.interpolation import map_coordinates
+from scipy.ndimage.interpolation import map_coordinates, zoom
 from scipy.ndimage.filters import gaussian_filter
+
+
+from skimage.draw import ellipsoid, polygon
 
 
 KEY_CASE_ID = 'case_id'
@@ -25,6 +28,145 @@ DIM_HORIZONTAL_NUMPY_3D = 0
 DIM_DEPTH_NUMPY_3D = 2
 DIM_CHANNEL_NUMPY_3D = 3
 DIM_CHANNEL_TORCH3D_5 = 1
+
+
+def sdm_interpolate_numpy(seg0, seg1, t, threshold=0.5, dilate=3):
+    seg1_bin = seg1 > threshold
+    seg1_dist = ndi.distance_transform_edt(seg1_bin)
+    seg1_dist -= ndi.distance_transform_edt(seg1 < threshold)
+
+    seg0_bin = seg0 > threshold
+    seg0_dist = ndi.distance_transform_edt(1 - seg0_bin)
+    seg0_dist -= ndi.distance_transform_edt(seg0 > threshold)
+
+    dist_t = seg1_dist * t - seg0_dist * (1 - t)
+
+    return seg0_dist, dist_t, seg1_dist
+
+
+def time_func(t, func='linear'):
+    assert 0 <= t <= 1
+
+    if func == 'lin':
+        return t
+
+    if func == 'slow':
+        return pow(t, 2)
+    if func == 'fast':
+        return pow(t, 0.5)
+
+    if func == 'log':  # logistic: slow-fast-slow
+        return 1 / (1 + 1000 * pow(0.000001, t))
+
+    return t
+
+
+def overlay(seg0, seg1, dist_t):
+    img = np.zeros(seg0.shape)
+    img += seg1
+    img += (dist_t > 0.5)
+    img += seg0
+    return img
+
+
+class ElasticDeform2(object):
+    """Elastic deformation of images as described in [Simard2003]
+       Simard, Steinkraus and Platt, "Best Practices for Convolutional
+       Neural Networks applied to Visual Document Analysis", in Proc.
+       of the International Conference on Document Analysis and
+       Recognition, 2003.
+    """
+
+    def __init__(self, alpha=100, sigma=4):
+        self._alpha = alpha
+        self._sigma = sigma
+
+    def elastic_transform(self, image, alpha=100, sigma=4, random_state=None):
+        if random_state is None:
+            new_seed = datetime.datetime.now().second + datetime.datetime.now().microsecond
+            random_state = np.random.RandomState(new_seed)
+
+        shape = image.shape
+        dx = gaussian_filter((random_state.rand(*shape) * 2 - 1), sigma, mode="constant", cval=0) * alpha
+        dy = gaussian_filter((random_state.rand(*shape) * 2 - 1), sigma, mode="constant", cval=0) * alpha
+        dz = gaussian_filter((random_state.rand(*shape) * 2 - 1), sigma, mode="constant",
+                             cval=0) * alpha * 0.22  # 28/128  TODO: correct according to voxel spacing
+
+        x, y, z = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), np.arange(shape[2]))
+        indices = np.reshape(y + dy, (-1, 1)), np.reshape(x + dx, (-1, 1)), np.reshape(z + dz, (-1, 1))
+
+        return map_coordinates(image, indices, order=1).reshape(shape), random_state
+
+    def run(self, start, interpolation, end, one4all=False):
+        start, rs = self.elastic_transform(start, self._alpha, self._sigma, random_state=None)
+        if one4all:
+            interpolation, _ = self.elastic_transform(interpolation, self._alpha, self._sigma, random_state=rs)
+            end, _ = self.elastic_transform(end, self._alpha, self._sigma, random_state=rs)
+        else:
+            interpolation, _ = self.elastic_transform(interpolation, self._alpha, self._sigma, random_state=None)
+            end, _ = self.elastic_transform(end, self._alpha, self._sigma, random_state=None)
+        return start, interpolation, end
+
+
+class ToyDataset3D(Dataset):
+    def __init__(self, transform=[], length=20):
+        self._deform = ElasticDeform2()
+        self._transform = transform
+
+        self._item = []
+        self._core = []
+        self._intp = []
+        self._penu = []
+        for i in range(length):
+            timep = random.random()
+            self._item.append({KEY_CASE_ID: i, KEY_CLINICAL_IDX: timep*10})
+
+            seg0 = np.zeros((130, 130, 130))
+            seg1 = np.zeros((130, 130, 130))
+            offsetX = random.randint(-10, 20)
+            offsetY = random.randint(-10, 20)
+            poly = np.array(((50 + offsetX, 60 + offsetY), (85 + offsetX, 60 + offsetY), (72 + offsetX, 80 + offsetY),
+                             (50 + offsetX, 60 + offsetY)))
+            rr, cc = polygon(poly[:, 0], poly[:, 1], seg0.shape)
+            seg0[rr, cc, 60:70] = 1
+            seg1[20:113, 35:98, 40:91] = ellipsoid(45, 30, 24).astype(np.float)
+            seg0 = zoom(seg0, (.984, .984, .218))
+            seg1 = zoom(seg1, (.984, .984, .218))
+
+            _, dist_t, _ = sdm_interpolate_numpy(seg0, seg1, time_func(timep, 'lin'))
+            seg0_d, dist_t, seg1_d = self._deform.run(seg0, dist_t, seg1, one4all=True)
+            self._core.append(seg0_d[:, :, :, np.newaxis].astype(np.float))
+            self._intp.append(dist_t[:, :, :, np.newaxis].astype(np.float))
+            self._penu.append(seg1_d[:, :, :, np.newaxis].astype(np.float))
+
+    def __len__(self):
+        return len(self._item)
+
+    def __getitem__(self, item):
+        item_id = self._item[item]
+        case_id = item_id[KEY_CASE_ID]
+
+        globalss = np.zeros((1, 1, 1, 5))
+        globalss[:, :, :, 0] = 0
+        globalss[:, :, :, 1] = item_id[KEY_CLINICAL_IDX]
+        globalss[:, :, :, 2] = 1
+        globalss[:, :, :, 3] = 1
+        globalss[:, :, :, 4] = 1
+
+        result = {KEY_CASE_ID: case_id, KEY_IMAGES: [], KEY_LABELS: [], KEY_GLOBAL: globalss}
+
+        result[KEY_LABELS].append(self._core[item])
+        result[KEY_LABELS].append(self._penu[item])
+        result[KEY_LABELS].append(self._intp[item])
+        if result[KEY_LABELS]:
+            result[KEY_LABELS] = np.concatenate(result[KEY_LABELS], axis=DIM_CHANNEL_NUMPY_3D)
+
+        result[KEY_IMAGES] = np.zeros((128, 128, 28, 2))
+
+        if self._transform:
+            result = self._transform(result)
+
+        return result
 
 
 class StrokeLindaDataset3D(Dataset):
@@ -169,6 +311,28 @@ def single_data_loader3D_full(modalities, labels, indices, batch_size, random_se
                               num_workers=num_workers, pin_memory=pin_memory, worker_init_fn=set_np_seed)
 
     return train_loader
+
+
+def get_toy_shape_training_data(train_transform, valid_transform, t_indices, v_indices, seed=4, batchsize=2):
+    assert train_transform, "You must provide at least a numpy-to-torch transformation."
+
+    dataset_train = ToyDataset3D(transform=transforms.Compose(train_transform))
+    items = list(set(range(len(dataset_train))).intersection(set(t_indices)))
+    print('Indices used:', items)
+    random_state = np.random.RandomState(seed)
+    random_state.shuffle(items)
+    train_sampler = SubsetRandomSampler(items)
+    train_loader = DataLoader(dataset_train, batch_size=batchsize, sampler=train_sampler)
+
+    dataset_valid = ToyDataset3D(transform=transforms.Compose(valid_transform))
+    items = list(set(range(len(dataset_valid))).intersection(set(v_indices)))
+    print('Indices used:', items)
+    random_state = np.random.RandomState(seed)
+    random_state.shuffle(items)
+    valid_sampler = SubsetRandomSampler(items)
+    valid_loader = DataLoader(dataset_valid, batch_size=batchsize, sampler=valid_sampler)
+
+    return train_loader, valid_loader
 
 
 def get_stroke_shape_training_data(modalities, labels, train_transform, valid_transform, fold_indices, ratio, seed=4,
@@ -318,11 +482,11 @@ class ToTensor(object):
     def __call__(self, sample):
         result = emptyCopyFromSample(sample)
         if sample[KEY_IMAGES] != []:
-            result[KEY_IMAGES] = torch.from_numpy(sample[KEY_IMAGES]).permute(3, 2, 1, 0)
+            result[KEY_IMAGES] = torch.from_numpy(sample[KEY_IMAGES]).permute(3, 2, 1, 0).float()
         if sample[KEY_LABELS] != []:
-            result[KEY_LABELS] = torch.from_numpy(sample[KEY_LABELS]).permute(3, 2, 1, 0)
+            result[KEY_LABELS] = torch.from_numpy(sample[KEY_LABELS]).permute(3, 2, 1, 0).float()
         if sample[KEY_GLOBAL] != []:
-            result[KEY_GLOBAL] = torch.from_numpy(sample[KEY_GLOBAL]).permute(3, 2, 1, 0)
+            result[KEY_GLOBAL] = torch.from_numpy(sample[KEY_GLOBAL]).permute(3, 2, 1, 0).float()
         return result
 
 
