@@ -121,20 +121,59 @@ class ToyDataset3D(Dataset):
             timep = random.random()
             self._item.append({KEY_CASE_ID: i, KEY_CLINICAL_IDX: timep*10})
 
-            seg0 = np.zeros((130, 130, 130))
-            seg1 = np.zeros((130, 130, 130))
-            offsetX = random.randint(-10, 20)
-            offsetY = random.randint(-10, 20)
-            poly = np.array(((50 + offsetX, 60 + offsetY), (85 + offsetX, 60 + offsetY), (72 + offsetX, 80 + offsetY),
-                             (50 + offsetX, 60 + offsetY)))
-            rr, cc = polygon(poly[:, 0], poly[:, 1], seg0.shape)
-            seg0[rr, cc, 60:70] = 1
-            seg1[20:113, 35:98, 40:91] = ellipsoid(45, 30, 24).astype(np.float)
-            seg0 = zoom(seg0, (.984, .984, .218))
-            seg1 = zoom(seg1, (.984, .984, .218))
+            left_right = (random.random() < 0.5)
 
-            _, dist_t, _ = sdm_interpolate_numpy(seg0, seg1, time_func(timep, 'lin'))
+            seg0 = np.zeros((128, 128, 28))
+            seg1 = np.zeros((128, 128, 28))
+
+            w = random.randint(10, 30)
+            h = random.randint(10, 60)
+            d = random.randint(3, 11)
+
+            off_x = (64 - w * 2) // 2 + left_right * 64
+            off_y = (128 - h * 2) // 2
+            off_z = (28 - d * 2) // 2
+            seg1[off_x-1:off_x+2*w+2, off_y-1:off_y+2*h+2, off_z-1:off_z+2*d+2] = ellipsoid(w, h, d).astype(np.float)
+
+            com = np.round(ndi.center_of_mass(seg1)).astype(np.int)
+
+            w_new = random.randint(4, w // 2)
+            h_new = random.randint(4, h // 2)
+            d_new = random.randint(1, d // 2)
+
+            off_x += (w - w_new) // 2
+            off_y += (h - h_new) // 2
+            off_z += (d - d_new) // 2
+            seg0[off_x-1:off_x+2*w_new+2, off_y-1:off_y+2*h_new+2, off_z-1:off_z+2*d_new+2] = ellipsoid(w_new, h_new, d_new).astype(np.float)
+
+            '''
+            poly = []
+            pad = 2
+            z0 = random.randint(com[2]-d+pad, com[2]+d-pad)
+            for _ in range(3):
+                poly.append((random.randint(com[0]-w+pad, com[0]+w-pad), random.randint(com[1]-h+pad, com[1]+h-pad)))
+            z1 = random.randint(z0, com[2]+d-1)
+            poly = np.array(poly)
+            rr, cc = polygon(poly[:, 0], poly[:, 1], seg0.shape)
+            seg0[rr, cc, z0:z1] = 1
+            '''
+
+            intersection = seg0 * seg1
+            if np.sum(intersection) < 5:
+                intersection[com[0]-2:com[0]+2, com[1]-2:com[1]+2, com[2]-2:com[2]+2] = 1
+
+            _, dist_t, _ = sdm_interpolate_numpy(seg0, seg1, time_func(timep, 'fast'))
             seg0_d, dist_t, seg1_d = self._deform.run(seg0, dist_t, seg1, one4all=True)
+
+            seg0_d[seg0_d < 0.5] = 0
+            dist_t[dist_t < 0.5] = 0
+            seg1_d[seg1_d < 0.5] = 0
+            seg0_d[seg0_d > 0] = 1
+            dist_t[dist_t > 0] = 1
+            seg1_d[seg1_d > 0] = 1
+            seg0_d = seg0_d * seg1_d
+            dist_t = dist_t * seg1_d
+
             self._core.append(seg0_d[:, :, :, np.newaxis].astype(np.float))
             self._intp.append(dist_t[:, :, :, np.newaxis].astype(np.float))
             self._penu.append(seg1_d[:, :, :, np.newaxis].astype(np.float))
@@ -146,12 +185,9 @@ class ToyDataset3D(Dataset):
         item_id = self._item[item]
         case_id = item_id[KEY_CASE_ID]
 
-        globalss = np.zeros((1, 1, 1, 5))
-        globalss[:, :, :, 0] = 0
+        globalss = np.zeros((1, 1, 1, 2))
         globalss[:, :, :, 1] = item_id[KEY_CLINICAL_IDX]
-        globalss[:, :, :, 2] = 1
-        globalss[:, :, :, 3] = 1
-        globalss[:, :, :, 4] = 1
+        globalss[:, :, :, 0] = 0
 
         result = {KEY_CASE_ID: case_id, KEY_IMAGES: [], KEY_LABELS: [], KEY_GLOBAL: globalss}
 

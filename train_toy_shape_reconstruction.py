@@ -1,6 +1,6 @@
 import torch
 import datetime
-from learner.CaeReconstructionLearner import CaeReconstructionLearner
+from learner.CaeReconstructionOnlyLearner import CaeReconstructionOnlyLearner
 from common.model.Cae3D import Cae3D, Enc3D, Enc3DStep, Dec3D
 from common import data, util, metrics
 
@@ -46,7 +46,7 @@ def train(args):
     # Data
     common_transform = [data.ToTensor()]
 
-    ds_train, ds_valid = data.get_toy_shape_training_data(common_transform, common_transform,
+    ds_train, ds_valid = data.get_toy_shape_training_data([data.HemisphericFlip(), data.ElasticDeform()] + common_transform, common_transform,
                                                           [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
                                                           [16 ,17 ,18, 19], batchsize=args.batchsize)
 
@@ -60,12 +60,12 @@ def train(args):
         print('# training batches:', len(ds_train), '| # validation batches:', 0)
 
     # Training
-    learner = CaeReconstructionLearner(ds_train, ds_valid, cae, optimizer, scheduler,
-                                       n_epochs=args.epochs,
-                                       path_previous_base=args.inbasepath,
-                                       path_outputs_base=args.outbasepath,
-                                       criterion=criterion,
-                                       normalization_hours_penumbra=args.normalize)
+    learner = CaeReconstructionOnlyLearner(ds_train, ds_valid, cae, optimizer, scheduler,
+                                           n_epochs=args.epochs,
+                                           path_previous_base=args.inbasepath,
+                                           path_outputs_base=args.outbasepath,
+                                           criterion=criterion,
+                                           normalization_hours_penumbra=args.normalize)
     learner.run_training()
 
 

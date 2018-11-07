@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import torch
 from common import data, util, metrics
 import numpy
+import scipy.ndimage as ndi
 
 
 class CaeReconstructionLearner(Learner, CaeInference):
@@ -120,28 +121,31 @@ class CaeReconstructionLearner(Learner, CaeInference):
         inc = 0
         for sample, time in zip(visual_samples, visual_times):
 
+            zslice = None
             col = 4
             for step in [None, float(time), 0, 1, 3, 5, 10, 16]:
                 dto = self.inference_step(sample, step)
-                axarr[inc, col].imshow(dto.reconstructions.gtruth.interpolation.cpu().data.numpy()[0, 0, 14, :, :],
+                if not zslice:
+                    zslice = int(round(ndi.center_of_mass(dto.given_variables.gtruth.core.cpu().data.numpy())[2]))
+                axarr[inc, col].imshow(dto.reconstructions.gtruth.interpolation.cpu().data.numpy()[0, 0, zslice, :, :],
                                        vmin=0, vmax=1, cmap='gray')
                 if col == 5:
                     col += 1
                 col += 1
 
-            axarr[inc, 0].imshow(sample[data.KEY_IMAGES].numpy()[0, 0, 14, :, :],
+            axarr[inc, 0].imshow(sample[data.KEY_IMAGES].numpy()[0, 0, zslice, :, :],
                                  vmin=0, vmax=self.IMSHOW_VMAX_CBV, cmap='jet')
-            axarr[inc, 1].imshow(sample[data.KEY_IMAGES].numpy()[0, 1, 14, :, :],
+            axarr[inc, 1].imshow(sample[data.KEY_IMAGES].numpy()[0, 1, zslice, :, :],
                                  vmin=0, vmax=self.IMSHOW_VMAX_TTD, cmap='jet')
-            axarr[inc, 2].imshow(dto.given_variables.gtruth.lesion.cpu().data.numpy()[0, 0, 14, :, :],
+            axarr[inc, 2].imshow(dto.given_variables.gtruth.lesion.cpu().data.numpy()[0, 0, zslice, :, :],
                                  vmin=0, vmax=1, cmap='gray')
-            axarr[inc, 3].imshow(dto.reconstructions.gtruth.lesion.cpu().data.numpy()[0, 0, 14, :, :],
+            axarr[inc, 3].imshow(dto.reconstructions.gtruth.lesion.cpu().data.numpy()[0, 0, zslice, :, :],
                                  vmin=0, vmax=1, cmap='gray')
-            axarr[inc, 6].imshow(dto.given_variables.gtruth.core.cpu().data.numpy()[0, 0, 14, :, :],
+            axarr[inc, 6].imshow(dto.given_variables.gtruth.core.cpu().data.numpy()[0, 0, zslice, :, :],
                                  vmin=0, vmax=1, cmap='gray')
-            axarr[inc, 13].imshow(dto.reconstructions.gtruth.penu.cpu().data.numpy()[0, 0, 14, :, :],
+            axarr[inc, 13].imshow(dto.reconstructions.gtruth.penu.cpu().data.numpy()[0, 0, zslice, :, :],
                                   vmin=0, vmax=1, cmap='gray')
-            axarr[inc, 14].imshow(dto.given_variables.gtruth.penu.cpu().data.numpy()[0, 0, 14, :, :],
+            axarr[inc, 14].imshow(dto.given_variables.gtruth.penu.cpu().data.numpy()[0, 0, zslice, :, :],
                                   vmin=0, vmax=1, cmap='gray')
 
             del sample
