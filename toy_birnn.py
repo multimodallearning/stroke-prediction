@@ -174,45 +174,10 @@ class Dec3D(CaeBase):
             return None
         return self.decoder(input_latent)
 
-
-class Cae3dRnn(nn.Module):
-    def __init__(self, enc: Enc3D, dec: Dec3D, low_dim=100, globals_dim=1, batchsize=4):
-        super().__init__()
-        self.enc = enc
-        self.dec = dec
-
-        self.hh = nn.Sequential(
-            nn.BatchNorm3d(2*low_dim + globals_dim),
-            nn.Conv3d(2*low_dim + globals_dim, low_dim, 1),
-            nn.ReLU(True)
-        )
-
-        self.reduce2dec = nn.Sequential(
-            nn.BatchNorm3d(2*low_dim + globals_dim),
-            nn.Conv3d(2*low_dim + globals_dim, low_dim, 1),
-            nn.ReLU(True)
-        )
-
-        self.tanh = nn.Tanh()
-
-        self.low_dim = low_dim
-        self.batchsize = batchsize
-
-    def init_hstate(self):
-        return torch.zeros([self.batchsize, self.low_dim, 1, 1, 1]).cuda()
-
-    def forward(self, image, globals, h_state):
-        latent_image = self.enc(image)
-        combined = torch.cat((latent_image, globals, h_state), dim=1)
-        output = self.dec(self.reduce2dec(combined))
-        h_state = self.tanh(self.hh(combined))
-        return output, h_state
-
-
-channels_enc = [1, 16, 20, 24, 32, 96, 1]
+channels_enc = [1, 12, 26, 20, 24, 64, 1]
 n_ch_global = 1
 low_dim = channels_enc[5]
-channels_dec = [1, 16, 20, 24, 32, low_dim, 1]
+channels_dec = [1, 12, 26, 20, 24, low_dim, 1]
 batchsize = 4
 normalize = 24
 zslice = 14
@@ -226,19 +191,25 @@ ds_train, ds_valid = data.get_toy_shape_training_data(train_trafo, valid_trafo,
 
 enc = Enc3D(size_input_xy=128, size_input_z=28, channels=channels_enc, n_ch_global=n_ch_global, alpha=0.1)
 dec = Dec3D(size_input_xy=128, size_input_z=28, channels=channels_dec, n_ch_global=n_ch_global, alpha=0.1)
-rnn = Cae3dRnn(enc, dec, low_dim, n_ch_global).cuda()
 
-params = [p for p in rnn.parameters() if p.requires_grad]
+bi_grus = torch.nn.GRU(input_size=1, hidden_size=1, num_layers=1, batch_first=False, bidirectional=True)
+reverse_gru = torch.nn.GRU(input_size=1, hidden_size=1, num_layers=1, batch_first=False, bidirectional=False)
+reverse_gru.weight_ih_l0 = bi_grus.weight_ih_l0_reverse
+reverse_gru.weight_hh_l0 = bi_grus.weight_hh_l0_reverse
+reverse_gru.bias_ih_l0 = bi_grus.bias_ih_l0_reverse
+reverse_gru.bias_hh_l0 = bi_grus.bias_hh_l0_reverse
+
+
+params = [p for p in bi_grus.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
-      '/ total: RNN', sum([p.nelement() for p in rnn.parameters()]))
+      '/ total: RNN', sum([p.nelement() for p in bi_grus.parameters()]))
 
-criterion = metrics.BatchDiceLoss([1/3, 1/3, 1/3])
-optimizer = torch.optim.Adam(params, lr=0.0001)
+criterion = nn.BCEWithLogitsLoss() #metrics.BatchDiceLoss([1/3, 1/3, 1/3])
+optimizer = torch.optim.Adam(params, lr=0.00001)
 
-for epoch in range(300):
+for epoch in range(100):
     loss_mean = 0
     for batch in ds_train:
-
         to_ta = batch[data.KEY_GLOBAL][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5).cuda()
         ta_tr = batch[data.KEY_GLOBAL][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5).cuda()
         time_core = Variable(to_ta.type(torch.FloatTensor)).cuda()
@@ -248,22 +219,36 @@ for epoch in range(300):
         penu_gt = Variable(batch[data.KEY_LABELS][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5)).cuda()
         fuct_gt = Variable(batch[data.KEY_LABELS][:, 2, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5)).cuda()
 
-        h_state = Variable(rnn.init_hstate()).cuda()
         init_pr = Variable(torch.zeros(core_gt.size())).cuda()
-        core_pr, h_state = rnn(init_pr, time_core, h_state)
-        fuct_pr, h_state = rnn(core_gt, time_lesion, h_state)
-        penu_pr, h_state = rnn(fuct_gt, time_penu, h_state)
+        init_latent = enc(init_pr)
+        core_latent = enc(core_gt)
+        fuct_latent = enc(fuct_gt)
+        penu_latent = enc(penu_gt)
 
-        loss = criterion(torch.cat([core_pr, fuct_pr, penu_pr], dim=1),
-                         torch.cat([core_gt, fuct_gt, penu_gt], dim=1))
+
+        h_state = Variable(rnn.init_hstate()).cuda()
+
+        #core_pr, h_state = rnn(init_pr, time_core, h_state)
+        #fuct_pr, h_state = rnn(core_pr, time_lesion, h_state)
+        #penu_pr, h_state = rnn(fuct_pr, time_penu, h_state)
+
+        #loss = criterion(torch.cat([core_pr, fuct_pr, penu_pr], dim=1),
+        #                 torch.cat([core_gt, fuct_gt, penu_gt], dim=1))
+
+        fuct_pr, h_state = rnn(core_gt, time_lesion, h_state)
+        loss = criterion(fuct_pr, fuct_gt)
+
+        loss_mean += float(loss)
 
         optimizer.zero_grad()
         loss.backward()  # TODO: use pytorch RNN/LSTM implementation
         torch.nn.utils.clip_grad_norm(rnn.parameters(), 2)  # otherwise nan's
         optimizer.step()
 
-    print('Epoch', epoch, 'last batch loss:', float(loss))
+    print(torch.mean(fuct_pr))
+    print('Epoch', epoch, 'loss:', loss_mean*batchsize/len(ds_train))
 
+    '''
     f, axarr = plt.subplots(batchsize, 6)
     for row in range(batchsize):
 
@@ -291,4 +276,5 @@ for epoch in range(300):
 
     del f
     del axarr
+    '''
 

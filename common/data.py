@@ -119,7 +119,7 @@ class ToyDataset3D(Dataset):
         self._penu = []
         for i in range(length):
             timep = random.random()
-            self._item.append({KEY_CASE_ID: i, KEY_CLINICAL_IDX: timep*10})
+            self._item.append({KEY_CASE_ID: i, KEY_CLINICAL_IDX: timep*24})
 
             left_right = (random.random() < 0.5)
 
