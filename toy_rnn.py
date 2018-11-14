@@ -92,13 +92,13 @@ class Enc3D(CaeBase):
 
         self.r1 = nn.Sequential(
             nn.BatchNorm3d(self.n_ch_down8x),
-            nn.Conv3d(self.n_ch_down8x, self.n_ch_down8x, (2, 2, 1), stride=(2, 2, 1), padding=0),
+            nn.Conv3d(self.n_ch_down8x, self.n_ch_down8x, (1, 2, 2), stride=(1, 2, 2), padding=0),
             nn.ReLU(True),
         )
 
         self.r2 = nn.Sequential(
             nn.BatchNorm3d(self.n_ch_down8x),
-            nn.Conv3d(self.n_ch_down8x, self.n_ch_fc, (5, 5, 1), stride=1, padding=0),
+            nn.Conv3d(self.n_ch_down8x, self.n_ch_fc, (1, 5, 5), stride=1, padding=0),
             nn.ReLU(True),
         )
 
@@ -116,11 +116,11 @@ class Dec3D(CaeBase):
 
         self.decoder = nn.Sequential(
             nn.BatchNorm3d(self.n_ch_fc),
-            nn.ConvTranspose3d(self.n_ch_fc, self.n_ch_down8x, 5, stride=1, padding=0, output_padding=0),
+            nn.ConvTranspose3d(self.n_ch_fc, self.n_ch_down8x, (1, 5, 5), stride=1, padding=0, output_padding=0),
             nn.ELU(alpha, True),
             
             nn.BatchNorm3d(self.n_ch_down8x),
-            nn.ConvTranspose3d(self.n_ch_down8x, self.n_ch_down8x, 2, stride=2, padding=0, output_padding=0),
+            nn.ConvTranspose3d(self.n_ch_down8x, self.n_ch_down8x, (1, 2, 2), stride=2, padding=0, output_padding=0),
             nn.ELU(alpha, True),
             
             nn.BatchNorm3d(self.n_ch_down8x),
@@ -175,29 +175,35 @@ class Dec3D(CaeBase):
 
 
 class Cae3dRnn(nn.Module):
-    def __init__(self, enc: Enc3D, dec: Dec3D, low_dim=100):
+    def __init__(self, enc: Enc3D, dec: Dec3D, low_dim=100, globals_dim=5, batchsize=4):
         super().__init__()
         self.enc = enc
         self.dec = dec
 
-        self.h_state = torch.zeros([-1, low_dim, 1, 1, 1])
-
         self.hh = nn.Sequential(
             nn.BatchNorm3d(low_dim),
-            nn.Conv3d(low_dim, low_dim, 1),
+            nn.Conv3d(2*low_dim + globals_dim, low_dim, 1),
             nn.ReLU(True)
         )
 
         self.tanh = nn.Tanh()
 
-    def forward(self, image, globals):
+        self.lowdim = lowdim
+        self.batchsize = batchsize
+
+    def init_hstate(self):
+        return torch.zeros([self.batchsize, self.low_dim, 1, 1, 1]).cuda()
+
+    def forward(self, image, globals, h_state):
         latent_image = self.enc(image)
-        latent_code = torch.cat((latent_image, globals), dim=1)
-        self.h_state = self.tanh(self.hh(latent_code) + self.h_state)
-        return self.dec(self.h_state)
+        combined = torch.cat((latent_image, globals, h_state), dim=1)
+        return self.dec(combined), self.tanh(self.hh(combined))  # TODO: dec braucht 2*lowdim+globalsdim als input!!
 
 
-channels_cae = [1, 16, 20, 24, 32, 96, 1]
+channels_enc = [1, 16, 20, 24, 32, 96, 1]
+n_ch_global = 1
+low_dim = channels_enc[5]
+channels_dec = [1, 16, 20, 24, 32, low_dim, 1]
 batchsize = 4
 normalize = 24
 
@@ -208,9 +214,9 @@ ds_train, ds_valid = data.get_toy_shape_training_data(train_trafo, valid_trafo,
                                                       [16 ,17 ,18, 19],
                                                       batchsize=batchsize)
 
-enc = Enc3D(size_input_xy=128, size_input_z=28, channels=channels_cae, n_ch_global=2, alpha=0.1)
-dec = Dec3D(size_input_xy=128, size_input_z=28, channels=channels_cae, n_ch_global=2, alpha=0.1)
-rnn = Cae3dRnn(enc, dec, 129).cuda()
+enc = Enc3D(size_input_xy=128, size_input_z=28, channels=channels_enc, n_ch_global=n_ch_global, alpha=0.1)
+dec = Dec3D(size_input_xy=128, size_input_z=28, channels=channels_dec, n_ch_global=n_ch_global, alpha=0.1)
+rnn = Cae3dRnn(enc, dec, low_dim, n_ch_global).cuda()
 
 params = [p for p in rnn.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
@@ -222,6 +228,8 @@ optimizer = torch.optim.Adam(params, lr=0.001)
 for epoch in range(100):
     print('Epoch', epoch)
     for batch in ds_train:
+        rnn.init_hstate()
+
         to_ta = batch[data.KEY_GLOBAL][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5).cuda()
         ta_tr = batch[data.KEY_GLOBAL][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5).cuda()
         time_core = Variable(to_ta.type(torch.FloatTensor)).cuda()
@@ -233,12 +241,12 @@ for epoch in range(100):
 
         core_pred = rnn(Variable(torch.zeros(core_gt.size())).cuda(), time_core)
         lesion_pred = rnn(core_pred, time_lesion)
-        penu_pred = rnn(penu_pred, time_penu)
+        penu_pred = rnn(lesion_pred, time_penu)
 
         loss = criterion(torch.cat([core_pred, lesion_pred, penu_pred], dim=1),
                          torch.cat([core_gt, lesion_gt, penu_gt], dim=1))
 
         optimizer.zero_grad()
-        loss.backward()
+        loss.backward()  # TODO: use pytorch RNN/LSTM implementation
         optimizer.step()
 
