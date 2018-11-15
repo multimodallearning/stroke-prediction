@@ -7,7 +7,7 @@ import datetime
 import torch
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
-from torch.utils.data.sampler import SubsetRandomSampler
+from torch.utils.data.sampler import SubsetRandomSampler, SequentialSampler
 
 import numpy as np
 import scipy.ndimage as ndi
@@ -365,7 +365,7 @@ def get_toy_shape_training_data(train_transform, valid_transform, t_indices, v_i
     print('Indices used:', items)
     random_state = np.random.RandomState(seed)
     random_state.shuffle(items)
-    valid_sampler = SubsetRandomSampler(items)
+    valid_sampler = SequentialSampler(dataset_valid)
     valid_loader = DataLoader(dataset_valid, batch_size=batchsize, sampler=valid_sampler)
 
     return train_loader, valid_loader

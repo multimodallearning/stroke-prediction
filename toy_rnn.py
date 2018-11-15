@@ -226,24 +226,28 @@ ds_train, ds_valid = data.get_toy_shape_training_data(train_trafo, valid_trafo,
 
 enc = Enc3D(size_input_xy=128, size_input_z=28, channels=channels_enc, n_ch_global=n_ch_global, alpha=0.1)
 dec = Dec3D(size_input_xy=128, size_input_z=28, channels=channels_dec, n_ch_global=n_ch_global, alpha=0.1)
-rnn = Cae3dRnn(enc, dec, low_dim, n_ch_global).cuda()
+#rnn = Cae3dRnn(enc, dec, low_dim, n_ch_global).cuda()
+rnn = torch.load('/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/rnn_217.model')
 
 params = [p for p in rnn.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
       '/ total: RNN', sum([p.nelement() for p in rnn.parameters()]))
 
 criterion = metrics.BatchDiceLoss([1/3, 1/3, 1/3])
-optimizer = torch.optim.Adam(params, lr=0.0001)
+optimizer = torch.optim.Adam(params, lr=0.001)
 
-for epoch in range(300):
+for epoch in range(218, 1000):
+    f, axarr = plt.subplots(4, 6)
     loss_mean = 0
-    for batch in ds_train:
+    inc = 0
+    rnn.train()
 
+    for batch in ds_train:
         to_ta = batch[data.KEY_GLOBAL][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5).cuda()
         ta_tr = batch[data.KEY_GLOBAL][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5).cuda()
         time_core = Variable(to_ta.type(torch.FloatTensor)).cuda()
         time_penu = Variable(torch.ones(batch[data.KEY_GLOBAL].size()[0], 1, 1, 1, 1).type(torch.FloatTensor) * normalize).cuda()
-        time_lesion = Variable((to_ta + ta_tr).type(torch.FloatTensor)).cuda()
+        time_fuct = Variable((to_ta + ta_tr).type(torch.FloatTensor)).cuda()
         core_gt = Variable(batch[data.KEY_LABELS][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5)).cuda()
         penu_gt = Variable(batch[data.KEY_LABELS][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5)).cuda()
         fuct_gt = Variable(batch[data.KEY_LABELS][:, 2, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5)).cuda()
@@ -251,21 +255,21 @@ for epoch in range(300):
         h_state = Variable(rnn.init_hstate()).cuda()
         init_pr = Variable(torch.zeros(core_gt.size())).cuda()
         core_pr, h_state = rnn(init_pr, time_core, h_state)
-        fuct_pr, h_state = rnn(core_gt, time_lesion, h_state)
+        fuct_pr, h_state = rnn(core_gt, time_fuct, h_state)
         penu_pr, h_state = rnn(fuct_gt, time_penu, h_state)
 
         loss = criterion(torch.cat([core_pr, fuct_pr, penu_pr], dim=1),
                          torch.cat([core_gt, fuct_gt, penu_gt], dim=1))
+        loss_mean += float(loss)
 
         optimizer.zero_grad()
-        loss.backward()  # TODO: use pytorch RNN/LSTM implementation
-        torch.nn.utils.clip_grad_norm(rnn.parameters(), 2)  # otherwise nan's
+        loss.backward()
         optimizer.step()
 
-    print('Epoch', epoch, 'last batch loss:', float(loss))
+        torch.save(rnn, '/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/rnn.model')
+        inc += 1
 
-    f, axarr = plt.subplots(batchsize, 6)
-    for row in range(batchsize):
+    for row in range(2):
 
         axarr[row, 0].imshow(core_gt.cpu().data.numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
         axarr[row, 1].imshow(core_pr.cpu().data.numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
@@ -275,16 +279,57 @@ for epoch in range(300):
         axarr[row, 5].imshow(penu_pr.cpu().data.numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
 
         titles = ['Core', 'p({:02.1f})'.format(float(time_core[row, :, :, :, :])),
-                  'Lesion', 'p({:02.1f})'.format(float(time_lesion[row, :, :, :, :])),
+                  'Lesion', 'p({:02.1f})'.format(float(time_fuct[row, :, :, :, :])),
                   'Penumbra', 'p({:02.1f})'.format(float(time_penu[row, :, :, :, :]))]
 
         for ax, title in zip(axarr[row], titles):
+            ax.set_title(title)
+
+    rnn.eval()
+
+    # in validation: PENU_PR BASED ON FUCT_PR!!!!!!
+    for batch in ds_valid:
+        to_ta = batch[data.KEY_GLOBAL][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5).cuda()
+        ta_tr = batch[data.KEY_GLOBAL][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5).cuda()
+        time_core = Variable(to_ta.type(torch.FloatTensor)).cuda()
+        time_penu = Variable(torch.ones(batch[data.KEY_GLOBAL].size()[0], 1, 1, 1, 1).type(torch.FloatTensor) * normalize).cuda()
+        time_fuct = Variable((to_ta + ta_tr).type(torch.FloatTensor)).cuda()
+        core_gt = Variable(batch[data.KEY_LABELS][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5)).cuda()
+        penu_gt = Variable(batch[data.KEY_LABELS][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5)).cuda()
+        fuct_gt = Variable(batch[data.KEY_LABELS][:, 2, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5)).cuda()
+
+        h_state = Variable(rnn.init_hstate()).cuda()
+        init_pr = Variable(torch.zeros(core_gt.size())).cuda()
+        core_pr, h_state = rnn(init_pr, time_core, h_state)
+        fuct_pr, h_state = rnn(core_gt, time_fuct, h_state)
+        penu_pr, h_state = rnn(fuct_pr, time_penu, h_state)
+
+        loss = criterion(torch.cat([core_pr, fuct_pr, penu_pr], dim=1),
+                         torch.cat([core_gt, fuct_gt, penu_gt], dim=1))
+
+    for row in range(2):
+
+        axarr[row+2, 0].imshow(core_gt.cpu().data.numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+        axarr[row+2, 1].imshow(core_pr.cpu().data.numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+        axarr[row+2, 2].imshow(fuct_gt.cpu().data.numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+        axarr[row+2, 3].imshow(fuct_pr.cpu().data.numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+        axarr[row+2, 4].imshow(penu_gt.cpu().data.numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+        axarr[row+2, 5].imshow(penu_pr.cpu().data.numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+
+        titles = ['Core', 'p({:02.1f})'.format(float(time_core[row, :, :, :, :])),
+                  'Lesion', 'p({:02.1f})'.format(float(time_fuct[row, :, :, :, :])),
+                  'Penumbra', 'p({:02.1f})'.format(float(time_penu[row, :, :, :, :]))]
+
+        for ax, title in zip(axarr[row+2], titles):
             ax.set_title(title)
 
     for ax in axarr.flatten():
         ax.title.set_fontsize(3)
         ax.xaxis.set_visible(False)
         ax.yaxis.set_visible(False)
+
+
+    print('Epoch', epoch, 'last batch training loss:', loss_mean/inc, '\tvalidation batch loss:', float(loss))
 
     f.subplots_adjust(hspace=0.05)
     f.savefig('/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/rnn' + str(epoch) + '.png', bbox_inches='tight', dpi=300)
