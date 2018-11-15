@@ -47,5 +47,11 @@ For comparison pruposes, you can run a shape interpolation via signed distance m
 
 `sdm_resampling.py /share/data_zoe1/lucas/Linda_Segmentations/tmp/tmp_unet_f3.model --fold 22 --downsample 0 --groundtruth 1`
 
+## Experimental setup
+
+The experiments in the article "[Learning to predict ischemic stroke growth on acute CT perfusion data by interpolating low-dimensional shape representations](https://www.frontiersin.org/articles/10.3389/fneur.2018.00989/)" have been conducted with the following parameters (command for fold 5):
+
+`python train_shape_reconstruction.py --channelscae 1 16 24 32 100 800 1 --outbasepath /tmp/shape_f5 --validsetsize 0.275 --epochs 200 --fold 17 6 2 26 11 4 1 21 16 27 24 18 15 20 28 14 5 13 9 22 12 0 3 8`
+
 ## Literature
 Listed under: https://www.researchgate.net/project/Learning-to-predict-stroke-outcome-on-multivariate-CT-data
