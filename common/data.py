@@ -311,16 +311,16 @@ def split_data_loader3D(modalities, labels, indices, batch_size, random_seed=Non
     train_idx, valid_idx = items[split:], items[:split]
 
     train_sampler = SubsetRandomSampler(train_idx)
-    valid_sampler = SubsetRandomSampler(valid_idx)
+    valid_sampler = SequentialSampler(valid_idx)
 
     train_loader = DataLoader(dataset_train,
                     batch_size=batch_size, sampler=train_sampler,
                     num_workers=num_workers, pin_memory=pin_memory,
-                    worker_init_fn=set_np_seed)
+                    worker_init_fn=set_np_seed, drop_last=True)
 
     valid_loader = DataLoader(dataset_valid,
                     batch_size=batch_size, sampler=valid_sampler,
-                    num_workers=num_workers, pin_memory=pin_memory)
+                    num_workers=num_workers, pin_memory=pin_memory, drop_last=True)
 
     return (train_loader, valid_loader)
 
@@ -534,10 +534,11 @@ class ElasticDeform(object):
        Recognition, 2003.
     """
 
-    def __init__(self, alpha=100, sigma=4, apply_to_images=False):
+    def __init__(self, alpha=100, sigma=4, apply_to_images=False, random=1):
         self._alpha = alpha
         self._sigma = sigma
         self._apply_to_images = apply_to_images
+        self._random = random
 
     def elastic_transform(self, image, alpha=100, sigma=4, random_state=None):
         new_seed = datetime.datetime.now().second + datetime.datetime.now().microsecond
@@ -555,15 +556,16 @@ class ElasticDeform(object):
         return map_coordinates(image, indices, order=1).reshape(shape), random_state
 
     def __call__(self, sample):
-        sample[KEY_LABELS][:, :, :, 0], random_state = self.elastic_transform(sample[KEY_LABELS][:, :, :, 0],
-                                                                              self._alpha, self._sigma)
-        for c in range(1, sample[KEY_LABELS].shape[3]):
-            sample[KEY_LABELS][:, :, :, c], _ = self.elastic_transform(sample[KEY_LABELS][:, :, :, c], self._alpha,
-                                                                       self._sigma, random_state=random_state)
-        if self._apply_to_images and sample[KEY_IMAGES] != []:
-            for c in range(sample[KEY_IMAGES].shape[3]):
-                sample[KEY_IMAGES][:, :, :, c], _ = self.elastic_transform(sample[KEY_IMAGES][:, :, :, c], self._alpha,
+        if random.random() < self._random:
+            sample[KEY_LABELS][:, :, :, 0], random_state = self.elastic_transform(sample[KEY_LABELS][:, :, :, 0],
+                                                                                  self._alpha, self._sigma)
+            for c in range(1, sample[KEY_LABELS].shape[3]):
+                sample[KEY_LABELS][:, :, :, c], _ = self.elastic_transform(sample[KEY_LABELS][:, :, :, c], self._alpha,
                                                                            self._sigma, random_state=random_state)
+            if self._apply_to_images and sample[KEY_IMAGES] != []:
+                for c in range(sample[KEY_IMAGES].shape[3]):
+                    sample[KEY_IMAGES][:, :, :, c], _ = self.elastic_transform(sample[KEY_IMAGES][:, :, :, c], self._alpha,
+                                                                               self._sigma, random_state=random_state)
         return sample
 
 

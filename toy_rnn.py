@@ -226,8 +226,8 @@ ds_train, ds_valid = data.get_toy_shape_training_data(train_trafo, valid_trafo,
 
 enc = Enc3D(size_input_xy=128, size_input_z=28, channels=channels_enc, n_ch_global=n_ch_global, alpha=0.1)
 dec = Dec3D(size_input_xy=128, size_input_z=28, channels=channels_dec, n_ch_global=n_ch_global, alpha=0.1)
-#rnn = Cae3dRnn(enc, dec, low_dim, n_ch_global).cuda()
-rnn = torch.load('/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/rnn_217.model')
+rnn = Cae3dRnn(enc, dec, low_dim, n_ch_global).cuda()
+#rnn = torch.load('/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/rnn_217.model')
 
 params = [p for p in rnn.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
@@ -236,7 +236,7 @@ print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params
 criterion = metrics.BatchDiceLoss([1/3, 1/3, 1/3])
 optimizer = torch.optim.Adam(params, lr=0.001)
 
-for epoch in range(218, 1000):
+for epoch in range(0, 1000):
     f, axarr = plt.subplots(4, 6)
     loss_mean = 0
     inc = 0
@@ -302,7 +302,7 @@ for epoch in range(218, 1000):
         init_pr = Variable(torch.zeros(core_gt.size())).cuda()
         core_pr, h_state = rnn(init_pr, time_core, h_state)
         fuct_pr, h_state = rnn(core_gt, time_fuct, h_state)
-        penu_pr, h_state = rnn(fuct_pr, time_penu, h_state)
+        penu_pr, h_state = rnn(fuct_gt, time_penu, h_state)
 
         loss = criterion(torch.cat([core_pr, fuct_pr, penu_pr], dim=1),
                          torch.cat([core_gt, fuct_gt, penu_gt], dim=1))
