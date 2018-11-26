@@ -6,21 +6,31 @@ import common.model.Unet3D as UnetHelper
 import matplotlib.pyplot as plt
 
 
-def get_normalization(batch, normalization=24):
-    to_to_ta = batch[data.KEY_GLOBAL][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5).type(torch.FloatTensor)
-    normalization = torch.ones(to_to_ta.size()[0], 1).type(torch.FloatTensor) * \
-                    normalization - to_to_ta.squeeze().unsqueeze(data.DIM_CHANNEL_TORCH3D_5)
-    return normalization
+class Criterion(nn.Module):
+    def __init__(self, weights, normalize, alpha=[800./1000., 100./1000., 100./1000.]):
+        super(Criterion, self).__init__()
+        self.dc = metrics.BatchDiceLoss(weights)  # weighted inversely by each volume proportion
+        self.normalize = normalize
+        self.alpha = alpha
+        self.non_neg = Variable(torch.FloatTensor([0])).cuda()
 
+    def forward(self, pred, target):
+        loss = 0
 
-def get_time_to_treatment(batch, global_variables, step):
-    normalization = get_normalization(batch)
-    if step is None:
-        ta_to_tr = batch[data.KEY_GLOBAL][:, 1, :, :, :].squeeze().unsqueeze(data.DIM_CHANNEL_TORCH3D_5)
-        time_to_treatment = Variable(ta_to_tr.type(torch.FloatTensor) / normalization)
-    else:
-        time_to_treatment = Variable((step * torch.ones(global_variables.size()[0], 1)) / normalization)
-    return time_to_treatment.unsqueeze(2).unsqueeze(3).unsqueeze(4)
+        loss += self.alpha[0] * self.dc(pred, target)
+
+        diff_penu_fuct = pred[:, 2] - pred[:, 1]
+        diff_penu_core = pred[:, 2] - pred[:, 0]
+        loss += self.alpha[1] * torch.mean(torch.abs(diff_penu_fuct) - diff_penu_fuct)  # monotone
+        loss += self.alpha[2] * torch.mean(torch.abs(diff_penu_core) - diff_penu_core)  # monotone
+        '''
+        diff_left_right = pred[:, :, :, :, :64] - pred[:, :, :, :, 64:]
+        diff_right_left = pred[:, :, :, :, 64:] - pred[:, :, :, :, :64]
+        tmp_lr = torch.max(pred[:, :, :, :, :64] - torch.abs(diff_left_right), self.non_neg.expand_as(diff_left_right))
+        tmp_rl = torch.max(pred[:, :, :, :, 64:] - torch.abs(diff_right_left), self.non_neg.expand_as(diff_right_left))
+        loss += self.alpha[3] * (torch.mean(tmp_lr) + torch.mean(tmp_rl))/2  # exlusive hemisphere
+        '''
+        return loss
 
 
 class Unet(nn.Module):
@@ -91,17 +101,8 @@ class RnnCell(nn.Module):
             nn.ReLU(True)
         )
 
-        self.ht = nn.Sequential(
-            nn.InstanceNorm3d(channels),
-            nn.Conv3d(channels, channels//2, 1),
-            nn.ReLU(True),
-            nn.InstanceNorm3d(channels//2),
-            nn.AdaptiveAvgPool3d((1, 1, 1)),
-            nn.ReLU(True)
-        )
-
     def forward(self, h_state):
-        return self.hh(h_state), self.ho(h_state), self.ht(h_state)
+        return self.hh(h_state), self.ho(h_state)
 
 
 class RnnUnet(nn.Module):
@@ -112,10 +113,10 @@ class RnnUnet(nn.Module):
 
     def forward(self, input):
         h_state_unet = self.unet(input)
-        h_state, pr_core, t_core = self.cell(h_state_unet)
-        h_state, pr_fuct, t_fuct = self.cell(h_state)
-        _, pr_penu, t_penu = self.cell(h_state)
-        return pr_core, pr_fuct, pr_penu, t_core, t_fuct, t_penu, h_state_unet
+        h_state, pr_core = self.cell(h_state_unet)
+        h_state, pr_fuct = self.cell(h_state)
+        _, pr_penu = self.cell(h_state)
+        return pr_core, pr_fuct, pr_penu, h_state_unet
 
     def freeze(self, freeze=False):
         requires_grad = not freeze
@@ -130,7 +131,7 @@ labels = ['_CBVmap_subset_reg1_downsampled',
           '_TTDmap_subset_reg1_downsampled']
 
 channels_rnn = 16
-channels_unet = [3, 16, 32, 64, 32, 16, channels_rnn]
+channels_unet = [7, 24, 48, 96, 48, 24, channels_rnn]
 batchsize = 4
 normalize = 24
 zslice = 14
@@ -146,7 +147,7 @@ valid_trafo = [data.ResamplePlaneXY(0.5),
                data.PadImages(pad[0], pad[1], pad[2], pad_value=0),
                data.ToTensor()]
 ds_train, ds_valid = data.get_stroke_shape_training_data(modalities, labels, train_trafo, valid_trafo,
-                                                         list(range(32)), 0.3, seed=4, batchsize=batchsize,
+                                                         list(range(32)), 0.275, seed=4, batchsize=batchsize,
                                                          split=True)
 
 rnn = RnnUnet(Unet(channels_unet), RnnCell(channels_rnn)).cuda()
@@ -156,10 +157,15 @@ params = [p for p in rnn.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
       '/ total: Unet-RNN', sum([p.nelement() for p in rnn.parameters()]))
 
-criterion = metrics.BatchDiceLoss([1/3, 1/3, 1/3])
+criterion = Criterion([195. / 444., 191. / 444., 58. / 444.], 168*168*68)  #metrics.BatchDiceLoss([1/3, 1/3, 1/3])
 optimizer = torch.optim.Adam(params, lr=0.001)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
 
-for epoch in range(0, 100):
+loss_train = []
+loss_valid = []
+
+for epoch in range(0, 300):
+    scheduler.step()
     f, axarr = plt.subplots(6, 10)
     loss_mean = 0
     inc = 0
@@ -173,14 +179,8 @@ for epoch in range(0, 100):
         ta = Variable(to_ta.type(torch.FloatTensor)).cuda()
         tn = Variable(torch.ones(batch[data.KEY_GLOBAL].size()[0], 1, 1, 1, 1).type(torch.FloatTensor) * normalize).cuda()
         tr = Variable((to_ta + ta_tr).type(torch.FloatTensor)).cuda()
-        input_size = batch[data.KEY_IMAGES][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5).size()
-        inputs = torch.cat((batch[data.KEY_IMAGES], torch.ones(input_size)), dim=1)
-        assert batch[data.KEY_GLOBAL].size()[1] == 5
-        inputs[:, 2, :, :, 0::3] *= batch[data.KEY_GLOBAL][:, 0, :, :, :]
-        inputs[:, 2, :, :, 1::3] *= batch[data.KEY_GLOBAL][:, 1, :, :, :]
-        inputs[:, 2, :, 0::3, 2::3] *= batch[data.KEY_GLOBAL][:, 2, :, :, :]
-        inputs[:, 2, :, 1::3, 2::3] *= batch[data.KEY_GLOBAL][:, 3, :, :, :]
-        inputs[:, 2, :, 2::3, 2::3] *= batch[data.KEY_GLOBAL][:, 4, :, :, :]
+        additional = torch.ones(4, 5, 68, 168, 168) * batch[data.KEY_GLOBAL]
+        inputs = torch.cat((batch[data.KEY_IMAGES], additional), dim=1)
         inputs = Variable(inputs).cuda()
         core_gt = Variable(batch[data.KEY_LABELS][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5)).cuda()
         fuct_gt = Variable(batch[data.KEY_LABELS][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5)).cuda()
@@ -188,7 +188,7 @@ for epoch in range(0, 100):
 
         del batch
 
-        core_pr, fuct_pr, penu_pr, t_core, t_fuct, t_penu, h_state_unet = rnn(inputs)
+        core_pr, fuct_pr, penu_pr, h_state_unet = rnn(inputs)
 
         loss = criterion(torch.cat([core_pr, fuct_pr, penu_pr], dim=1),
                          torch.cat([core_gt, fuct_gt, penu_gt], dim=1))
@@ -198,8 +198,10 @@ for epoch in range(0, 100):
         loss.backward()
         optimizer.step()
 
-        torch.save(rnn, '/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/rnn_simple.model')
+        torch.save(rnn, '/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/rnn_simple_300debug-.model')
         inc += 1
+
+    loss_train.append(loss_mean/inc)
 
     for row in range(n_visual_samples):
         axarr[row, 0].imshow(inputs.cpu().data.numpy()[row, 0, zslice+pad[2], pad[1]:-pad[1], pad[0]:-pad[0]], vmin=0, vmax=12, cmap='jet')
@@ -235,10 +237,6 @@ for epoch in range(0, 100):
     del ta
     del tr
     del tn
-    del t_core
-    del t_fuct
-    del t_penu
-    del input_size
     del h_state_unet
     optimizer.zero_grad()
 
@@ -253,14 +251,8 @@ for epoch in range(0, 100):
         ta = Variable(to_ta.type(torch.FloatTensor), volatile=not train).cuda()
         tn = Variable(torch.ones(batch[data.KEY_GLOBAL].size()[0], 1, 1, 1, 1).type(torch.FloatTensor) * normalize, volatile=not train).cuda()
         tr = Variable((to_ta + ta_tr).type(torch.FloatTensor), volatile=not train).cuda()
-        input_size = batch[data.KEY_IMAGES][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5).size()
-        inputs = torch.cat((batch[data.KEY_IMAGES], torch.ones(input_size)), dim=1)
-        assert batch[data.KEY_GLOBAL].size()[1] == 5
-        inputs[:, 2, :, :, 0::3] *= batch[data.KEY_GLOBAL][:, 0, :, :, :]
-        inputs[:, 2, :, :, 1::3] *= batch[data.KEY_GLOBAL][:, 1, :, :, :]
-        inputs[:, 2, :, 0::3, 2::3] *= batch[data.KEY_GLOBAL][:, 2, :, :, :]
-        inputs[:, 2, :, 1::3, 2::3] *= batch[data.KEY_GLOBAL][:, 3, :, :, :]
-        inputs[:, 2, :, 2::3, 2::3] *= batch[data.KEY_GLOBAL][:, 4, :, :, :]
+        additional = torch.ones(4, 5, 68, 168, 168) * batch[data.KEY_GLOBAL]
+        inputs = torch.cat((batch[data.KEY_IMAGES], additional), dim=1)
         inputs = Variable(inputs, volatile=not train).cuda()
         core_gt = Variable(batch[data.KEY_LABELS][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5), volatile=not train).cuda()
         fuct_gt = Variable(batch[data.KEY_LABELS][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5), volatile=not train).cuda()
@@ -268,7 +260,7 @@ for epoch in range(0, 100):
 
         del batch
 
-        core_pr, fuct_pr, penu_pr, t_core, t_fuct, t_penu, h_state_unet = rnn(inputs)
+        core_pr, fuct_pr, penu_pr, h_state_unet = rnn(inputs)
 
         loss = criterion(torch.cat([core_pr, fuct_pr, penu_pr], dim=1),
                          torch.cat([core_gt, fuct_gt, penu_gt], dim=1))
@@ -301,11 +293,23 @@ for epoch in range(0, 100):
         ax.xaxis.set_visible(False)
         ax.yaxis.set_visible(False)
 
-    print('Epoch', epoch, 'last batch training loss:', loss_mean/inc, '\tvalidation batch loss:', float(loss))
+    loss_valid.append(float(loss))
+
+    print('Epoch', epoch, 'last batch training loss:', loss_train[-1], '\tvalidation batch loss:', loss_valid[-1])
 
     f.subplots_adjust(hspace=0.05)
-    f.savefig('/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/rnn_simple' + str(epoch) + '.png', bbox_inches='tight', dpi=300)
+    f.savefig('/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/rnn_simple_300debug-' + str(epoch) + '.png', bbox_inches='tight', dpi=300)
 
     del f
     del axarr
 
+    if epoch > 0:
+        fig, plot = plt.subplots()
+        epochs = range(1, epoch + 2)
+        plot.plot(epochs, loss_train, 'r-')
+        plot.plot(epochs, loss_valid, 'b-')
+        plot.set_ylabel('Loss Training (r) & Validation (b)')
+        plot.set_ylim(0, 0.8)
+        fig.savefig('/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/rnn_simple_300debug-_plots.png', bbox_inches='tight', dpi=300)
+        del plot
+        del fig
