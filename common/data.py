@@ -228,19 +228,20 @@ class ToyDataset3DSequence(Dataset):
 
             seg0[com[0]-2:com[0]+2, com[1]-2:com[1]+2, com[2]-2:com[2]+2] = 1
 
-            seg0_d, _, seg1_d, rs = self._deform.run(seg0, np.zeros(shape=seg0.shape), seg1, one4all=True, random_state=None)
-            seg0_d[seg0_d < 0.5] = 0
-            seg1_d[seg1_d < 0.5] = 0
-            seg0_d[seg0_d > 0] = 1
-            seg1_d[seg1_d > 0] = 1
+            #seg0_d, _, seg1_d, rs = self._deform.run(seg0, np.zeros(shape=seg0.shape), seg1, one4all=True, random_state=None)
+            #seg0_d[seg0_d < 0.5] = 0
+            #seg1_d[seg1_d < 0.5] = 0
+            #seg0_d[seg0_d > 0] = 1
+            #seg1_d[seg1_d > 0] = 1
 
-            labels[:, :, :, 0] = seg0_d
+            labels[:, :, :, 0] = seg0
             for j in range(1, normalize - 1):
                 _, intp, _ = sdm_interpolate_numpy(seg0, seg1, time_func(j/normalize, 'fast'))
-                _, intp, _, rs = self._deform.run(None, intp, None, one4all=True, random_state=rs)
-                intp[intp < 0.5] = 0
-                intp[intp > 0] = 1
-                labels[:, :, :, j] = intp * seg1_d
+                #_, intp, _, rs = self._deform.run(None, intp, None, one4all=True, random_state=rs)
+                #intp[intp < 0.5] = 0
+                #intp[intp > 0] = 1
+                labels[:, :, :, j] = np.maximum(intp * seg1, labels[:, :, :, j-1])  # TODO: correct? monotone property
+            labels[:, :, :, normalize - 1] = seg1
 
             self._labels.append(labels)
 
@@ -660,15 +661,12 @@ class ElasticDeform(object):
 
     def __call__(self, sample):
         if random.random() < self._random:
-            sample[KEY_LABELS][:, :, :, 0], random_state = self.elastic_transform(sample[KEY_LABELS][:, :, :, 0],
-                                                                                  self._alpha, self._sigma)
+            sample[KEY_LABELS][:, :, :, 0], random_state = self.elastic_transform(sample[KEY_LABELS][:, :, :, 0], self._alpha, self._sigma)
             for c in range(1, sample[KEY_LABELS].shape[3]):
-                sample[KEY_LABELS][:, :, :, c], _ = self.elastic_transform(sample[KEY_LABELS][:, :, :, c], self._alpha,
-                                                                           self._sigma, random_state=random_state)
+                sample[KEY_LABELS][:, :, :, c], _ = self.elastic_transform(sample[KEY_LABELS][:, :, :, c], self._alpha, self._sigma, random_state=random_state)
             if self._apply_to_images and sample[KEY_IMAGES] != []:
                 for c in range(sample[KEY_IMAGES].shape[3]):
-                    sample[KEY_IMAGES][:, :, :, c], _ = self.elastic_transform(sample[KEY_IMAGES][:, :, :, c], self._alpha,
-                                                                               self._sigma, random_state=random_state)
+                    sample[KEY_IMAGES][:, :, :, c], _ = self.elastic_transform(sample[KEY_IMAGES][:, :, :, c], self._alpha, self._sigma, random_state=random_state)
         return sample
 
 

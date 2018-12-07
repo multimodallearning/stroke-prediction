@@ -101,7 +101,6 @@ class ConvGRU(nn.Module):
 
         self.cells = cells
 
-
     def forward(self, x, hidden=None):
         '''
         Parameters
