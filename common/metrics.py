@@ -14,7 +14,7 @@ class BatchDiceLoss(LossModule):
         print("DICE Loss weights classes' output by", label_weights)
 
     def forward(self, outputs, targets):
-        assert targets.shape[self._dim] == len(self._label_weights), \
+        assert not len(targets.shape)>3 or targets.shape[self._dim] == len(self._label_weights), \
             'Ground truth number of labels does not match with label weight vector'
         loss = 0.0
         for label in range(len(self._label_weights)):

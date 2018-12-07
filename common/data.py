@@ -97,15 +97,19 @@ class ElasticDeform2(object):
 
         return map_coordinates(image, indices, order=1).reshape(shape), random_state
 
-    def run(self, start, interpolation, end, one4all=False):
-        start, rs = self.elastic_transform(start, self._alpha, self._sigma, random_state=None)
+    def run(self, start, interpolation, end, one4all = False, random_state = None):
+        interpolation, rs = self.elastic_transform(interpolation, self._alpha, self._sigma, random_state=random_state)
         if one4all:
-            interpolation, _ = self.elastic_transform(interpolation, self._alpha, self._sigma, random_state=rs)
-            end, _ = self.elastic_transform(end, self._alpha, self._sigma, random_state=rs)
+            if start is not None:
+                start, _ = self.elastic_transform(start, self._alpha, self._sigma, random_state=rs)
+            if end is not None:
+                end, _ = self.elastic_transform(end, self._alpha, self._sigma, random_state=rs)
         else:
-            interpolation, _ = self.elastic_transform(interpolation, self._alpha, self._sigma, random_state=None)
-            end, _ = self.elastic_transform(end, self._alpha, self._sigma, random_state=None)
-        return start, interpolation, end
+            if start is not None:
+                start, _ = self.elastic_transform(start, self._alpha, self._sigma, random_state=None)
+            if end is not None:
+                end, _ = self.elastic_transform(end, self._alpha, self._sigma, random_state=None)
+        return start, interpolation, end, rs
 
 
 class ToyDataset3D(Dataset):
@@ -145,18 +149,6 @@ class ToyDataset3D(Dataset):
             off_y += (h - h_new) // 2
             off_z += (d - d_new) // 2
             seg0[off_x-1:off_x+2*w_new+2, off_y-1:off_y+2*h_new+2, off_z-1:off_z+2*d_new+2] = ellipsoid(w_new, h_new, d_new).astype(np.float)
-
-            '''
-            poly = []
-            pad = 2
-            z0 = random.randint(com[2]-d+pad, com[2]+d-pad)
-            for _ in range(3):
-                poly.append((random.randint(com[0]-w+pad, com[0]+w-pad), random.randint(com[1]-h+pad, com[1]+h-pad)))
-            z1 = random.randint(z0, com[2]+d-1)
-            poly = np.array(poly)
-            rr, cc = polygon(poly[:, 0], poly[:, 1], seg0.shape)
-            seg0[rr, cc, z0:z1] = 1
-            '''
 
             intersection = seg0 * seg1
             if np.sum(intersection) < 5:
@@ -203,6 +195,77 @@ class ToyDataset3D(Dataset):
             result = self._transform(result)
 
         return result
+
+
+class ToyDataset3DSequence(Dataset):
+    def __init__(self, transform=[], dataset_length=20, normalize=10):
+        self._deform = ElasticDeform2()
+        self._transform = transform
+
+        self._labels = []
+        self._item = []
+        for i in range(dataset_length):
+            labels = np.zeros(shape=(128, 128, 28, normalize))
+
+            timep = random.random()
+            self._item.append({KEY_CASE_ID: i, KEY_CLINICAL_IDX: timep*normalize})
+
+            left_right = (random.random() < 0.5)
+
+            seg0 = np.zeros((128, 128, 28))
+            seg1 = np.zeros((128, 128, 28))
+
+            w = random.randint(10, 30)
+            h = random.randint(10, 60)
+            d = random.randint(3, 11)
+
+            off_x = (64 - w * 2) // 2 + left_right * 64
+            off_y = (128 - h * 2) // 2
+            off_z = (28 - d * 2) // 2
+            seg1[off_x-1:off_x+2*w+2, off_y-1:off_y+2*h+2, off_z-1:off_z+2*d+2] = ellipsoid(w, h, d).astype(np.float)
+
+            com = np.round(ndi.center_of_mass(seg1)).astype(np.int)
+
+            seg0[com[0]-2:com[0]+2, com[1]-2:com[1]+2, com[2]-2:com[2]+2] = 1
+
+            seg0_d, _, seg1_d, rs = self._deform.run(seg0, np.zeros(shape=seg0.shape), seg1, one4all=True, random_state=None)
+            seg0_d[seg0_d < 0.5] = 0
+            seg1_d[seg1_d < 0.5] = 0
+            seg0_d[seg0_d > 0] = 1
+            seg1_d[seg1_d > 0] = 1
+
+            labels[:, :, :, 0] = seg0_d
+            for j in range(1, normalize - 1):
+                _, intp, _ = sdm_interpolate_numpy(seg0, seg1, time_func(j/normalize, 'fast'))
+                _, intp, _, rs = self._deform.run(None, intp, None, one4all=True, random_state=rs)
+                intp[intp < 0.5] = 0
+                intp[intp > 0] = 1
+                labels[:, :, :, j] = intp * seg1_d
+
+            self._labels.append(labels)
+
+    def __len__(self):
+        return len(self._item)
+
+    def __getitem__(self, item):
+        item_id = self._item[item]
+        case_id = item_id[KEY_CASE_ID]
+
+        globalss = np.zeros((1, 1, 1, 2))
+        globalss[:, :, :, 1] = item_id[KEY_CLINICAL_IDX]
+        globalss[:, :, :, 0] = 0
+
+        result = {KEY_CASE_ID: case_id, KEY_IMAGES: [], KEY_LABELS: [], KEY_GLOBAL: globalss}
+
+        result[KEY_LABELS] = self._labels[item]
+
+        result[KEY_IMAGES] = np.zeros((128, 128, 28, 2))
+
+        if self._transform:
+            result = self._transform(result)
+
+        return result
+
 
 
 class StrokeLindaDataset3D(Dataset):
@@ -371,6 +434,29 @@ def get_toy_shape_training_data(train_transform, valid_transform, t_indices, v_i
     return train_loader, valid_loader
 
 
+def get_toy_seq_shape_training_data(train_transform, valid_transform, t_indices, v_indices, batchsize=2, normalize=10):
+    assert train_transform, "You must provide at least a numpy-to-torch transformation."
+
+    dataset_length = len(t_indices) + len(v_indices)
+
+    dataset = ToyDataset3DSequence(transform=transforms.Compose(train_transform), dataset_length=dataset_length, normalize=normalize)
+    items = list(set(range(len(dataset))).intersection(set(t_indices)))
+    print('Indices used:', items)
+    train_sampler = SubsetRandomSampler(items)
+    train_loader = DataLoader(dataset, batch_size=batchsize, sampler=train_sampler)
+
+    if v_indices:
+        dataset = ToyDataset3DSequence(transform=transforms.Compose(valid_transform), dataset_length=dataset_length, normalize=normalize)
+        items = list(set(range(len(dataset))).intersection(set(v_indices)))
+        print('Indices used:', items)
+        valid_sampler = SequentialSampler(dataset)
+        valid_loader = DataLoader(dataset, batch_size=batchsize, sampler=valid_sampler)
+    else:
+        valid_loader = None
+
+    return train_loader, valid_loader
+
+
 def get_stroke_shape_training_data(modalities, labels, train_transform, valid_transform, fold_indices, ratio, seed=4,
                                    batchsize=2, split=True):
     if split:
@@ -512,17 +598,34 @@ class PadImages(object):
         return result
 
 
+class UseLabelsAsImages(object):
+    def __call__(self, sample):
+        result = emptyCopyFromSample(sample)
+        result[KEY_IMAGES] = sample[KEY_LABELS]
+        result[KEY_LABELS] = sample[KEY_LABELS]
+        result[KEY_GLOBAL] = sample[KEY_GLOBAL]
+        return result
+
+
 class ToTensor(object):
     """Convert ndarrays in sample to Tensors."""
+    def __init__(self, time_dim=None):
+        self.time_dim = time_dim
 
     def __call__(self, sample):
         result = emptyCopyFromSample(sample)
         if sample[KEY_IMAGES] != []:
             result[KEY_IMAGES] = torch.from_numpy(sample[KEY_IMAGES]).permute(3, 2, 1, 0).float()
+            if self.time_dim is not None:
+                result[KEY_IMAGES] = result[KEY_IMAGES].unsqueeze(self.time_dim)
         if sample[KEY_LABELS] != []:
             result[KEY_LABELS] = torch.from_numpy(sample[KEY_LABELS]).permute(3, 2, 1, 0).float()
+            if self.time_dim is not None:
+                result[KEY_LABELS] = result[KEY_LABELS].unsqueeze(self.time_dim)
         if sample[KEY_GLOBAL] != []:
             result[KEY_GLOBAL] = torch.from_numpy(sample[KEY_GLOBAL]).permute(3, 2, 1, 0).float()
+            if self.time_dim is not None:
+                result[KEY_GLOBAL] = result[KEY_GLOBAL].unsqueeze(self.time_dim)
         return result
 
 
