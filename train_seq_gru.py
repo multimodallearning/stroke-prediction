@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 from common import data, metrics
-from convgru import ConvGRU
+from convgru_unet import ConvGRU_Unet
 import matplotlib.pyplot as plt
 
 
@@ -22,13 +22,54 @@ class Criterion(nn.Module):
         return loss
 
 
+class PaddedUnet(nn.Module):
+    def _block_def(self, ch_in, ch_out):
+        return nn.Sequential(
+            nn.BatchNorm3d(ch_in),
+            nn.Conv3d(ch_in, ch_out, 3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm3d(ch_out),
+            nn.Conv3d(ch_out, ch_out, 3, stride=1, padding=1),
+            nn.ReLU()
+        )
+
+    def __init__(self, channels=[2, 16, 32, 16, 2], channel_dim=1):
+        super(PaddedUnet, self).__init__()
+        n_ch_in, ch_b1, ch_b2, ch_b3, n_classes = channels
+
+        self.channel_dim = channel_dim
+
+        self.block1 = self._block_def(n_ch_in, ch_b1)
+        self.pool12 = nn.MaxPool3d(2, 2)
+        self.block2 = self._block_def(ch_b1, ch_b2)
+
+        self.upsa23 = nn.Upsample(scale_factor=2, mode='trilinear')
+        self.block3 = self._block_def(ch_b2 + ch_b1, ch_b3)
+
+        self.classify = nn.Sequential(
+            nn.Conv3d(ch_b3, n_classes, 1, stride=1, padding=0),
+            nn.Sigmoid()
+        )
+
+    def forward(self, input):
+        block1_result = self.block1(input)
+        block2_input = self.pool12(block1_result)
+        block2_result = self.block2(block2_input)
+
+        block2_unpool = self.upsa23(block2_result)
+        block3_input = torch.cat((block2_unpool, block1_result), dim=self.channel_dim)
+        block3_result = self.block3(block3_input)
+
+        return self.classify(block3_result)
+
+
 modalities = ['_CBV_reg1_downsampled',
               '_TTD_reg1_downsampled']
 labels = ['_CBVmap_subset_reg1_downsampled',
           '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled',
           '_TTDmap_subset_reg1_downsampled']
 
-sequence_length = 10
+sequence_length = 4
 num_layers = 3
 batchsize = 2
 zslice = 14
@@ -45,27 +86,32 @@ valid_trafo = [data.UseLabelsAsImages(),
                data.ToTensor()]
 
 ds_train, _ = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
-                                                   [0, 1, 2, 3, 4, 5, 6, 7],  #, 8, 9, 10, 11, 12, 13, 14, 15],
+                                                   [0, 1, 2, 3],  #, 8, 9, 10, 11, 12, 13, 14, 15],
                                                    [],  #16, 17, 18, 19],
                                                    batchsize=batchsize, normalize=sequence_length)
 
-
-convgru = ConvGRU(input_size=2, hidden_sizes=[16]*(num_layers-1) + [1], kernel_sizes=[3]*(num_layers-1) + [1], n_layers=num_layers).cuda()
+ch_unet_out = 4
+shared_unet = PaddedUnet([2, 8, 16, 8, ch_unet_out])
+convgru = ConvGRU_Unet(input_size=ch_unet_out,
+                       hidden_sizes=[16]*(num_layers-1) + [1],
+                       kernel_sizes=[3]*(num_layers-1) + [1],
+                       n_layers=num_layers,
+                       shared_unet=shared_unet).cuda()
 
 params = [p for p in convgru.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
       '/ total: Unet-GRU-RNN', sum([p.nelement() for p in convgru.parameters()]))
 
-criterion = Criterion([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1], seq_len=sequence_length)
+criterion = Criterion([0.25, 0.25, 0.25, 0.25], seq_len=sequence_length)
 optimizer = torch.optim.Adam(params, lr=0.001)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=75, gamma=0.1)
 
 loss_train = []
 loss_valid = []
 
-for epoch in range(0, 225):
+for epoch in range(0, 175):
     scheduler.step()
-    f, axarr = plt.subplots(n_visual_samples, 10)
+    f, axarr = plt.subplots(n_visual_samples, 8)
     loss_mean = 0
     inc = 0
     train = True
@@ -97,16 +143,14 @@ for epoch in range(0, 225):
 
     for row in range(n_visual_samples):
         axarr[row, 0].imshow(gt.cpu().data.numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-        axarr[row, 1].imshow(gt.cpu().data.numpy()[row, 2, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-        axarr[row, 2].imshow(gt.cpu().data.numpy()[row, 4, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-        axarr[row, 3].imshow(gt.cpu().data.numpy()[row, 7, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-        axarr[row, 4].imshow(gt.cpu().data.numpy()[row, 9, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-        axarr[row, 5].imshow(output.cpu().data.numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+        axarr[row, 1].imshow(gt.cpu().data.numpy()[row, 1, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+        axarr[row, 2].imshow(gt.cpu().data.numpy()[row, 2, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+        axarr[row, 3].imshow(gt.cpu().data.numpy()[row, 3, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+        axarr[row, 4].imshow(output.cpu().data.numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+        axarr[row, 5].imshow(output.cpu().data.numpy()[row, 1, zslice, :, :], vmin=0, vmax=1, cmap='gray')
         axarr[row, 6].imshow(output.cpu().data.numpy()[row, 2, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-        axarr[row, 7].imshow(output.cpu().data.numpy()[row, 4, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-        axarr[row, 8].imshow(output.cpu().data.numpy()[row, 7, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-        axarr[row, 9].imshow(output.cpu().data.numpy()[row, 9, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-        titles = ['GT[0]', 'GT[2]', 'GT[4]', 'GT[7]', 'GT[9]', 'Pr[0]', 'Pr[2]', 'Pr[4]', 'Pr[7]', 'Pr[9]']
+        axarr[row, 7].imshow(output.cpu().data.numpy()[row, 3, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+        titles = ['GT[0]', 'GT[1]', 'GT[2]', 'GT[3]', 'Pr[0]', 'Pr[1]', 'Pr[2]', 'Pr[3]']
         for ax, title in zip(axarr[row], titles):
             ax.set_title(title)
 
