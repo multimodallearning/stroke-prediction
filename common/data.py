@@ -199,7 +199,6 @@ class ToyDataset3D(Dataset):
 
 class ToyDataset3DSequence(Dataset):
     def __init__(self, transform=[], dataset_length=20, normalize=10):
-        self._deform = ElasticDeform2()
         self._transform = transform
 
         self._labels = []
@@ -228,18 +227,9 @@ class ToyDataset3DSequence(Dataset):
 
             seg0[com[0]-2:com[0]+2, com[1]-2:com[1]+2, com[2]-2:com[2]+2] = 1
 
-            #seg0_d, _, seg1_d, rs = self._deform.run(seg0, np.zeros(shape=seg0.shape), seg1, one4all=True, random_state=None)
-            #seg0_d[seg0_d < 0.5] = 0
-            #seg1_d[seg1_d < 0.5] = 0
-            #seg0_d[seg0_d > 0] = 1
-            #seg1_d[seg1_d > 0] = 1
-
             labels[:, :, :, 0] = seg0
             for j in range(1, normalize - 1):
                 _, intp, _ = sdm_interpolate_numpy(seg0, seg1, time_func(j/normalize, 'fast'))
-                #_, intp, _, rs = self._deform.run(None, intp, None, one4all=True, random_state=rs)
-                #intp[intp < 0.5] = 0
-                #intp[intp > 0] = 1
                 labels[:, :, :, j] = np.maximum(intp * seg1, labels[:, :, :, j-1])  # TODO: correct? monotone property
             labels[:, :, :, normalize - 1] = seg1
 
@@ -258,7 +248,7 @@ class ToyDataset3DSequence(Dataset):
 
         result = {KEY_CASE_ID: case_id, KEY_IMAGES: [], KEY_LABELS: [], KEY_GLOBAL: globalss}
 
-        result[KEY_LABELS] = self._labels[item]
+        result[KEY_LABELS] = self._labels[item].copy()
 
         result[KEY_IMAGES] = np.zeros((128, 128, 28, 2))
 

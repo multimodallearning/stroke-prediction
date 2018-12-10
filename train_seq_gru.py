@@ -79,19 +79,19 @@ n_visual_samples = min(4, batchsize)
 train_trafo = [data.UseLabelsAsImages(),
                data.PadImages(pad[0], pad[1], pad[2], pad_value=0),
                data.HemisphericFlip(),
-               data.ElasticDeform(apply_to_images=True, random=0.75),
+               data.ElasticDeform(apply_to_images=True, random=0.95),
                data.ToTensor()]
 valid_trafo = [data.UseLabelsAsImages(),
                data.PadImages(pad[0], pad[1], pad[2], pad_value=0),
                data.ToTensor()]
 
 ds_train, _ = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
-                                                   [0, 1, 2, 3],  #, 8, 9, 10, 11, 12, 13, 14, 15],
+                                                   [0, 1, 2, 3, 4, 5, 6, 7],  #, 8, 9, 10, 11, 12, 13, 14, 15],
                                                    [],  #16, 17, 18, 19],
                                                    batchsize=batchsize, normalize=sequence_length)
 
-ch_unet_out = 4
-shared_unet = PaddedUnet([2, 8, 16, 8, ch_unet_out])
+ch_unet_out = 16
+shared_unet = PaddedUnet([2, 16, 32, 16, ch_unet_out])
 convgru = ConvGRU_Unet(input_size=ch_unet_out,
                        hidden_sizes=[16]*(num_layers-1) + [1],
                        kernel_sizes=[3]*(num_layers-1) + [1],
