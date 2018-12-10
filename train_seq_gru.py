@@ -49,7 +49,8 @@ ds_train, _ = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
                                                    [],  #16, 17, 18, 19],
                                                    batchsize=batchsize, normalize=sequence_length)
 
-convgru = ConvGRU(input_size=1, hidden_sizes=[12]*(num_layers-1) + [1], kernel_sizes=[3]*(num_layers-1) + [1], n_layers=num_layers).cuda()
+
+convgru = ConvGRU(input_size=2, hidden_sizes=[16]*(num_layers-1) + [1], kernel_sizes=[3]*(num_layers-1) + [1], n_layers=num_layers).cuda()
 
 params = [p for p in convgru.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
@@ -78,7 +79,8 @@ for epoch in range(0, 225):
         hidden = None
         output = []
         for i in range(sequence_length):
-            hidden = convgru(gt[:, i, :, :, :].unsqueeze(1), hidden=hidden)
+            input = torch.cat((gt[:, 0, :, :, :].unsqueeze(1), gt[:, -1, :, :, :].unsqueeze(1)), dim=1)
+            hidden = convgru(input, hidden=hidden)
             output.append(hidden[-1])
         output = torch.cat(output, dim=1)
 
