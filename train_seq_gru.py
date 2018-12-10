@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
+from torch.utils.checkpoint import checkpoint
 from common import data, metrics
 from convgru_unet import ConvGRU_Unet
 import matplotlib.pyplot as plt
@@ -25,10 +25,10 @@ class Criterion(nn.Module):
 class PaddedUnet(nn.Module):
     def _block_def(self, ch_in, ch_out):
         return nn.Sequential(
-            nn.BatchNorm3d(ch_in),
+            nn.InstanceNorm3d(ch_in),
             nn.Conv3d(ch_in, ch_out, 3, stride=1, padding=1),
             nn.ReLU(),
-            nn.BatchNorm3d(ch_out),
+            nn.InstanceNorm3d(ch_out),
             nn.Conv3d(ch_out, ch_out, 3, stride=1, padding=1),
             nn.ReLU()
         )
@@ -42,8 +42,6 @@ class PaddedUnet(nn.Module):
         self.block1 = self._block_def(n_ch_in, ch_b1)
         self.pool12 = nn.MaxPool3d(2, 2)
         self.block2 = self._block_def(ch_b1, ch_b2)
-
-        self.upsa23 = nn.Upsample(scale_factor=2, mode='trilinear')
         self.block3 = self._block_def(ch_b2 + ch_b1, ch_b3)
 
         self.classify = nn.Sequential(
@@ -56,7 +54,7 @@ class PaddedUnet(nn.Module):
         block2_input = self.pool12(block1_result)
         block2_result = self.block2(block2_input)
 
-        block2_unpool = self.upsa23(block2_result)
+        block2_unpool = nn.functional.interpolate(block2_result, scale_factor=2, mode='trilinear')
         block3_input = torch.cat((block2_unpool, block1_result), dim=self.channel_dim)
         block3_result = self.block3(block3_input)
 
@@ -69,7 +67,8 @@ labels = ['_CBVmap_subset_reg1_downsampled',
           '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled',
           '_TTDmap_subset_reg1_downsampled']
 
-sequence_length = 4
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+sequence_length = 5
 num_layers = 3
 batchsize = 2
 zslice = 14
@@ -83,26 +82,28 @@ train_trafo = [data.UseLabelsAsImages(),
                data.ToTensor()]
 valid_trafo = [data.UseLabelsAsImages(),
                data.PadImages(pad[0], pad[1], pad[2], pad_value=0),
+               data.ElasticDeform(apply_to_images=True, random=0.5, seed=0),
                data.ToTensor()]
 
-ds_train, _ = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
-                                                   [0, 1, 2, 3, 4, 5, 6, 7],  #, 8, 9, 10, 11, 12, 13, 14, 15],
-                                                   [],  #16, 17, 18, 19],
-                                                   batchsize=batchsize, normalize=sequence_length)
+ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
+                                                          [0, 1, 2, 3, 4, 5, 6, 7],  #8, 9, 10, 11, 12, 13, 14, 15],
+                                                          [8, 9, 10, 11],
+                                                          batchsize=batchsize, normalize=sequence_length)
 
-ch_unet_out = 16
-shared_unet = PaddedUnet([2, 16, 32, 16, ch_unet_out])
-convgru = ConvGRU_Unet(input_size=ch_unet_out,
-                       hidden_sizes=[16]*(num_layers-1) + [1],
+channels = 16
+unet_out = 10
+shared_unet = PaddedUnet([2, channels, 32, channels, unet_out])
+convgru = ConvGRU_Unet(input_size=unet_out,
+                       hidden_sizes=[channels]*(num_layers-1) + [1],
                        kernel_sizes=[3]*(num_layers-1) + [1],
                        n_layers=num_layers,
-                       shared_unet=shared_unet).cuda()
+                       shared_unet=shared_unet).to(device)
 
 params = [p for p in convgru.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
       '/ total: Unet-GRU-RNN', sum([p.nelement() for p in convgru.parameters()]))
 
-criterion = Criterion([0.25, 0.25, 0.25, 0.25], seq_len=sequence_length)
+criterion = Criterion([0.2, 0.2, 0.2, 0.2, 0.2], seq_len=sequence_length)
 optimizer = torch.optim.Adam(params, lr=0.001)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=75, gamma=0.1)
 
@@ -111,65 +112,113 @@ loss_valid = []
 
 for epoch in range(0, 175):
     scheduler.step()
-    f, axarr = plt.subplots(n_visual_samples, 8)
+    f, axarr = plt.subplots(n_visual_samples * 2, 10)
     loss_mean = 0
     inc = 0
-    train = True
-    convgru.train(train)
 
-    for batch in ds_train:
-        gt = Variable(batch[data.KEY_LABELS], volatile=not train).cuda()
+    ### Train ###
 
-        del batch
+    is_train = True
+    convgru.train(is_train)
+    with torch.set_grad_enabled(is_train):
 
-        hidden = None
-        output = []
-        for i in range(sequence_length):
-            input = torch.cat((gt[:, 0, :, :, :].unsqueeze(1), gt[:, -1, :, :, :].unsqueeze(1)), dim=1)
-            hidden = convgru(input, hidden=hidden)
-            output.append(hidden[-1])
-        output = torch.cat(output, dim=1)
+        for batch in ds_train:
+            gt = batch[data.KEY_LABELS].to(device)
 
-        loss = criterion(output, gt)
-        loss_mean += float(loss)
+            del batch
 
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+            hidden = None
+            output = []
+            for i in range(sequence_length):
+                input = torch.cat((gt[:, 0, :, :, :].unsqueeze(1), gt[:, -1, :, :, :].unsqueeze(1)), dim=1)
+                hidden = convgru(input, hidden=hidden)
+                output.append(hidden[-1])
+            output = torch.cat(output, dim=1)
 
-        inc += 1
+            loss = criterion(output, gt)
+            loss_mean += loss.item()
 
-    loss_train.append(loss_mean/inc)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-    for row in range(n_visual_samples):
-        axarr[row, 0].imshow(gt.cpu().data.numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-        axarr[row, 1].imshow(gt.cpu().data.numpy()[row, 1, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-        axarr[row, 2].imshow(gt.cpu().data.numpy()[row, 2, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-        axarr[row, 3].imshow(gt.cpu().data.numpy()[row, 3, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-        axarr[row, 4].imshow(output.cpu().data.numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-        axarr[row, 5].imshow(output.cpu().data.numpy()[row, 1, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-        axarr[row, 6].imshow(output.cpu().data.numpy()[row, 2, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-        axarr[row, 7].imshow(output.cpu().data.numpy()[row, 3, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-        titles = ['GT[0]', 'GT[1]', 'GT[2]', 'GT[3]', 'Pr[0]', 'Pr[1]', 'Pr[2]', 'Pr[3]']
-        for ax, title in zip(axarr[row], titles):
-            ax.set_title(title)
+            inc += 1
+
+        loss_train.append(loss_mean/inc)
+
+        for row in range(n_visual_samples):
+            axarr[row, 0].imshow(gt.cpu().detach().numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[row, 1].imshow(gt.cpu().detach().numpy()[row, 1, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[row, 2].imshow(gt.cpu().detach().numpy()[row, 2, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[row, 3].imshow(gt.cpu().detach().numpy()[row, -2, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[row, 4].imshow(gt.cpu().detach().numpy()[row, -1, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[row, 5].imshow(output.cpu().detach().numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[row, 6].imshow(output.cpu().detach().numpy()[row, 1, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[row, 7].imshow(output.cpu().detach().numpy()[row, 2, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[row, 8].imshow(output.cpu().detach().numpy()[row, -2, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[row, 9].imshow(output.cpu().detach().numpy()[row, -1, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            titles = ['GT[0]', 'GT[1]', 'GT[2]', 'GT[-2]', 'GT[-1]', 'Pr[0]', 'Pr[1]', 'GT[2]', 'Pr[-2]', 'Pr[-1]']
+            for ax, title in zip(axarr[row], titles):
+                ax.set_title(title)
 
     del output
     del hidden
     del loss
     del gt
 
+    ### Validate ###
+
+    inc = 0
+    loss_mean = 0
+    is_train = False
     optimizer.zero_grad()
+    convgru.train(is_train)
+    with torch.set_grad_enabled(is_train):
 
-    train = False
-    convgru.train(train)
+        for batch in ds_valid:
+            gt = batch[data.KEY_LABELS].to(device)
 
-    loss_valid.append(0.0)
+            del batch
+
+            hidden = None
+            output = []
+            for i in range(sequence_length):
+                input = torch.cat((gt[:, 0, :, :, :].unsqueeze(1), gt[:, -1, :, :, :].unsqueeze(1)), dim=1)
+                hidden = convgru(input, hidden=hidden)
+                output.append(hidden[-1])
+            output = torch.cat(output, dim=1)
+
+            loss = criterion(output, gt)
+            loss_mean += float(loss)
+
+            inc += 1
+
+        loss_valid.append(loss_mean/inc)
+
+        for row in range(n_visual_samples):
+            axarr[n_visual_samples + row, 0].imshow(gt.cpu().detach().numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[n_visual_samples + row, 1].imshow(gt.cpu().detach().numpy()[row, 1, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[n_visual_samples + row, 2].imshow(gt.cpu().detach().numpy()[row, 2, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[n_visual_samples + row, 3].imshow(gt.cpu().detach().numpy()[row, -2, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[n_visual_samples + row, 4].imshow(gt.cpu().detach().numpy()[row, -1, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[n_visual_samples + row, 5].imshow(output.cpu().detach().numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[n_visual_samples + row, 6].imshow(output.cpu().detach().numpy()[row, 1, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[n_visual_samples + row, 7].imshow(output.cpu().detach().numpy()[row, 2, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[n_visual_samples + row, 8].imshow(output.cpu().detach().numpy()[row, -2, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            axarr[n_visual_samples + row, 9].imshow(output.cpu().detach().numpy()[row, -1, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            titles = ['GT[0]', 'GT[1]', 'GT[2]', 'GT[-2]', 'GT[-1]', 'Pr[0]', 'Pr[1]', 'GT[2]', 'Pr[-2]', 'Pr[-1]']
+            for ax, title in zip(axarr[row], titles):
+                ax.set_title(title)
 
     print('Epoch', epoch, 'last batch training loss:', loss_train[-1], '\tvalidation batch loss:', loss_valid[-1])
 
     if epoch % 5 == 0:
         torch.save(convgru, '/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/convgru.model')
+
+    for ax in axarr.flatten():
+        ax.title.set_fontsize(3)
+        ax.xaxis.set_visible(False)
+        ax.yaxis.set_visible(False)
     f.subplots_adjust(hspace=0.05)
     f.savefig('/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/convgru' + str(epoch) + '.png', bbox_inches='tight', dpi=300)
 

@@ -628,11 +628,14 @@ class ElasticDeform(object):
        Recognition, 2003.
     """
 
-    def __init__(self, alpha=100, sigma=4, apply_to_images=False, random=1):
+    def __init__(self, alpha=100, sigma=4, apply_to_images=False, random=1, seed=None):
         self._alpha = alpha
         self._sigma = sigma
         self._apply_to_images = apply_to_images
         self._random = random
+        self._seed = None
+        if seed is not None:
+            self.seed = np.random.RandomState(seed)
 
     def elastic_transform(self, image, alpha=100, sigma=4, random_state=None):
         new_seed = datetime.datetime.now().second + datetime.datetime.now().microsecond
@@ -651,7 +654,7 @@ class ElasticDeform(object):
 
     def __call__(self, sample):
         if random.random() < self._random:
-            sample[KEY_LABELS][:, :, :, 0], random_state = self.elastic_transform(sample[KEY_LABELS][:, :, :, 0], self._alpha, self._sigma)
+            sample[KEY_LABELS][:, :, :, 0], random_state = self.elastic_transform(sample[KEY_LABELS][:, :, :, 0], self._alpha, self._sigma, self.seed)
             for c in range(1, sample[KEY_LABELS].shape[3]):
                 sample[KEY_LABELS][:, :, :, c], _ = self.elastic_transform(sample[KEY_LABELS][:, :, :, c], self._alpha, self._sigma, random_state=random_state)
             if self._apply_to_images and sample[KEY_IMAGES] != []:

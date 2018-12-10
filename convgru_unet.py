@@ -4,9 +4,6 @@ https://github.com/jacobkimmel/pytorch_convgru
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.nn import init
-from torch.autograd import Variable
 
 
 class ConvGRUCell_Unet(nn.Module):
@@ -23,12 +20,12 @@ class ConvGRUCell_Unet(nn.Module):
         self.update_gate = nn.Conv3d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
         self.out_gate = nn.Conv3d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
 
-        init.orthogonal(self.reset_gate.weight)
-        init.orthogonal(self.update_gate.weight)
-        init.orthogonal(self.out_gate.weight)
-        init.constant(self.reset_gate.bias, 0.)
-        init.constant(self.update_gate.bias, 0.)
-        init.constant(self.out_gate.bias, 0.)
+        nn.init.orthogonal_(self.reset_gate.weight)
+        nn.init.orthogonal_(self.update_gate.weight)
+        nn.init.orthogonal_(self.out_gate.weight)
+        nn.init.constant_(self.reset_gate.bias, 0.)
+        nn.init.constant_(self.update_gate.bias, 0.)
+        nn.init.constant_(self.out_gate.bias, 0.)
 
     def forward(self, input_, prev_state):
         # get batch and spatial sizes
@@ -39,15 +36,15 @@ class ConvGRUCell_Unet(nn.Module):
         if prev_state is None:
             state_size = [batch_size, self.hidden_size] + list(spatial_size)
             if torch.cuda.is_available():
-                prev_state = Variable(torch.zeros(state_size)).cuda()
+                prev_state = torch.zeros(state_size).cuda()
             else:
-                prev_state = Variable(torch.zeros(state_size))
+                prev_state = torch.zeros(state_size)
 
         # data size is [batch, channel, height, width]
         stacked_inputs = torch.cat([input_, prev_state], dim=1)
-        update = F.sigmoid(self.update_gate(stacked_inputs))
-        reset = F.sigmoid(self.reset_gate(stacked_inputs))
-        out_inputs = F.tanh(self.out_gate(torch.cat([input_, prev_state * reset], dim=1)))
+        update = torch.sigmoid(self.update_gate(stacked_inputs))
+        reset = torch.sigmoid(self.reset_gate(stacked_inputs))
+        out_inputs = torch.tanh(self.out_gate(torch.cat([input_, prev_state * reset], dim=1)))
         new_state = prev_state * (1 - update) + out_inputs * update
 
         return new_state
