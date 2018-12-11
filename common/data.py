@@ -44,7 +44,7 @@ def sdm_interpolate_numpy(seg0, seg1, t, threshold=0.5, dilate=3):
     return seg0_dist, dist_t, seg1_dist
 
 
-def time_func(t, func='linear'):
+def time_func(t, func='lin'):
     assert 0 <= t <= 1
 
     if func == 'lin':
@@ -198,7 +198,7 @@ class ToyDataset3D(Dataset):
 
 
 class ToyDataset3DSequence(Dataset):
-    def __init__(self, transform=[], dataset_length=20, normalize=10):
+    def __init__(self, transform=[], dataset_length=20, normalize=10, growth='lin'):
         self._transform = transform
 
         self._labels = []
@@ -229,7 +229,7 @@ class ToyDataset3DSequence(Dataset):
 
             labels[:, :, :, 0] = seg0
             for j in range(1, normalize - 1):
-                _, intp, _ = sdm_interpolate_numpy(seg0, seg1, time_func(j/normalize, 'fast'))
+                _, intp, _ = sdm_interpolate_numpy(seg0, seg1, time_func(j/normalize, growth))
                 labels[:, :, :, j] = np.maximum(intp * seg1, labels[:, :, :, j-1])  # TODO: correct? monotone property
             labels[:, :, :, normalize - 1] = seg1
 
@@ -425,19 +425,22 @@ def get_toy_shape_training_data(train_transform, valid_transform, t_indices, v_i
     return train_loader, valid_loader
 
 
-def get_toy_seq_shape_training_data(train_transform, valid_transform, t_indices, v_indices, batchsize=2, normalize=10):
+def get_toy_seq_shape_training_data(train_transform, valid_transform, t_indices, v_indices, batchsize=2, normalize=10,
+                                    growth='lin'):
     assert train_transform, "You must provide at least a numpy-to-torch transformation."
 
     dataset_length = len(t_indices) + len(v_indices)
 
-    dataset = ToyDataset3DSequence(transform=transforms.Compose(train_transform), dataset_length=dataset_length, normalize=normalize)
+    dataset = ToyDataset3DSequence(transform=transforms.Compose(train_transform), dataset_length=dataset_length,
+                                   normalize=normalize, growth=growth)
     items = list(set(range(len(dataset))).intersection(set(t_indices)))
     print('Indices used:', items)
     train_sampler = SubsetRandomSampler(items)
     train_loader = DataLoader(dataset, batch_size=batchsize, sampler=train_sampler)
 
     if v_indices:
-        dataset = ToyDataset3DSequence(transform=transforms.Compose(valid_transform), dataset_length=dataset_length, normalize=normalize)
+        dataset = ToyDataset3DSequence(transform=transforms.Compose(valid_transform), dataset_length=dataset_length,
+                                       normalize=normalize, growth=growth)
         items = list(set(range(len(dataset))).intersection(set(v_indices)))
         print('Indices used:', items)
         valid_sampler = SequentialSampler(dataset)
@@ -654,7 +657,7 @@ class ElasticDeform(object):
 
     def __call__(self, sample):
         if random.random() < self._random:
-            sample[KEY_LABELS][:, :, :, 0], random_state = self.elastic_transform(sample[KEY_LABELS][:, :, :, 0], self._alpha, self._sigma, self.seed)
+            sample[KEY_LABELS][:, :, :, 0], random_state = self.elastic_transform(sample[KEY_LABELS][:, :, :, 0], self._alpha, self._sigma, self._seed)
             for c in range(1, sample[KEY_LABELS].shape[3]):
                 sample[KEY_LABELS][:, :, :, c], _ = self.elastic_transform(sample[KEY_LABELS][:, :, :, c], self._alpha, self._sigma, random_state=random_state)
             if self._apply_to_images and sample[KEY_IMAGES] != []:

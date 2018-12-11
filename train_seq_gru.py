@@ -61,6 +61,36 @@ class PaddedUnet(nn.Module):
         return self.classify(block3_result)
 
 
+class RnnWrapper(nn.Module):
+    def __init__(self, rnn, seq_len):
+        super(RnnWrapper, self).__init__()
+        self.rnn = rnn
+        self.len = seq_len
+        assert seq_len > 0
+
+    def custom_len1(self, module):
+        def custom_forward(*inputs):
+            inputs = module(inputs[0])
+            return inputs
+        return custom_forward
+
+    def custom_len2(self, module):
+        def custom_forward(*inputs):
+            inputs = module(inputs[0], inputs[1])
+            return inputs
+        return custom_forward
+
+    def forward(self, input):
+        hidden = checkpoint(self.custom_len1(self.rnn), input)
+        output = [hidden[:, -1, :, :, :].unsqueeze(1)]  # only works for 1 channels output of last layer in GRU
+        if self.len > 1:
+            for i in range(1, self.len):
+                hidden = checkpoint(self.custom_len2(self.rnn), input, hidden)
+                output.append(hidden[:, -1, :, :, :].unsqueeze(1))
+        output = torch.cat(output, dim=1)
+        return output
+
+
 modalities = ['_CBV_reg1_downsampled',
               '_TTD_reg1_downsampled']
 labels = ['_CBVmap_subset_reg1_downsampled',
@@ -70,7 +100,8 @@ labels = ['_CBVmap_subset_reg1_downsampled',
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 sequence_length = 5
 num_layers = 3
-batchsize = 2
+num_input = 2
+batchsize = 4
 zslice = 14
 pad = (20, 20, 20)
 n_visual_samples = min(4, batchsize)
@@ -88,16 +119,17 @@ valid_trafo = [data.UseLabelsAsImages(),
 ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
                                                           [0, 1, 2, 3, 4, 5, 6, 7],  #8, 9, 10, 11, 12, 13, 14, 15],
                                                           [8, 9, 10, 11],
-                                                          batchsize=batchsize, normalize=sequence_length)
+                                                          batchsize=batchsize, normalize=sequence_length, growth='log')
 
 channels = 16
 unet_out = 10
-shared_unet = PaddedUnet([2, channels, 32, channels, unet_out])
+shared_unet = PaddedUnet([num_input, channels, 32, channels, unet_out])
 convgru = ConvGRU_Unet(input_size=unet_out,
                        hidden_sizes=[channels]*(num_layers-1) + [1],
                        kernel_sizes=[3]*(num_layers-1) + [1],
                        n_layers=num_layers,
                        shared_unet=shared_unet).to(device)
+rnn = RnnWrapper(convgru, sequence_length)
 
 params = [p for p in convgru.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
@@ -127,13 +159,8 @@ for epoch in range(0, 175):
 
             del batch
 
-            hidden = None
-            output = []
-            for i in range(sequence_length):
-                input = torch.cat((gt[:, 0, :, :, :].unsqueeze(1), gt[:, -1, :, :, :].unsqueeze(1)), dim=1)
-                hidden = convgru(input, hidden=hidden)
-                output.append(hidden[-1])
-            output = torch.cat(output, dim=1)
+            input = torch.cat((gt[:, 0, :, :, :].unsqueeze(1), gt[:, -1, :, :, :].unsqueeze(1)), dim=1).requires_grad_()
+            output = rnn(input)
 
             loss = criterion(output, gt)
             loss_mean += loss.item()
@@ -162,7 +189,7 @@ for epoch in range(0, 175):
                 ax.set_title(title)
 
     del output
-    del hidden
+    del input
     del loss
     del gt
 
@@ -180,16 +207,11 @@ for epoch in range(0, 175):
 
             del batch
 
-            hidden = None
-            output = []
-            for i in range(sequence_length):
-                input = torch.cat((gt[:, 0, :, :, :].unsqueeze(1), gt[:, -1, :, :, :].unsqueeze(1)), dim=1)
-                hidden = convgru(input, hidden=hidden)
-                output.append(hidden[-1])
-            output = torch.cat(output, dim=1)
+            input = torch.cat((gt[:, 0, :, :, :].unsqueeze(1), gt[:, -1, :, :, :].unsqueeze(1)), dim=1)
+            output = rnn(input)
 
             loss = criterion(output, gt)
-            loss_mean += float(loss)
+            loss_mean += loss.item()
 
             inc += 1
 

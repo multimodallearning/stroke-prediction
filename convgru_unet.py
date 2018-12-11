@@ -111,8 +111,15 @@ class ConvGRU_Unet(nn.Module):
         -------
         upd_hidden : 5D hidden representation. (layer, batch, channels, height, width).
         '''
-        if not hidden:
+        if hidden is None:
             hidden = [None] * self.n_layers
+        else:
+            inc = 0
+            hidden_list = []
+            for size in self.hidden_sizes:
+                hidden_list.append(hidden[:, inc:inc+size, :, :, :])
+                inc += size
+            hidden = hidden_list
 
         input_ = self.unet(x)
 
@@ -129,4 +136,4 @@ class ConvGRU_Unet(nn.Module):
             input_ = upd_cell_hidden
 
         # retain tensors in list to allow different hidden sizes
-        return upd_hidden
+        return torch.cat(upd_hidden, dim=1)
