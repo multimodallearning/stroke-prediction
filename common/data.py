@@ -206,8 +206,9 @@ class ToyDataset3DSequence(Dataset):
         for i in range(dataset_length):
             labels = np.zeros(shape=(128, 128, 28, normalize))
 
-            timep = random.random()
-            self._item.append({KEY_CASE_ID: i, KEY_CLINICAL_IDX: timep*normalize})
+            t_imgs = int(random.random()*(normalize-2))
+            t_reca = int(random.random()*(normalize-2-t_imgs) + t_imgs + 1)
+            self._item.append({KEY_CASE_ID: i, 'ti': t_imgs, 'tr': t_reca})
 
             left_right = (random.random() < 0.5)
 
@@ -243,8 +244,8 @@ class ToyDataset3DSequence(Dataset):
         case_id = item_id[KEY_CASE_ID]
 
         globalss = np.zeros((1, 1, 1, 2))
-        globalss[:, :, :, 1] = item_id[KEY_CLINICAL_IDX]
-        globalss[:, :, :, 0] = 0
+        globalss[:, :, :, 0] = item_id['ti']  # t_imaging
+        globalss[:, :, :, 1] = item_id['tr']  # t_recanalization
 
         result = {KEY_CASE_ID: case_id, KEY_IMAGES: [], KEY_LABELS: [], KEY_GLOBAL: globalss}
 
