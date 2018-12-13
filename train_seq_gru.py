@@ -60,9 +60,9 @@ class PaddedUnet(nn.Module):
         return self.classify(block3_result)
 
 
-class RnnWrapper(nn.Module):
+class RnnCheckpointingWrapper(nn.Module):
     def __init__(self, rnn, seq_len):
-        super(RnnWrapper, self).__init__()
+        super(RnnCheckpointingWrapper, self).__init__()
         self.rnn = rnn
         self.len = seq_len
         assert seq_len > 0
@@ -88,6 +88,17 @@ class RnnWrapper(nn.Module):
         return output
 
 
+def get_title(prefix, idx, batch):
+    suffix = ''
+    if idx == int(batch[data.KEY_GLOBAL][row, 0, :, :, :]):
+        suffix += ' core'
+    elif idx == int(batch[data.KEY_GLOBAL][row, 1, :, :, :]):
+        suffix += ' fuct'
+    elif idx == 8:
+        suffix += ' penu'
+    return prefix + '[' + str(idx) + ']' + suffix
+
+
 modalities = ['_CBV_reg1_downsampled',
               '_TTD_reg1_downsampled']
 labels = ['_CBVmap_subset_reg1_downsampled',
@@ -97,7 +108,7 @@ labels = ['_CBVmap_subset_reg1_downsampled',
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 sequence_length = 9
 num_layers = 3
-num_input = 2
+num_input = 4
 batchsize = 4
 zslice = 14
 pad = (20, 20, 20)
@@ -110,13 +121,13 @@ train_trafo = [data.UseLabelsAsImages(),
                data.ToTensor()]
 valid_trafo = [data.UseLabelsAsImages(),
                data.PadImages(pad[0], pad[1], pad[2], pad_value=0),
-               data.ElasticDeform(apply_to_images=True, random=0.5, seed=0),
+               data.ElasticDeform(apply_to_images=True, random=0.67, seed=0),
                data.ToTensor()]
 
 ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
-                                                          [0, 1, 2, 3, 4, 5, 6, 7],  #8, 9, 10, 11, 12, 13, 14, 15],
-                                                          [8, 9, 10, 11],
-                                                          batchsize=batchsize, normalize=sequence_length, growth='lin')
+                                                          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+                                                          [16, 17, 18, 19],
+                                                          batchsize=batchsize, normalize=sequence_length, growth='fast')
 
 channels = 16
 unet_out = 16
@@ -126,13 +137,13 @@ convgru = ConvGRU_Unet(input_size=unet_out,
                        kernel_sizes=[3]*(num_layers-1) + [1],
                        n_layers=num_layers,
                        shared_unet=shared_unet).to(device)
-rnn = RnnWrapper(convgru, sequence_length)
+rnn = RnnCheckpointingWrapper(convgru, sequence_length)
 
 params = [p for p in convgru.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
       '/ total: Unet-GRU-RNN', sum([p.nelement() for p in convgru.parameters()]))
 
-criterion = Criterion([1/3] * 3)
+criterion = Criterion([0.1, 0.8, 0.1])
 optimizer = torch.optim.Adam(params, lr=0.001)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=75, gamma=0.1)
 
@@ -141,7 +152,7 @@ loss_valid = []
 
 for epoch in range(0, 175):
     scheduler.step()
-    f, axarr = plt.subplots(n_visual_samples * 2, 10)
+    f, axarr = plt.subplots(n_visual_samples * 2, sequence_length * 2)
     loss_mean = 0
     inc = 0
 
@@ -159,7 +170,10 @@ for epoch in range(0, 175):
                 mask[b, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :] = 1  # core
                 mask[b, -1, :, :, :] = 1  # penumbra
 
-            input = gt[mask].view(batchsize, 2, 28, 128, 128).requires_grad_()
+            input = torch.ones(batchsize, 4, 28, 128 ,128)
+            input[:, :2, :, :, :] = gt[mask].view(batchsize, 2, 28, 128, 128)
+            input[:, 2:, :, :, :] = input[:, 2:, :, :, :] * batch[data.KEY_GLOBAL]
+            input = input.to(device).requires_grad_()
             for b in range(batchsize):
                 mask[b, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :] = 1  # lesion
 
@@ -178,18 +192,15 @@ for epoch in range(0, 175):
         loss_train.append(loss_mean/inc)
 
         for row in range(n_visual_samples):
-            axarr[row, 0].imshow(gt.cpu().detach().numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-            axarr[row, 1].imshow(gt.cpu().detach().numpy()[row, int(batch[data.KEY_GLOBAL][row, 0, :, :, :]), zslice, :, :], vmin=0, vmax=1, cmap='gray')
-            axarr[row, 2].imshow(gt.cpu().detach().numpy()[row, 4, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-            axarr[row, 3].imshow(gt.cpu().detach().numpy()[row, int(batch[data.KEY_GLOBAL][row, 1, :, :, :]), zslice, :, :], vmin=0, vmax=1, cmap='gray')
-            axarr[row, 4].imshow(gt.cpu().detach().numpy()[row, -1, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-            axarr[row, 5].imshow(output.cpu().detach().numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-            axarr[row, 6].imshow(output.cpu().detach().numpy()[row, int(batch[data.KEY_GLOBAL][row, 0, :, :, :]), zslice, :, :], vmin=0, vmax=1, cmap='gray')
-            axarr[row, 7].imshow(output.cpu().detach().numpy()[row, 4, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-            axarr[row, 8].imshow(output.cpu().detach().numpy()[row, int(batch[data.KEY_GLOBAL][row, 1, :, :, :]), zslice, :, :], vmin=0, vmax=1, cmap='gray')
-            axarr[row, 9].imshow(output.cpu().detach().numpy()[row, -1, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-        for ax, title in zip(axarr[0], ['GT[0]', 'GT core', 'GT[4]', 'GT[-1]', 'GT penumbra', 'Pr[0]', 'Pr core', 'Pr[4]', 'Pr lesion', 'Pr[-1]']):
-            ax.set_title(title)
+            titles = []
+            for i in range(sequence_length):
+                axarr[row, i].imshow(gt.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append(get_title('GT', i, batch))
+            for i in range(sequence_length):
+                axarr[row, i + sequence_length].imshow(output.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append(get_title('Pr', i, batch))
+            for ax, title in zip(axarr[row], titles):
+                ax.set_title(title)
         del batch
 
     del output
@@ -214,7 +225,10 @@ for epoch in range(0, 175):
                 mask[b, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :] = 1  # core
                 mask[b, -1, :, :, :] = 1  # penumbra
 
-            input = gt[mask].view(batchsize, 2, 28, 128, 128).requires_grad_()
+            input = torch.ones(batchsize, 4, 28, 128 ,128)
+            input[:, :2, :, :, :] = gt[mask].view(batchsize, 2, 28, 128, 128)
+            input[:, 2:, :, :, :] = input[:, 2:, :, :, :] * batch[data.KEY_GLOBAL]
+            input = input.to(device).requires_grad_()
             for b in range(batchsize):
                 mask[b, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :] = 1  # lesion
 
@@ -229,16 +243,15 @@ for epoch in range(0, 175):
         loss_valid.append(loss_mean/inc)
 
         for row in range(n_visual_samples):
-            axarr[row + n_visual_samples, 0].imshow(gt.cpu().detach().numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-            axarr[row + n_visual_samples, 1].imshow(gt.cpu().detach().numpy()[row, int(batch[data.KEY_GLOBAL][row, 0, :, :, :]), zslice, :, :], vmin=0, vmax=1, cmap='gray')
-            axarr[row + n_visual_samples, 2].imshow(gt.cpu().detach().numpy()[row, 4, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-            axarr[row + n_visual_samples, 3].imshow(gt.cpu().detach().numpy()[row, int(batch[data.KEY_GLOBAL][row, 1, :, :, :]), zslice, :, :], vmin=0, vmax=1, cmap='gray')
-            axarr[row + n_visual_samples, 4].imshow(gt.cpu().detach().numpy()[row, -1, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-            axarr[row + n_visual_samples, 5].imshow(output.cpu().detach().numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-            axarr[row + n_visual_samples, 6].imshow(output.cpu().detach().numpy()[row, int(batch[data.KEY_GLOBAL][row, 0, :, :, :]), zslice, :, :], vmin=0, vmax=1, cmap='gray')
-            axarr[row + n_visual_samples, 7].imshow(output.cpu().detach().numpy()[row, 4, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-            axarr[row + n_visual_samples, 8].imshow(output.cpu().detach().numpy()[row, int(batch[data.KEY_GLOBAL][row, 1, :, :, :]), zslice, :, :], vmin=0, vmax=1, cmap='gray')
-            axarr[row + n_visual_samples, 9].imshow(output.cpu().detach().numpy()[row, -1, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            titles = []
+            for i in range(sequence_length):
+                axarr[row + n_visual_samples, i].imshow(gt.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append(get_title('GT', i, batch))
+            for i in range(sequence_length):
+                axarr[row + n_visual_samples, i + sequence_length].imshow(output.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append(get_title('Pr', i, batch))
+            for ax, title in zip(axarr[row + n_visual_samples], titles):
+                ax.set_title(title)
         del batch
 
     print('Epoch', epoch, 'last batch training loss:', loss_train[-1], '\tvalidation batch loss:', loss_valid[-1])
