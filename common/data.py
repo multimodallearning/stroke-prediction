@@ -239,7 +239,6 @@ class ToyDataset3DSequence(Dataset):
                 labels = labels[:, :, com[2], np.newaxis, :]
 
             self._labels.append(labels)
-            print('item():', labels.sum())
 
             self._zsize = zsize
 
@@ -663,7 +662,6 @@ class ElasticDeform2D(object):
         return map_coordinates(image, indices, order=1).reshape(shape), random_state
 
     def __call__(self, sample):
-        print('deform:', sample[KEY_LABELS].sum(), end='/')
         if random.random() < self._random:
             sample[KEY_LABELS][:, :, :, 0], random_state = self.elastic_transform(sample[KEY_LABELS][:, :, :, 0], self._alpha, self._sigma, self._seed)
             for c in range(1, sample[KEY_LABELS].shape[3]):
@@ -671,7 +669,6 @@ class ElasticDeform2D(object):
             if self._apply_to_images and sample[KEY_IMAGES] != []:
                 for c in range(sample[KEY_IMAGES].shape[3]):
                     sample[KEY_IMAGES][:, :, :, c], _ = self.elastic_transform(sample[KEY_IMAGES][:, :, :, c], self._alpha, self._sigma, random_state=random_state)
-        print(sample[KEY_LABELS].sum())
         return sample
 
 

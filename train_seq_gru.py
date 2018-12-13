@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch.utils.checkpoint import checkpoint
 from common import data, metrics
-from convgru_unet import ConvGRU_Unet
+from convgru_unet import DeformGRU_Unet
 import matplotlib.pyplot as plt
 
 
@@ -18,7 +18,7 @@ class Criterion(nn.Module):
             diff = pred[:, i+1] - pred[:, i]
             loss += torch.mean(torch.abs(diff) - diff)  # monotone
 
-        loss += 0.01 * (1 - torch.mean(torch.abs(torch.tanh(pred))))  # high contrast (avoid fading)
+        loss += 0.1 * (1 - torch.mean(torch.abs(torch.tanh(pred))))  # high contrast (avoid fading)
 
         return loss
 
@@ -52,9 +52,8 @@ class PaddedUnet(nn.Module):
         self.block1 = self._block_def(n_ch_in, ch_b1, input2d)
         self.pool12 = nn.MaxPool3d(kernel, kernel)
         self.block2 = self._block_def(ch_b1, ch_b2, input2d)
-        self.block3 = self._block_def(ch_b2 + ch_b1, ch_b3, input2d)
-
         self.upsample = nn.Upsample(scale_factor=kernel, mode='trilinear')
+        self.block3 = self._block_def(ch_b2 + ch_b1, ch_b3, input2d)
 
         self.classify = nn.Sequential(
             nn.Conv3d(ch_b3, n_classes, 1, stride=1, padding=0),
@@ -101,6 +100,34 @@ class RnnCheckpointingWrapper(nn.Module):
         return output
 
 
+class DeformRnnCheckpointingWrapper(nn.Module):
+    def __init__(self, rnn, seq_len):
+        super(DeformRnnCheckpointingWrapper, self).__init__()
+        self.rnn = rnn
+        self.len = seq_len
+        assert seq_len > 0
+
+    def cp_func(self, module):
+        def custom_forward(*inputs):
+            assert 0 < len(inputs) < 3
+            if len(inputs) == 2:
+                inputs = module(inputs[0], inputs[1])
+            else:
+                inputs = module(inputs[0])
+            return inputs
+        return custom_forward
+
+    def forward(self, input):
+        hidden, result = checkpoint(self.cp_func(self.rnn), input)
+        output = [result]  # only works for 1 channels output of last layer in GRU
+        if self.len > 1:
+            for i in range(1, self.len):
+                hidden, result = checkpoint(self.cp_func(self.rnn), input, hidden)
+                output.append(result)
+        output = torch.cat(output, dim=1)
+        return output
+
+
 def get_title(prefix, idx, batch):
     suffix = ''
     if idx == int(batch[data.KEY_GLOBAL][row, 0, :, :, :]):
@@ -125,7 +152,7 @@ if input2d:
     convgru_kernel = (1, 3, 3)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 sequence_length = 9
-num_layers = 3
+num_layers = 2
 num_input = 4
 batchsize = 4
 zslice = zsize // 2
@@ -133,30 +160,27 @@ pad = (20, 20, 20)
 n_visual_samples = min(4, batchsize)
 
 train_trafo = [data.UseLabelsAsImages(),
-               data.PadImages(pad[0], pad[1], pad[2], pad_value=0),
                data.HemisphericFlip(),
                data.ElasticDeform2D(apply_to_images=True, random=0.95),
                data.ToTensor()]
 valid_trafo = [data.UseLabelsAsImages(),
-               data.PadImages(pad[0], pad[1], pad[2], pad_value=0),
                data.ElasticDeform2D(apply_to_images=True, random=0.67, seed=0),
                data.ToTensor()]
 
 ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
                                                           [0, 1, 2, 3],  #4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-                                                          [4, 5, 6, 7],  #[16, 17, 18, 19],
+                                                          [4,5,6,7],  #[16, 17, 18, 19],
                                                           batchsize=batchsize, normalize=sequence_length, growth='fast',
                                                           zsize=zsize)
 
-channels = 16
-unet_out = 16
-shared_unet = PaddedUnet([num_input, channels, 32, channels, unet_out], input2d=input2d)
-convgru = ConvGRU_Unet(input_size=unet_out,
-                       hidden_sizes=[channels]*(num_layers-1) + [1],
-                       kernel_sizes=[convgru_kernel]*(num_layers-1) + [1],
-                       n_layers=num_layers,
-                       shared_unet=shared_unet).to(device)
-rnn = RnnCheckpointingWrapper(convgru, sequence_length)
+channels_unet = [num_input, 16, 32, 16, 16]
+shared_unet = PaddedUnet(channels_unet, input2d=input2d)
+convgru = DeformGRU_Unet(input_size=channels_unet[-1],
+                         hidden_sizes=[channels_unet[-1]] * num_layers,
+                         kernel_sizes=[convgru_kernel] * (num_layers-1) + [1],
+                         n_layers=num_layers,
+                         shared_unet=shared_unet).to(device)
+rnn = DeformRnnCheckpointingWrapper(convgru, sequence_length)
 
 params = [p for p in convgru.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
@@ -183,7 +207,6 @@ for epoch in range(0, 175):
 
         for batch in ds_train:
             gt = batch[data.KEY_LABELS].to(device)
-            print('>batch:', batch[data.KEY_LABELS].numpy().sum())
 
             mask = torch.zeros(gt.size()).byte()
             for b in range(batchsize):
