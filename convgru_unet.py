@@ -301,15 +301,15 @@ class DeformGRU_Unet(nn.Module):
 
         # Initialize the weights/bias with identity transformation
         self.fc_params[2].weight.data.zero_()
-        self.fc_params[2].bias.data.copy_(torch.tensor([0.5, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 0.5, 0], dtype=torch.float))
+        self.fc_params[2].bias.data.copy_(torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float))
 
     # Spatial transformer network forward function
     def stn(self, x, hidden):
         hidden_result = self.params_from_hidden(hidden)
         hidden_result = hidden_result.view(-1, 3 * 5 * 5)
+
         theta = self.fc_params(hidden_result)
         theta = theta.view(-1, 3, 4)
-
         grid = nn.functional.affine_grid(theta, x.size())
         '''
         identity = torch.zeros((batchsize, 3, 4), dtype=torch.float)
@@ -321,7 +321,7 @@ class DeformGRU_Unet(nn.Module):
 
         grid = AffineGridGenerator.apply(identity, size)
         '''
-        print(theta)
+        print(theta[0])
         x = nn.functional.grid_sample(x, grid)
 
         return x

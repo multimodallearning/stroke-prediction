@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch.utils.checkpoint import checkpoint
 from common import data, metrics
-from convgru_unet import DeformGRU_Unet
+from convgru_unet import GRU_Unet
 import matplotlib.pyplot as plt
 
 
@@ -23,107 +23,19 @@ class Criterion(nn.Module):
         return loss
 
 
-class PaddedUnet(nn.Module):
-    def _block_def(self, ch_in, ch_out, input2d):
-        kernel = 3
-        padding = 1
-        if input2d:
-            kernel = (1, 3, 3)
-            padding = (0, 1, 1)
-        return nn.Sequential(
-            nn.InstanceNorm3d(ch_in),
-            nn.Conv3d(ch_in, ch_out, kernel, stride=1, padding=padding),
-            nn.ReLU(),
-            nn.InstanceNorm3d(ch_out),
-            nn.Conv3d(ch_out, ch_out, kernel, stride=1, padding=padding),
-            nn.ReLU()
-        )
-
-    def __init__(self, channels=[2, 16, 32, 16, 2], channel_dim=1, input2d=False):
-        super(PaddedUnet, self).__init__()
-        kernel = 2
-        if input2d:
-            kernel = (1, 2, 2)
-
-        n_ch_in, ch_b1, ch_b2, ch_b3, n_classes = channels
-
-        self.channel_dim = channel_dim
-
-        self.block1 = self._block_def(n_ch_in, ch_b1, input2d)
-        self.pool12 = nn.MaxPool3d(kernel, kernel)
-        self.block2 = self._block_def(ch_b1, ch_b2, input2d)
-        self.upsample = nn.Upsample(scale_factor=kernel, mode='trilinear')
-        self.block3 = self._block_def(ch_b2 + ch_b1, ch_b3, input2d)
-
-        self.classify = nn.Sequential(
-            nn.Conv3d(ch_b3, n_classes, 1, stride=1, padding=0),
-            nn.Sigmoid()
-        )
+class GruGridsampler(nn.Module):
+    def __init__(self, gru, seq_len):
+        super(GruGridsampler, self).__init__()
+        self.seq_len = seq_len
+        self.gru = rnn
+        self.gs = None
 
     def forward(self, input):
-        block1_result = self.block1(input)
-        block2_input = self.pool12(block1_result)
-        block2_result = self.block2(block2_input)
-
-        block2_unpool = self.upsample(block2_result)
-        block3_input = torch.cat((block2_unpool, block1_result), dim=self.channel_dim)
-        block3_result = self.block3(block3_input)
-
-        return self.classify(block3_result)
-
-
-class RnnCheckpointingWrapper(nn.Module):
-    def __init__(self, rnn, seq_len):
-        super(RnnCheckpointingWrapper, self).__init__()
-        self.rnn = rnn
-        self.len = seq_len
-        assert seq_len > 0
-
-    def cp_func(self, module):
-        def custom_forward(*inputs):
-            assert 0 < len(inputs) < 3
-            if len(inputs) == 2:
-                inputs = module(inputs[0], inputs[1])
-            else:
-                inputs = module(inputs[0])
-            return inputs
-        return custom_forward
-
-    def forward(self, input):
-        hidden = checkpoint(self.cp_func(self.rnn), input)
-        output = [hidden[:, -1, :, :, :].unsqueeze(1)]  # only works for 1 channels output of last layer in GRU
-        if self.len > 1:
-            for i in range(1, self.len):
-                hidden = checkpoint(self.cp_func(self.rnn), input, hidden)
-                output.append(hidden[:, -1, :, :, :].unsqueeze(1))
-        output = torch.cat(output, dim=1)
-        return output
-
-
-class DeformRnnCheckpointingWrapper(nn.Module):
-    def __init__(self, rnn, seq_len):
-        super(DeformRnnCheckpointingWrapper, self).__init__()
-        self.rnn = rnn
-        self.len = seq_len
-        assert seq_len > 0
-
-    def cp_func(self, module):
-        def custom_forward(*inputs):
-            assert 0 < len(inputs) < 3
-            if len(inputs) == 2:
-                inputs = module(inputs[0], inputs[1])
-            else:
-                inputs = module(inputs[0])
-            return inputs
-        return custom_forward
-
-    def forward(self, input):
-        hidden, result = checkpoint(self.cp_func(self.rnn), input)
-        output = [result]  # only works for 1 channels output of last layer in GRU
-        if self.len > 1:
-            for i in range(1, self.len):
-                hidden, result = checkpoint(self.cp_func(self.rnn), input, hidden)
-                output.append(result)
+        hidden = None
+        output = []
+        for i in range(self.seq_len):
+            hidden, result = self.gru(input, hidden)
+            output.append(result)
         output = torch.cat(output, dim=1)
         return output
 
@@ -147,13 +59,10 @@ labels = ['_CBVmap_subset_reg1_downsampled',
 
 zsize = 1  # change here for 2D/3D: 1 or 28
 input2d = (zsize == 1)
-convgru_kernel = 3
-if input2d:
-    convgru_kernel = (1, 3, 3)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 sequence_length = 9
 num_layers = 2
-num_input = 4
+num_input = 1  # TODO concat image-vec and clinical-vec
 batchsize = 4
 zslice = zsize // 2
 pad = (20, 20, 20)
@@ -168,18 +77,18 @@ valid_trafo = [data.UseLabelsAsImages(),
                data.ToTensor()]
 
 ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
-                                                          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-                                                          [16, 17, 18, 19],
+                                                          [0, 1, 2, 3],  #4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+                                                          [4, 5, 6, 7],  #[16, 17, 18, 19],
                                                           batchsize=batchsize, normalize=sequence_length, growth='fast',
                                                           zsize=zsize)
 
-channels_unet = [num_input, 16, 32, 16, 16]
-shared_unet = PaddedUnet(channels_unet, input2d=input2d)
-convgru = DeformGRU_Unet(input_size=channels_unet[-1],
-                         hidden_sizes=[channels_unet[-1]] * num_layers,
-                         kernel_sizes=[convgru_kernel] * (num_layers-1) + [1],
-                         n_layers=num_layers,
-                         shared_unet=shared_unet).to(device)
+gru = nn.GRU(input_size=num_input,
+             hidden_size=32,
+             num_layers=num_layers,
+             dropout=0.5,
+             bias=True,
+             bidirectional=True)
+
 rnn = DeformRnnCheckpointingWrapper(convgru, sequence_length)
 
 params = [p for p in convgru.parameters() if p.requires_grad]
@@ -204,7 +113,7 @@ for epoch in range(0, 175):
     is_train = True
     convgru.train(is_train)
     with torch.set_grad_enabled(is_train):
-        #rnn.rnn.fc_params[2].bias[torch.tensor([0, 1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0], dtype=torch.uint8)].detach()
+        rnn.rnn.fc_params[2].bias[torch.tensor([0, 1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0], dtype=torch.uint8)].detach()
 
         for batch in ds_train:
             gt = batch[data.KEY_LABELS].to(device)
