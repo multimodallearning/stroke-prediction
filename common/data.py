@@ -198,7 +198,7 @@ class ToyDataset3D(Dataset):
 
 
 class ToyDataset3DSequence(Dataset):
-    def __init__(self, transform=[], dataset_length=20, normalize=10, growth='lin'):
+    def __init__(self, transform=[], dataset_length=20, normalize=10, growth='lin', zsize=28):
         self._transform = transform
 
         self._labels = []
@@ -230,11 +230,17 @@ class ToyDataset3DSequence(Dataset):
 
             labels[:, :, :, 0] = seg0
             for j in range(1, normalize - 1):
-                _, intp, _ = sdm_interpolate_numpy(seg0, seg1, time_func(j/normalize, growth))
+                _, dist_int, _ = sdm_interpolate_numpy(seg0, seg1, time_func(j/normalize, growth))
+                intp = (dist_int > 0).astype(seg1.dtype)
                 labels[:, :, :, j] = np.maximum(intp * seg1, labels[:, :, :, j-1])  # TODO: correct? monotone property
             labels[:, :, :, normalize - 1] = seg1
 
+            if zsize == 1:
+                labels = labels[:, :, com[2], np.newaxis, :]
+
             self._labels.append(labels)
+
+            self._zsize = zsize
 
     def __len__(self):
         return len(self._item)
@@ -251,7 +257,7 @@ class ToyDataset3DSequence(Dataset):
 
         result[KEY_LABELS] = self._labels[item].copy()
 
-        result[KEY_IMAGES] = np.zeros((128, 128, 28, 2))
+        result[KEY_IMAGES] = np.zeros((128, 128, self._zsize, 2))
 
         if self._transform:
             result = self._transform(result)
@@ -427,13 +433,13 @@ def get_toy_shape_training_data(train_transform, valid_transform, t_indices, v_i
 
 
 def get_toy_seq_shape_training_data(train_transform, valid_transform, t_indices, v_indices, batchsize=2, normalize=10,
-                                    growth='lin'):
+                                    growth='lin', zsize=28):
     assert train_transform, "You must provide at least a numpy-to-torch transformation."
 
     dataset_length = len(t_indices) + len(v_indices)
 
     dataset = ToyDataset3DSequence(transform=transforms.Compose(train_transform), dataset_length=dataset_length,
-                                   normalize=normalize, growth=growth)
+                                   normalize=normalize, growth=growth, zsize=zsize)
     items = list(set(range(len(dataset))).intersection(set(t_indices)))
     print('Indices used:', items)
     train_sampler = SubsetRandomSampler(items)
@@ -441,7 +447,7 @@ def get_toy_seq_shape_training_data(train_transform, valid_transform, t_indices,
 
     if v_indices:
         dataset = ToyDataset3DSequence(transform=transforms.Compose(valid_transform), dataset_length=dataset_length,
-                                       normalize=normalize, growth=growth)
+                                       normalize=normalize, growth=growth, zsize=zsize)
         items = list(set(range(len(dataset))).intersection(set(v_indices)))
         print('Indices used:', items)
         valid_sampler = SequentialSampler(dataset)

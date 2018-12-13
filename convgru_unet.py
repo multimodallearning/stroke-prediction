@@ -13,7 +13,10 @@ class ConvGRUCell_Unet(nn.Module):
 
     def __init__(self, input_size, hidden_size, kernel_size):
         super().__init__()
-        padding = kernel_size // 2
+        if (isinstance(kernel_size, tuple) or isinstance(kernel_size, list)) and len(kernel_size) == 3:
+            padding = (kernel_size[0] // 2, kernel_size[1] // 2, kernel_size[2] // 2)
+        else:
+            padding = kernel_size // 2
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.reset_gate = nn.Conv3d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)

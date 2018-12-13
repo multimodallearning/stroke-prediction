@@ -18,30 +18,43 @@ class Criterion(nn.Module):
             diff = pred[:, i+1] - pred[:, i]
             loss += torch.mean(torch.abs(diff) - diff)  # monotone
 
+        loss += 0.01 * (1 - torch.mean(torch.abs(torch.tanh(pred))))  # high contrast (avoid fading)
+
         return loss
 
 
 class PaddedUnet(nn.Module):
-    def _block_def(self, ch_in, ch_out):
+    def _block_def(self, ch_in, ch_out, input2d):
+        kernel = 3
+        padding = 1
+        if input2d:
+            kernel = (1, 3, 3)
+            padding = (0, 1, 1)
         return nn.Sequential(
             nn.InstanceNorm3d(ch_in),
-            nn.Conv3d(ch_in, ch_out, 3, stride=1, padding=1),
+            nn.Conv3d(ch_in, ch_out, kernel, stride=1, padding=padding),
             nn.ReLU(),
             nn.InstanceNorm3d(ch_out),
-            nn.Conv3d(ch_out, ch_out, 3, stride=1, padding=1),
+            nn.Conv3d(ch_out, ch_out, kernel, stride=1, padding=padding),
             nn.ReLU()
         )
 
-    def __init__(self, channels=[2, 16, 32, 16, 2], channel_dim=1):
+    def __init__(self, channels=[2, 16, 32, 16, 2], channel_dim=1, input2d=False):
         super(PaddedUnet, self).__init__()
+        kernel = 2
+        if input2d:
+            kernel = (1, 2, 2)
+
         n_ch_in, ch_b1, ch_b2, ch_b3, n_classes = channels
 
         self.channel_dim = channel_dim
 
-        self.block1 = self._block_def(n_ch_in, ch_b1)
-        self.pool12 = nn.MaxPool3d(2, 2)
-        self.block2 = self._block_def(ch_b1, ch_b2)
-        self.block3 = self._block_def(ch_b2 + ch_b1, ch_b3)
+        self.block1 = self._block_def(n_ch_in, ch_b1, input2d)
+        self.pool12 = nn.MaxPool3d(kernel, kernel)
+        self.block2 = self._block_def(ch_b1, ch_b2, input2d)
+        self.block3 = self._block_def(ch_b2 + ch_b1, ch_b3, input2d)
+
+        self.upsample = nn.Upsample(scale_factor=kernel, mode='trilinear')
 
         self.classify = nn.Sequential(
             nn.Conv3d(ch_b3, n_classes, 1, stride=1, padding=0),
@@ -53,7 +66,7 @@ class PaddedUnet(nn.Module):
         block2_input = self.pool12(block1_result)
         block2_result = self.block2(block2_input)
 
-        block2_unpool = nn.functional.interpolate(block2_result, scale_factor=2, mode='trilinear')
+        block2_unpool = self.upsample(block2_result)
         block3_input = torch.cat((block2_unpool, block1_result), dim=self.channel_dim)
         block3_result = self.block3(block3_input)
 
@@ -105,12 +118,17 @@ labels = ['_CBVmap_subset_reg1_downsampled',
           '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled',
           '_TTDmap_subset_reg1_downsampled']
 
+zsize = 1  # change here for 2D/3D: 1 or 28
+input2d = (zsize == 1)
+convgru_kernel = 3
+if input2d:
+    convgru_kernel = (1, 3, 3)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 sequence_length = 9
 num_layers = 3
 num_input = 4
 batchsize = 4
-zslice = 14
+zslice = zsize // 2
 pad = (20, 20, 20)
 n_visual_samples = min(4, batchsize)
 
@@ -125,16 +143,17 @@ valid_trafo = [data.UseLabelsAsImages(),
                data.ToTensor()]
 
 ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
-                                                          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-                                                          [16, 17, 18, 19],
-                                                          batchsize=batchsize, normalize=sequence_length, growth='fast')
+                                                          [0, 1, 2, 3],  #4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+                                                          [4, 5, 6, 7],  #[16, 17, 18, 19],
+                                                          batchsize=batchsize, normalize=sequence_length, growth='fast',
+                                                          zsize=zsize)
 
 channels = 16
 unet_out = 16
-shared_unet = PaddedUnet([num_input, channels, 32, channels, unet_out])
+shared_unet = PaddedUnet([num_input, channels, 32, channels, unet_out], input2d=input2d)
 convgru = ConvGRU_Unet(input_size=unet_out,
                        hidden_sizes=[channels]*(num_layers-1) + [1],
-                       kernel_sizes=[3]*(num_layers-1) + [1],
+                       kernel_sizes=[convgru_kernel]*(num_layers-1) + [1],
                        n_layers=num_layers,
                        shared_unet=shared_unet).to(device)
 rnn = RnnCheckpointingWrapper(convgru, sequence_length)
@@ -170,8 +189,8 @@ for epoch in range(0, 175):
                 mask[b, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :] = 1  # core
                 mask[b, -1, :, :, :] = 1  # penumbra
 
-            input = torch.ones(batchsize, 4, 28, 128 ,128)
-            input[:, :2, :, :, :] = gt[mask].view(batchsize, 2, 28, 128, 128)
+            input = torch.ones(batchsize, 4, zsize, 128 ,128)
+            input[:, :2, :, :, :] = gt[mask].view(batchsize, 2, zsize, 128, 128)
             input[:, 2:, :, :, :] = input[:, 2:, :, :, :] * batch[data.KEY_GLOBAL]
             input = input.to(device).requires_grad_()
             for b in range(batchsize):
@@ -179,8 +198,8 @@ for epoch in range(0, 175):
 
             output = rnn(input)
 
-            loss = criterion(output[mask].view(batchsize, 3, 28, 128, 128),
-                             gt[mask].view(batchsize, 3, 28, 128, 128))
+            loss = criterion(output[mask].view(batchsize, 3, zsize, 128, 128),
+                             gt[mask].view(batchsize, 3, zsize, 128, 128))
             loss_mean += loss.item()
 
             optimizer.zero_grad()
@@ -225,8 +244,8 @@ for epoch in range(0, 175):
                 mask[b, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :] = 1  # core
                 mask[b, -1, :, :, :] = 1  # penumbra
 
-            input = torch.ones(batchsize, 4, 28, 128 ,128)
-            input[:, :2, :, :, :] = gt[mask].view(batchsize, 2, 28, 128, 128)
+            input = torch.ones(batchsize, 4, zsize, 128 ,128)
+            input[:, :2, :, :, :] = gt[mask].view(batchsize, 2, zsize, 128, 128)
             input[:, 2:, :, :, :] = input[:, 2:, :, :, :] * batch[data.KEY_GLOBAL]
             input = input.to(device).requires_grad_()
             for b in range(batchsize):
@@ -234,8 +253,8 @@ for epoch in range(0, 175):
 
             output = rnn(input)
 
-            loss = criterion(output[mask].view(batchsize, 3, 28, 128, 128),
-                             gt[mask].view(batchsize, 3, 28, 128, 128))
+            loss = criterion(output[mask].view(batchsize, 3, zsize, 128, 128),
+                             gt[mask].view(batchsize, 3, zsize, 128, 128))
             loss_mean += loss.item()
 
             inc += 1
