@@ -135,11 +135,11 @@ n_visual_samples = min(4, batchsize)
 train_trafo = [data.UseLabelsAsImages(),
                data.PadImages(pad[0], pad[1], pad[2], pad_value=0),
                data.HemisphericFlip(),
-               data.ElasticDeform(apply_to_images=True, random=0.95),
+               data.ElasticDeform2D(apply_to_images=True, random=0.95),
                data.ToTensor()]
 valid_trafo = [data.UseLabelsAsImages(),
                data.PadImages(pad[0], pad[1], pad[2], pad_value=0),
-               data.ElasticDeform(apply_to_images=True, random=0.67, seed=0),
+               data.ElasticDeform2D(apply_to_images=True, random=0.67, seed=0),
                data.ToTensor()]
 
 ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
@@ -183,6 +183,7 @@ for epoch in range(0, 175):
 
         for batch in ds_train:
             gt = batch[data.KEY_LABELS].to(device)
+            print('>batch:', batch[data.KEY_LABELS].numpy().sum())
 
             mask = torch.zeros(gt.size()).byte()
             for b in range(batchsize):

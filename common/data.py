@@ -239,6 +239,7 @@ class ToyDataset3DSequence(Dataset):
                 labels = labels[:, :, com[2], np.newaxis, :]
 
             self._labels.append(labels)
+            print('item():', labels.sum())
 
             self._zsize = zsize
 
@@ -628,6 +629,50 @@ class ToTensor(object):
             if self.time_dim is not None:
                 result[KEY_GLOBAL] = result[KEY_GLOBAL].unsqueeze(self.time_dim)
         return result
+
+
+class ElasticDeform2D(object):
+    """Elastic deformation of images as described in [Simard2003]
+       Simard, Steinkraus and Platt, "Best Practices for Convolutional
+       Neural Networks applied to Visual Document Analysis", in Proc.
+       of the International Conference on Document Analysis and
+       Recognition, 2003.
+    """
+
+    def __init__(self, alpha=100, sigma=4, apply_to_images=False, random=1, seed=None):
+        self._alpha = alpha
+        self._sigma = sigma
+        self._apply_to_images = apply_to_images
+        self._random = random
+        self._seed = None
+        if seed is not None:
+            self.seed = np.random.RandomState(seed)
+
+    def elastic_transform(self, image, alpha=100, sigma=6, random_state=None):
+        new_seed = datetime.datetime.now().second + datetime.datetime.now().microsecond
+        if random_state is None:
+            random_state = np.random.RandomState(new_seed)
+
+        shape = image.shape
+        dx = gaussian_filter((random_state.rand(*shape) * 2 - 1), sigma, mode="constant", cval=0) * alpha
+        dy = gaussian_filter((random_state.rand(*shape) * 2 - 1), sigma, mode="constant", cval=0) * alpha
+
+        x, y, z = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), np.arange(shape[2]))
+        indices = np.reshape(y + dy, (-1, 1)), np.reshape(x + dx, (-1, 1)), np.reshape(z, (-1, 1))
+
+        return map_coordinates(image, indices, order=1).reshape(shape), random_state
+
+    def __call__(self, sample):
+        print('deform:', sample[KEY_LABELS].sum(), end='/')
+        if random.random() < self._random:
+            sample[KEY_LABELS][:, :, :, 0], random_state = self.elastic_transform(sample[KEY_LABELS][:, :, :, 0], self._alpha, self._sigma, self._seed)
+            for c in range(1, sample[KEY_LABELS].shape[3]):
+                sample[KEY_LABELS][:, :, :, c], _ = self.elastic_transform(sample[KEY_LABELS][:, :, :, c], self._alpha, self._sigma, random_state=random_state)
+            if self._apply_to_images and sample[KEY_IMAGES] != []:
+                for c in range(sample[KEY_IMAGES].shape[3]):
+                    sample[KEY_IMAGES][:, :, :, c], _ = self.elastic_transform(sample[KEY_IMAGES][:, :, :, c], self._alpha, self._sigma, random_state=random_state)
+        print(sample[KEY_LABELS].sum())
+        return sample
 
 
 class ElasticDeform(object):
