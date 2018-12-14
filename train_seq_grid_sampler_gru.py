@@ -23,20 +23,73 @@ class Criterion(nn.Module):
         return loss
 
 
-class GruGridsampler(nn.Module):
-    def __init__(self, gru, seq_len):
-        super(GruGridsampler, self).__init__()
-        self.seq_len = seq_len
-        self.gru = rnn
-        self.gs = None
+class RnnGridsampler(nn.Module):
+    def __init__(self, seq_len, num_layers=1, dim_in_vec = 2, dim_in_img = 2):
+        super(RnnGridsampler, self).__init__()
 
-    def forward(self, input):
-        hidden = None
+        self.len = seq_len
+
+        self.rnn = nn.GRU(input_size=64,
+                          hidden_size=64,
+                          num_layers=num_layers,
+                          dropout=0.5,
+                          bias=True,
+                          bidirectional=True)  #TODO: other outputs!
+
+        self.img2vec = nn.Sequential(
+            nn.InstanceNorm3d(dim_in_img),  # 128, 28
+            nn.Conv3d(dim_in_img, 10, kernel_size=3, padding=1),  # 128, 28
+            nn.ReLU(),
+            nn.MaxPool3d(2,2),  # 64, 14
+            nn.InstanceNorm3d(10),
+            nn.Conv3d(10, 20, kernel_size=3),  # 62, 12
+            nn.ReLU(),
+            nn.MaxPool3d(2,2),  # 31, 6
+            nn.InstanceNorm3d(20),
+            nn.Conv3d(20, 30, kernel_size=3),  # 29, 4
+            nn.ReLU(),
+            nn.InstanceNorm3d(30),
+            nn.Conv3d(30, 40, kernel_size=3),  # 27, 2
+            nn.ReLU(),
+            nn.MaxPool3d((1, 3, 3), (1, 3, 3)),  # 9, 2
+            nn.InstanceNorm3d(40),
+            nn.Conv3d(40, 50, kernel_size=(1, 3, 3)),  # 7, 2
+            nn.ReLU(),
+            nn.InstanceNorm3d(50),
+            nn.Conv3d(50, 60, kernel_size=(1, 3, 3)),  # 5, 2
+            nn.ReLU(),
+            nn.AdaptiveAvgPool3d(output_size=(1,1,1))  # 1, 1
+        )
+        self.vec2vec = nn.Sequential(
+            nn.InstanceNorm3d(dim_in_vec),
+            nn.Conv3d(dim_in_vec, 4, kernel_size=1),
+            nn.ReLU(),
+            nn.InstanceNorm3d(4),
+            nn.Conv3d(4, 4, kernel_size=1),
+            nn.ReLU(),
+        )
+
+        self.vec2theta = nn.Sequential(
+            nn.Linear(64, 32),
+            nn.ReLU(True),
+            nn.Linear(32, 4*3)  # 4*3 for 3D, 3*2 for 2D
+        )
+        self.vec2theta[2].weight.data.zero_()
+        self.vec2theta[2].bias.data.copy_(torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float))
+
+    def forward(self, input_img, input_vec):
+        vec_img = self.img2vec(input_img)
+        vec_vec = self.vec2vec(input_vec)
+        vec_cat = torch.cat((vec_img, vec_vec), dim=1)
+
         output = []
-        for i in range(self.seq_len):
-            hidden, result = self.gru(input, hidden)
-            output.append(result)
-        output = torch.cat(output, dim=1)
+        hidden = None
+        for i in range(self.len):
+            result, hidden = self.rnn(vec_cat.view(-1, 64), hidden)  # TODO: correct return values?
+            theta = self.vec2theta(result[-1]).view(-1, 3, 4)
+            grid = nn.functional.affine_grid(theta, input_img[:, 0].size())
+            output.append(nn.functional.grid_sample(input_img[:, 0], grid))
+
         return output
 
 
@@ -61,8 +114,6 @@ zsize = 1  # change here for 2D/3D: 1 or 28
 input2d = (zsize == 1)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 sequence_length = 9
-num_layers = 2
-num_input = 1  # TODO concat image-vec and clinical-vec
 batchsize = 4
 zslice = zsize // 2
 pad = (20, 20, 20)
@@ -82,20 +133,13 @@ ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_tra
                                                           batchsize=batchsize, normalize=sequence_length, growth='fast',
                                                           zsize=zsize)
 
-gru = nn.GRU(input_size=num_input,
-             hidden_size=32,
-             num_layers=num_layers,
-             dropout=0.5,
-             bias=True,
-             bidirectional=True)
+rnn = RnnGridsampler(seq_len=sequence_length)
 
-rnn = DeformRnnCheckpointingWrapper(convgru, sequence_length)
-
-params = [p for p in convgru.parameters() if p.requires_grad]
+params = [p for p in rnn.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
-      '/ total: Unet-GRU-RNN', sum([p.nelement() for p in convgru.parameters()]))
+      '/ total: RNN', sum([p.nelement() for p in rnn.parameters()]))
 
-criterion = Criterion([0.1, 0.8, 0.1])
+criterion = Criterion([1.0])
 optimizer = torch.optim.Adam(params, lr=0.001)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=75, gamma=0.1)
 
@@ -111,9 +155,8 @@ for epoch in range(0, 175):
     ### Train ###
 
     is_train = True
-    convgru.train(is_train)
+    rnn.train(is_train)
     with torch.set_grad_enabled(is_train):
-        rnn.rnn.fc_params[2].bias[torch.tensor([0, 1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0], dtype=torch.uint8)].detach()
 
         for batch in ds_train:
             gt = batch[data.KEY_LABELS].to(device)
@@ -123,17 +166,16 @@ for epoch in range(0, 175):
                 mask[b, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :] = 1  # core
                 mask[b, -1, :, :, :] = 1  # penumbra
 
-            input = torch.ones(batchsize, 4, zsize, 128 ,128)
-            input[:, :2, :, :, :] = gt[mask].view(batchsize, 2, zsize, 128, 128)
-            input[:, 2:, :, :, :] = input[:, 2:, :, :, :] * batch[data.KEY_GLOBAL]
-            input = input.to(device).requires_grad_()
+            input_image = torch.ones(batchsize, 4, zsize, 128, 128)
+            input_image[:, :2, :, :, :] = gt[mask].view(batchsize, 2, zsize, 128, 128)
+            input_image[:, 2:, :, :, :] = input_image[:, 2:, :, :, :] * batch[data.KEY_GLOBAL]
+            input_image = input_image.to(device).requires_grad_()
             for b in range(batchsize):
                 mask[b, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :] = 1  # lesion
 
-            output = rnn(input)
+            output = rnn(input_image, batch[data.KEY_GLOBAL])
 
-            loss = criterion(output[mask].view(batchsize, 3, zsize, 128, 128),
-                             gt[mask].view(batchsize, 3, zsize, 128, 128))
+            loss = criterion(output, gt[:, 1].unsqueeze(1))  # loss on follow-up lesion only
             loss_mean += loss.item()
 
             optimizer.zero_grad()
@@ -157,7 +199,7 @@ for epoch in range(0, 175):
         del batch
 
     del output
-    del input
+    del input_image
     del loss
     del gt
 
@@ -167,7 +209,7 @@ for epoch in range(0, 175):
     loss_mean = 0
     is_train = False
     optimizer.zero_grad()
-    convgru.train(is_train)
+    rnn.train(is_train)
     with torch.set_grad_enabled(is_train):
 
         for batch in ds_valid:
@@ -178,17 +220,16 @@ for epoch in range(0, 175):
                 mask[b, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :] = 1  # core
                 mask[b, -1, :, :, :] = 1  # penumbra
 
-            input = torch.ones(batchsize, 4, zsize, 128 ,128)
-            input[:, :2, :, :, :] = gt[mask].view(batchsize, 2, zsize, 128, 128)
-            input[:, 2:, :, :, :] = input[:, 2:, :, :, :] * batch[data.KEY_GLOBAL]
-            input = input.to(device).requires_grad_()
+            input_image = torch.ones(batchsize, 4, zsize, 128, 128)
+            input_image[:, :2, :, :, :] = gt[mask].view(batchsize, 2, zsize, 128, 128)
+            input_image[:, 2:, :, :, :] = input_image[:, 2:, :, :, :] * batch[data.KEY_GLOBAL]
+            input_image = input_image.to(device).requires_grad_()
             for b in range(batchsize):
                 mask[b, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :] = 1  # lesion
 
-            output = rnn(input)
+            output = rnn(input_image, batch[data.KEY_GLOBAL])
 
-            loss = criterion(output[mask].view(batchsize, 3, zsize, 128, 128),
-                             gt[mask].view(batchsize, 3, zsize, 128, 128))
+            loss = criterion(output, gt[:, 1].unsqueeze(1))  # loss on follow-up lesion only
             loss_mean += loss.item()
 
             inc += 1
