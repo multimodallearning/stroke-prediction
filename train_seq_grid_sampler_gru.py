@@ -139,9 +139,9 @@ class RnnGridsampler(nn.Module):
         self.vec2theta_1[4].bias.data.copy_(torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float))
 
         self.weighting = nn.Sequential(
-            nn.Conv3d(dim_in_vec, 4, kernel_size=1),
+            nn.Linear(num_directions * dim_hidden, dim_hidden),
             nn.ReLU(),
-            nn.Conv3d(4, 1, kernel_size=1),
+            nn.Linear(dim_hidden, 1),
             nn.Sigmoid()
         )
 
@@ -163,7 +163,7 @@ class RnnGridsampler(nn.Module):
             grid_1 = nn.functional.affine_grid(theta_1, input_1.size())
             out_0 = nn.functional.grid_sample(input_0, grid_0)
             out_1 = nn.functional.grid_sample(input_1, grid_1)
-            weights = self.weighting(input_vec)
+            weights = self.weighting(output[i]).view(-1, 1, 1, 1, 1)
             result.append(out_0 * weights + out_1 * (1 - weights))
 
         return torch.cat(result, dim=1)
@@ -203,7 +203,7 @@ zsize = 1  # change here for 2D/3D: 1 or 28
 input2d = (zsize == 1)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 sequence_length = 24
-num_layers = 3
+num_layers = 5
 dim_hidden = 64
 batchsize = 4
 zslice = zsize // 2
