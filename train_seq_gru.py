@@ -195,7 +195,7 @@ loss_valid = []
 
 for epoch in range(0, 175):
     scheduler.step()
-    f, axarr = plt.subplots(n_visual_samples * 2, sequence_length * 2)
+    f, axarr = plt.subplots(n_visual_samples + 2, sequence_length * 2)
     loss_mean = 0
     inc = 0
 
@@ -237,9 +237,6 @@ for epoch in range(0, 175):
 
         for row in range(n_visual_samples):
             titles = []
-            for i in range(sequence_length):
-                axarr[row, i].imshow(gt.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-                titles.append(get_title('GT', i, batch))
             for i in range(sequence_length):
                 axarr[row, i + sequence_length].imshow(output.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
                 titles.append(get_title('Pr', i, batch))
