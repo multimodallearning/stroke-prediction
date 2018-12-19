@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from common import data, metrics
-from GRUnet import GRUnet
+from GRUnet import GRUnet, GRUnetSequence
 import matplotlib.pyplot as plt
 
 
@@ -22,13 +22,13 @@ class Criterion(nn.Module):
         return loss
 
 
-def get_title(prefix, idx, batch):
+def get_title(prefix, idx, batch, seq_len):
     suffix = ''
     if idx == int(batch[data.KEY_GLOBAL][row, 0, :, :, :]):
         suffix += ' core'
     elif idx == int(batch[data.KEY_GLOBAL][row, 1, :, :, :]):
         suffix += ' fuct'
-    elif idx == 8:
+    elif idx == seq_len-1:
         suffix += ' penu'
     return prefix + '[' + str(idx) + ']' + suffix
 
@@ -39,7 +39,7 @@ convgru_kernel = 3
 if input2d:
     convgru_kernel = (1, 3, 3)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-sequence_length = 9
+sequence_length = 10
 num_input = 4
 batchsize = 4
 zslice = zsize // 2
@@ -55,18 +55,21 @@ valid_trafo = [data.UseLabelsAsImages(),
                data.ToTensor()]
 
 ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
-                                                          [0, 1, 2, 3],  #, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-                                                          [4, 5, 6, 7],  #[16, 17, 18, 19],
+                                                          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+                                                          [16, 17, 18, 19],
                                                           batchsize=batchsize, normalize=sequence_length, growth='fast',
                                                           zsize=zsize)
 
-grunet = GRUnet(input_size=num_input, hidden_sizes=[10, 20, 30, 20, 10], kernel_sizes=[convgru_kernel] * 5, output_size=3).to(device)
+grunet = GRUnetSequence(GRUnet(clinical_size=num_input,
+                               hidden_sizes=[10, 20, 30, 20, 10],
+                               kernel_sizes=[convgru_kernel] * 5,
+                               output_size=1), sequence_length).to(device)
 
 params = [p for p in grunet.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
       '/ total: GRUnet', sum([p.nelement() for p in grunet.parameters()]))
 
-criterion = Criterion([0.3, 0.4, 0.3])
+criterion = Criterion([0.1, 0.8, 0.1])
 optimizer = torch.optim.Adam(params, lr=0.001)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=75, gamma=0.1)
 
@@ -75,7 +78,7 @@ loss_valid = []
 
 for epoch in range(0, 500):
     scheduler.step()
-    f, axarr = plt.subplots(n_visual_samples * 2, sequence_length + 3)
+    f, axarr = plt.subplots(n_visual_samples * 2, sequence_length * 2)
     loss_mean = 0
     inc = 0
 
@@ -91,18 +94,14 @@ for epoch in range(0, 500):
             mask = torch.zeros(gt.size()).byte()
             for b in range(batchsize):
                 mask[b, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :] = 1  # core
+                mask[b, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :] = 1  # lesion
                 mask[b, -1, :, :, :] = 1  # penumbra
 
-            input = torch.ones(batchsize, num_input, zsize, 128 ,128)
-            input[:, :2, :, :, :] = gt[mask].view(batchsize, 2, zsize, 128, 128)
-            #input[:, 2:, :, :, :] = input[:, 2:, :, :, :] * batch[data.KEY_GLOBAL]
-            input = input.to(device).requires_grad_()
-            for b in range(batchsize):
-                mask[b, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :] = 1  # lesion
+            output = grunet(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
+                            gt[:, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :].unsqueeze(1),
+                            gt[:, -1, :, :, :].unsqueeze(1))
 
-            _, output = grunet(input)
-
-            loss = criterion(output,
+            loss = criterion(output[mask].view(batchsize, 3, zsize, 128, 128),
                              gt[mask].view(batchsize, 3, zsize, 128, 128))
             loss_mean += loss.item()
 
@@ -118,10 +117,10 @@ for epoch in range(0, 500):
             titles = []
             for i in range(sequence_length):
                 axarr[row, i].imshow(gt.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-                titles.append(get_title('GT', i, batch))
-            for i in range(3):
+                titles.append(get_title('GT', i, batch, sequence_length))
+            for i in range(sequence_length):
                 axarr[row, i + sequence_length].imshow(output.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-                titles.append(get_title('Pr', i, batch))
+                titles.append(get_title('Pr', i, batch, sequence_length))
             for ax, title in zip(axarr[row], titles):
                 ax.set_title(title)
         del batch
@@ -146,18 +145,14 @@ for epoch in range(0, 500):
             mask = torch.zeros(gt.size()).byte()
             for b in range(batchsize):
                 mask[b, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :] = 1  # core
+                mask[b, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :] = 1  # lesion
                 mask[b, -1, :, :, :] = 1  # penumbra
 
-            input = torch.ones(batchsize, 4, zsize, 128 ,128)
-            input[:, :2, :, :, :] = gt[mask].view(batchsize, 2, zsize, 128, 128)
-            input[:, 2:, :, :, :] = input[:, 2:, :, :, :] * batch[data.KEY_GLOBAL]
-            input = input.to(device).requires_grad_()
-            for b in range(batchsize):
-                mask[b, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :] = 1  # lesion
+            output = grunet(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
+                            gt[:, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :].unsqueeze(1),
+                            gt[:, -1, :, :, :].unsqueeze(1))
 
-            _, output = grunet(input)
-
-            loss = criterion(output,
+            loss = criterion(output[mask].view(batchsize, 3, zsize, 128, 128),
                              gt[mask].view(batchsize, 3, zsize, 128, 128))
             loss_mean += loss.item()
 
@@ -169,10 +164,10 @@ for epoch in range(0, 500):
             titles = []
             for i in range(sequence_length):
                 axarr[row + n_visual_samples, i].imshow(gt.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-                titles.append(get_title('GT', i, batch))
-            for i in range(3):
+                titles.append(get_title('GT', i, batch, sequence_length))
+            for i in range(sequence_length):
                 axarr[row + n_visual_samples, i + sequence_length].imshow(output.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-                titles.append(get_title('Pr', i, batch))
+                titles.append(get_title('Pr', i, batch, sequence_length))
             for ax, title in zip(axarr[row + n_visual_samples], titles):
                 ax.set_title(title)
         del batch
