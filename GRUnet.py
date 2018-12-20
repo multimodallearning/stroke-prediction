@@ -112,7 +112,7 @@ class GRUnet(nn.Module):
             nn.Upsample(scale_factor=upsample)
         )
 
-        self.blocks = [GRUnetBlock(hidden_sizes[0] + 1, self.hidden_sizes[0], self.kernel_sizes[0]),
+        self.blocks = [GRUnetBlock(hidden_sizes[0], self.hidden_sizes[0], self.kernel_sizes[0]),
                        GRUnetBlock(self.hidden_sizes[0], self.hidden_sizes[1], self.kernel_sizes[1]),
                        GRUnetBlock(self.hidden_sizes[1], self.hidden_sizes[2], self.kernel_sizes[2], output_size=self.hidden_sizes[1]),
                        GRUnetBlock(self.hidden_sizes[1] + self.hidden_sizes[1], self.hidden_sizes[3], self.kernel_sizes[3], output_size=self.hidden_sizes[0]),
@@ -156,7 +156,7 @@ class GRUnet(nn.Module):
         h_p, penumbra = self.penumbra_rep(penumbra, hidden_penu)
         clinical = self.clinical_rep(clinical)
 
-        input_ = torch.cat((core, penumbra, clinical), dim=1)
+        input_ = torch.cat((core, penumbra), dim=1) + clinical
         del core
         del penumbra
         del clinical
