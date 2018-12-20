@@ -40,7 +40,7 @@ if input2d:
     convgru_kernel = (1, 3, 3)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 sequence_length = 10
-num_input = 4
+num_clinical_input = 2
 batchsize = 4
 zslice = zsize // 2
 pad = (20, 20, 20)
@@ -60,7 +60,7 @@ ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_tra
                                                           batchsize=batchsize, normalize=sequence_length, growth='fast',
                                                           zsize=zsize)
 
-grunet = GRUnetSequence(GRUnet(clinical_size=num_input,
+grunet = GRUnetSequence(GRUnet(clinical_size=num_clinical_input,
                                hidden_sizes=[10, 20, 30, 20, 10],
                                kernel_sizes=[convgru_kernel] * 5,
                                output_size=1), sequence_length).to(device)
@@ -98,8 +98,8 @@ for epoch in range(0, 500):
                 mask[b, -1, :, :, :] = 1  # penumbra
 
             output = grunet(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
-                            gt[:, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :].unsqueeze(1),
-                            gt[:, -1, :, :, :].unsqueeze(1))
+                            gt[:, -1, :, :, :].unsqueeze(1),
+                            batch[data.KEY_GLOBAL].to(device))
 
             loss = criterion(output[mask].view(batchsize, 3, zsize, 128, 128),
                              gt[mask].view(batchsize, 3, zsize, 128, 128))
@@ -126,7 +126,6 @@ for epoch in range(0, 500):
         del batch
 
     del output
-    del input
     del loss
     del gt
 
@@ -149,8 +148,8 @@ for epoch in range(0, 500):
                 mask[b, -1, :, :, :] = 1  # penumbra
 
             output = grunet(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
-                            gt[:, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :].unsqueeze(1),
-                            gt[:, -1, :, :, :].unsqueeze(1))
+                            gt[:, -1, :, :, :].unsqueeze(1),
+                            batch[data.KEY_GLOBAL].to(device))
 
             loss = criterion(output[mask].view(batchsize, 3, zsize, 128, 128),
                              gt[mask].view(batchsize, 3, zsize, 128, 128))

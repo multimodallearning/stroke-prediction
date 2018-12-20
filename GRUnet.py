@@ -102,8 +102,8 @@ class GRUnet(nn.Module):
         if type(kernel_sizes[0]) == tuple:
             upsample = (1, 128, 128)
 
-        self.core_rep = GRUnetBlock(1, self.hidden_sizes[0], self.kernel_sizes[0])
-        self.penumbra_rep = GRUnetBlock(1, self.hidden_sizes[0], self.kernel_sizes[0])
+        self.core_rep = GRUnetBlock(1, self.hidden_sizes[0] // 2, self.kernel_sizes[0])
+        self.penumbra_rep = GRUnetBlock(1, self.hidden_sizes[0] // 2, self.kernel_sizes[0])
         self.clinical_rep = nn.Sequential(
             nn.Conv3d(clinical_size, clinical_size * 2, 1),
             nn.ReLU(),
@@ -112,7 +112,7 @@ class GRUnet(nn.Module):
             nn.Upsample(scale_factor=upsample)
         )
 
-        self.blocks = [GRUnetBlock(3, self.hidden_sizes[0], self.kernel_sizes[0]),
+        self.blocks = [GRUnetBlock(hidden_sizes[0] + 1, self.hidden_sizes[0], self.kernel_sizes[0]),
                        GRUnetBlock(self.hidden_sizes[0], self.hidden_sizes[1], self.kernel_sizes[1]),
                        GRUnetBlock(self.hidden_sizes[1], self.hidden_sizes[2], self.kernel_sizes[2], output_size=self.hidden_sizes[1]),
                        GRUnetBlock(self.hidden_sizes[1] + self.hidden_sizes[1], self.hidden_sizes[3], self.kernel_sizes[3], output_size=self.hidden_sizes[0]),
