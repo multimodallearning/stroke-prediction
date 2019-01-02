@@ -55,15 +55,15 @@ valid_trafo = [data.UseLabelsAsImages(),
                data.ToTensor()]
 
 ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
-                                                          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-                                                          [16, 17, 18, 19],
+                                                          [0, 1, 2, 3],  #[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+                                                          [4, 5, 6, 7],  #[16, 17, 18, 19],
                                                           batchsize=batchsize, normalize=sequence_length, growth='lin',
                                                           zsize=zsize)
 
 grunet = GRUnetSequence(GRUnet(clinical_size=num_clinical_input,
                                hidden_sizes=[10, 20, 30, 20, 10],
                                kernel_sizes=[convgru_kernel] * 5,
-                               output_size=1), sequence_length).to(device)
+                               out_size=3), sequence_length).to(device)
 
 params = [p for p in grunet.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
@@ -76,7 +76,7 @@ scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=75, gamma=0.1)
 loss_train = []
 loss_valid = []
 
-for epoch in range(0, 500):
+for epoch in range(0, 200):
     scheduler.step()
     f, axarr = plt.subplots(n_visual_samples * 2, sequence_length * 2)
     loss_mean = 0
