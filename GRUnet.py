@@ -69,6 +69,10 @@ class GRUnetBlock(nn.Module):
 
 
 class GRUnet(nn.Module):
+    def identity_grid(self, bs, os):
+        result = torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float).view(-1, 3, 4).cuda()
+        return nn.functional.affine_grid(result.expand(bs, 3, 4), (bs, os, 1, 128, 128))
+
     def __init__(self, clinical_size, hidden_sizes, kernel_sizes, out_size=1, batch_size=4):
         '''
         Generates a RecurrentUnet.
@@ -130,19 +134,27 @@ class GRUnet(nn.Module):
 
         #self.output = nn.Sigmoid()
 
-        self.downsample = nn.MaxPool3d(pool, pool, return_indices=False)
+        #2 self.downsample = nn.MaxPool3d(pool, pool, return_indices=False)
         self.globuppool = nn.AdaptiveAvgPool3d((1, 128, 128))
 
-        self.grid_offset = nn.Conv3d(out_size, 3, 1)
+        self.grid_offset = nn.Conv3d(out_size, 6, 1)
         torch.nn.init.normal(self.grid_offset.weight, 0, 0.001)
         torch.nn.init.normal(self.grid_offset.bias, 0, 0.1)
 
-        self.grid_identity = torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float).view(-1, 3, 4).cuda()
-        self.grid_identity = nn.functional.affine_grid(self.grid_identity.expand(batch_size, 3, 4), (batch_size, out_size, 1, 128, 128))
+        self.grid_identity = self.identity_grid(batch_size, out_size)
+
+        out_count = out_size * 64 * 64
+        self.affine = nn.Sequential(
+            nn.Linear(out_count, 6 + out_count // 2),
+            nn.ReLU(True),
+            nn.Linear(6 + out_count // 2, 6 + out_count // 2),
+            nn.ReLU(True),
+            nn.Linear(6 + out_count // 2, 12)
+        )
 
 
     def forward(self, core, penumbra, clinical, hidden=None):
-        outputs = [None] * self.N_BLOCKS
+        outputs = [None] * (self.N_BLOCKS // 2 + 1)
         indices = [None] * (self.N_BLOCKS // 2)
         upd_hidden = [None] * self.N_BLOCKS
         if hidden is None:
@@ -156,10 +168,9 @@ class GRUnet(nn.Module):
         h_p, penumbra_rep = self.penumbra_rep(penumbra, hidden_penu)
         clinical = self.clinical_rep(clinical)
 
-        input_ = self.downsample(torch.cat((core_rep, penumbra_rep), dim=1) + clinical)
-        del core
-        del core_rep
+        input_ = torch.cat((core_rep, penumbra_rep), dim=1) + clinical #2 self.downsample
         del clinical
+        del core_rep
         del penumbra_rep
 
         for i in range(self.N_BLOCKS // 2):
@@ -183,7 +194,9 @@ class GRUnet(nn.Module):
             j = self.N_BLOCKS // 2 + (i + 1)
             upd_block_hidden, output = self.blocks[j](input_, hidden[j])
             upd_hidden[j] = upd_block_hidden
-            outputs[j] = output
+
+            if i == self.N_BLOCKS // 2 - 1:
+                globupout = output
 
         del upd_block_hidden
         del outputs
@@ -193,10 +206,12 @@ class GRUnet(nn.Module):
 
         #self.output(output)
 
-        _grid_offset = self.globuppool(self.grid_offset(output)).permute(0, 2, 3, 4, 1) # TODO L loss on too high values
-        self.grid_identity.cuda()
+        _grid_offset_core = self.globuppool(self.grid_offset(globupout)[:, 0:3]).permute(0, 2, 3, 4, 1)  # TODO L loss on too high values
+        _grid_offset_penu = self.globuppool(self.grid_offset(globupout)[:, 3:6]).permute(0, 2, 3, 4, 1)  # TODO L loss on too high values
+        _out = nn.functional.grid_sample(core, self.grid_identity + _grid_offset_core) * \
+               nn.functional.grid_sample(penumbra, self.grid_identity + _grid_offset_penu)
 
-        return [h_c, h_p] + upd_hidden, nn.functional.grid_sample(penumbra, self.grid_identity + _grid_offset)
+        return [h_c, h_p] + upd_hidden, _out
 
 
 

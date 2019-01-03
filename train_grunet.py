@@ -55,8 +55,8 @@ valid_trafo = [data.UseLabelsAsImages(),
                data.ToTensor()]
 
 ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
-                                                          [0, 1, 2, 3],  #[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-                                                          [4, 5, 6, 7],  #[16, 17, 18, 19],
+                                                          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],  #[0, 1, 2, 3],
+                                                          [16, 17, 18, 19],  #[4, 5, 6, 7],
                                                           batchsize=batchsize, normalize=sequence_length, growth='lin',
                                                           zsize=zsize)
 
