@@ -47,10 +47,12 @@ pad = (20, 20, 20)
 n_visual_samples = min(4, batchsize)
 
 train_trafo = [data.UseLabelsAsImages(),
+               #data.PadImages(0,0,4,0),  TODO for 28 slices
                data.HemisphericFlip(),
                data.ElasticDeform2D(apply_to_images=True, random=0.95),
                data.ToTensor()]
 valid_trafo = [data.UseLabelsAsImages(),
+               #data.PadImages(0,0,4,0),  TODO for 28 slices
                data.ElasticDeform2D(apply_to_images=True, random=0.67, seed=0),
                data.ToTensor()]
 
@@ -61,7 +63,7 @@ ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_tra
                                                           zsize=zsize)
 
 grunet = GRUnetSequence(GRUnet(clinical_size=num_clinical_input,
-                               hidden_sizes=[10, 20, 30, 20, 10],
+                               hidden_sizes=[16, 32, 64, 32, 16],
                                kernel_sizes=[convgru_kernel] * 5,
                                out_size=3), sequence_length).to(device)
 

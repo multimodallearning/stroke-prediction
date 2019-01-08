@@ -8,10 +8,6 @@ import torch.nn as nn
 
 
 class GRUnetBlock(nn.Module):
-    """
-    Generate a convolutional GRU cell
-    """
-
     def __init__(self, input_size, hidden_size, kernel_size, output_size=None):
         super().__init__()
 
@@ -69,24 +65,19 @@ class GRUnetBlock(nn.Module):
 
 
 class GRUnet(nn.Module):
-    def identity_grid(self, bs, os):
+    def grid_identity_def(self, bs, os, depth=1, length=128):
         result = torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float).view(-1, 3, 4).cuda()
-        return nn.functional.affine_grid(result.expand(bs, 3, 4), (bs, os, 1, 128, 128))
+        return nn.functional.affine_grid(result.expand(bs, 3, 4), (bs, os, depth, length, length))
+
+    def unet_def(self, h_sizes, k_sizes, out_size):
+        return [GRUnetBlock(h_sizes[0], h_sizes[0], k_sizes[0], output_size=h_sizes[0]),
+                GRUnetBlock(h_sizes[0], h_sizes[1], k_sizes[1], output_size=h_sizes[1]),
+                GRUnetBlock(h_sizes[1], h_sizes[2], k_sizes[2], output_size=h_sizes[1]),
+                GRUnetBlock(h_sizes[1] + h_sizes[1], h_sizes[3], k_sizes[3], output_size=out_size)]
+                #GRUnetBlock(h_sizes[1] + h_sizes[1], h_sizes[3], k_sizes[3], output_size=h_sizes[0]),
+                #GRUnetBlock(h_sizes[0] + h_sizes[0], h_sizes[4], k_sizes[4], output_size=out_size)]
 
     def __init__(self, clinical_size, hidden_sizes, kernel_sizes, out_size=1, batch_size=4):
-        '''
-        Generates a RecurrentUnet.
-        Preserves spatial dimensions across cells, only altering depth.
-
-        Parameters
-        ----------
-        clinical_size : integer. depth dimension of clinical input tensors.
-        hidden_sizes : integer or list. depth dimensions of hidden state.
-            if integer, the same hidden size is used for all cells.
-        kernel_sizes : integer or list. sizes of Conv3d gate kernels.
-            if integer, the same kernel size is used for all cells.
-        n_layers : integer. number of chained `ConvGRUCell`.
-        '''
         self.N_BLOCKS = 5
 
         super().__init__()
@@ -102,58 +93,36 @@ class GRUnet(nn.Module):
             assert len(kernel_sizes) == self.N_BLOCKS, '`kernel_sizes` must have the same length as n_layers'
             self.kernel_sizes = kernel_sizes
 
-        upsample = (28, 128, 128)
-        if type(kernel_sizes[0]) == tuple:
-            upsample = (1, 128, 128)
-
+        #
+        # Part 1: Separate core / penumbra representations
         self.core_rep = GRUnetBlock(1, self.hidden_sizes[0] // 2, self.kernel_sizes[0])
-        self.penumbra_rep = GRUnetBlock(1, self.hidden_sizes[0] // 2, self.kernel_sizes[0])
-        self.clinical_rep = nn.Sequential(
-            nn.Conv3d(clinical_size, clinical_size * 2, 1),
-            nn.ReLU(),
-            nn.Conv3d(clinical_size * 2, 1, 1),
-            nn.ReLU(),
-            nn.Upsample(scale_factor=upsample)
-        )
+        self.penu_rep = GRUnetBlock(1, self.hidden_sizes[0] // 2, self.kernel_sizes[0])
 
-        self.blocks = [GRUnetBlock(hidden_sizes[0], self.hidden_sizes[0], self.kernel_sizes[0]),
-                       GRUnetBlock(self.hidden_sizes[0], self.hidden_sizes[1], self.kernel_sizes[1]),
-                       GRUnetBlock(self.hidden_sizes[1], self.hidden_sizes[2], self.kernel_sizes[2], output_size=self.hidden_sizes[1]),
-                       GRUnetBlock(self.hidden_sizes[1] + self.hidden_sizes[1], self.hidden_sizes[3], self.kernel_sizes[3], output_size=self.hidden_sizes[0]),
-                       GRUnetBlock(self.hidden_sizes[0] + self.hidden_sizes[0], self.hidden_sizes[4], self.kernel_sizes[4], output_size=out_size)]
-
+        #
+        # Part 2: non-lin deformation Unet
+        self.blocks = self.unet_def(hidden_sizes, kernel_sizes, out_size)
         for i in range(len(self.blocks)):
             setattr(self, 'GRUnetBlock' + str(i).zfill(2), self.blocks[i])
 
+        # pooling between blocks / levels
         pool = 2
         if type(kernel_sizes[0]) == tuple:
             pool = (1, 2, 2)
-
         self.pool = nn.MaxPool3d(pool, pool, return_indices=True)
         self.unpool = nn.MaxUnpool3d(pool, pool)
 
-        #self.output = nn.Sigmoid()
-
-        #2 self.downsample = nn.MaxPool3d(pool, pool, return_indices=False)
+        # pooling before/after Unet
+        self.downpool = nn.AvgPool3d(pool, pool)
         self.globuppool = nn.AdaptiveAvgPool3d((1, 128, 128))
 
+        # grid parameters
+        self.grid_identity = self.grid_identity_def(batch_size, out_size)
         self.grid_offset = nn.Conv3d(out_size, 6, 1)
         torch.nn.init.normal(self.grid_offset.weight, 0, 0.001)
-        torch.nn.init.normal(self.grid_offset.bias, 0, 0.1)
-
-        self.grid_identity = self.identity_grid(batch_size, out_size)
-
-        out_count = out_size * 64 * 64
-        self.affine = nn.Sequential(
-            nn.Linear(out_count, 6 + out_count // 2),
-            nn.ReLU(True),
-            nn.Linear(6 + out_count // 2, 6 + out_count // 2),
-            nn.ReLU(True),
-            nn.Linear(6 + out_count // 2, 12)
-        )
+        torch.nn.init.normal(self.grid_offset.bias, 0, 0.001)
 
 
-    def forward(self, core, penumbra, clinical, hidden=None):
+    def forward(self, core, penu, clinical, hidden=None):
         outputs = [None] * (self.N_BLOCKS // 2 + 1)
         indices = [None] * (self.N_BLOCKS // 2)
         upd_hidden = [None] * self.N_BLOCKS
@@ -165,13 +134,13 @@ class GRUnet(nn.Module):
         hidden = hidden[2:]
 
         h_c, core_rep = self.core_rep(core, hidden_core)
-        h_p, penumbra_rep = self.penumbra_rep(penumbra, hidden_penu)
-        clinical = self.clinical_rep(clinical)
-
-        input_ = torch.cat((core_rep, penumbra_rep), dim=1) + clinical #2 self.downsample
-        del clinical
+        h_p, penu_rep = self.penu_rep(penu, hidden_penu)
+        input_ = self.downpool(torch.cat((core_rep, penu_rep), dim=1))
         del core_rep
-        del penumbra_rep
+        del penu_rep
+
+        #
+        # Non-lin deform
 
         for i in range(self.N_BLOCKS // 2):
             upd_block_hidden, output = self.blocks[i](input_, hidden[i])
@@ -186,7 +155,7 @@ class GRUnet(nn.Module):
         upd_hidden[self.N_BLOCKS // 2] = upd_block_hidden
         outputs[self.N_BLOCKS // 2] = output
 
-        for i in range(self.N_BLOCKS // 2):
+        for i in range(self.N_BLOCKS // 2 - 1):
             unpool = self.unpool(output, indices[self.N_BLOCKS // 2 - (i + 1)])
             skip = outputs[self.N_BLOCKS // 2 - (i + 1)]
             input_ = torch.cat((unpool, skip), dim=1)
@@ -195,24 +164,18 @@ class GRUnet(nn.Module):
             upd_block_hidden, output = self.blocks[j](input_, hidden[j])
             upd_hidden[j] = upd_block_hidden
 
-            if i == self.N_BLOCKS // 2 - 1:
-                globupout = output
-
         del upd_block_hidden
         del outputs
         del input_
         del unpool
         del skip
 
-        #self.output(output)
-
-        _grid_offset_core = self.globuppool(self.grid_offset(globupout)[:, 0:3]).permute(0, 2, 3, 4, 1)  # TODO L loss on too high values
-        _grid_offset_penu = self.globuppool(self.grid_offset(globupout)[:, 3:6]).permute(0, 2, 3, 4, 1)  # TODO L loss on too high values
-        _out = nn.functional.grid_sample(core, self.grid_identity + _grid_offset_core) * \
-               nn.functional.grid_sample(penumbra, self.grid_identity + _grid_offset_penu)
+        _grid_offset_core = self.globuppool(self.grid_offset(output)[:, :3]).permute(0, 2, 3, 4, 1)  # TODO L loss on too high values
+        _grid_offset_penu = self.globuppool(self.grid_offset(output)[:, 3:]).permute(0, 2, 3, 4, 1)  # TODO L loss on too high values
+        _out = (nn.functional.grid_sample(core, self.grid_identity + _grid_offset_core) + \
+                nn.functional.grid_sample(penu, self.grid_identity + _grid_offset_penu)) / 2
 
         return [h_c, h_p] + upd_hidden, _out
-
 
 
 class GRUnetSequence(nn.Module):

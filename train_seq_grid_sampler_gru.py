@@ -130,6 +130,15 @@ class RnnGridsampler(nn.Module):
             nn.AdaptiveAvgPool3d(output_size=(1,1,1))  # 1, 1
         )
 
+        nn.Sequential(
+            # num affine parameters: 4*3 (12) for 3D, 3*2 (6) for 2D
+            nn.Linear(dim_hidden * num_directions, 6 + (dim_hidden * num_directions) // 2),
+            nn.ReLU(True),
+            nn.Linear(6 + (dim_hidden * num_directions) // 2, 6 + (dim_hidden * num_directions) // 2),
+            nn.ReLU(True),
+            nn.Linear(6 + (dim_hidden * num_directions) // 2, 12)
+        )
+
         self.vec2theta_0 = self._theta(num_directions)
         self.vec2theta_0[4].weight.data.zero_()
         self.vec2theta_0[4].bias.data.copy_(torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float))
