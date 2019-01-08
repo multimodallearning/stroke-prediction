@@ -65,7 +65,7 @@ ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_tra
 grunet = GRUnetSequence(GRUnet(clinical_size=num_clinical_input,
                                hidden_sizes=[16, 32, 64, 32, 16],
                                kernel_sizes=[convgru_kernel] * 5,
-                               out_size=3), sequence_length).to(device)
+                               out_size=6), sequence_length).to(device)
 
 params = [p for p in grunet.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),

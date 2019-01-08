@@ -5,6 +5,7 @@ https://github.com/jacobkimmel/pytorch_convgru
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class GRUnetBlock(nn.Module):
@@ -112,8 +113,6 @@ class GRUnet(nn.Module):
         self.unpool = nn.MaxUnpool3d(pool, pool)
 
         # pooling before/after Unet
-        self.downpool = nn.AvgPool3d(pool, pool)
-        self.globuppool = nn.AdaptiveAvgPool3d((1, 128, 128))
 
         # grid parameters
         self.grid_identity = self.grid_identity_def(batch_size, out_size)
@@ -135,7 +134,7 @@ class GRUnet(nn.Module):
 
         h_c, core_rep = self.core_rep(core, hidden_core)
         h_p, penu_rep = self.penu_rep(penu, hidden_penu)
-        input_ = self.downpool(torch.cat((core_rep, penu_rep), dim=1))
+        input_ = F.interpolate(torch.cat((core_rep, penu_rep), dim=1), scale_factor=(1, 0.5, 0.5))
         del core_rep
         del penu_rep
 
@@ -170,8 +169,8 @@ class GRUnet(nn.Module):
         del unpool
         del skip
 
-        _grid_offset_core = self.globuppool(self.grid_offset(output)[:, :3]).permute(0, 2, 3, 4, 1)  # TODO L loss on too high values
-        _grid_offset_penu = self.globuppool(self.grid_offset(output)[:, 3:]).permute(0, 2, 3, 4, 1)  # TODO L loss on too high values
+        _grid_offset_core = F.interpolate(self.grid_offset(output)[:, :3], scale_factor=(1, 4, 4)).permute(0, 2, 3, 4, 1)  # TODO L loss on too high values
+        _grid_offset_penu = F.interpolate(self.grid_offset(output)[:, 3:], scale_factor=(1, 4, 4)).permute(0, 2, 3, 4, 1)  # TODO L loss on too high values
         _out = (nn.functional.grid_sample(core, self.grid_identity + _grid_offset_core) + \
                 nn.functional.grid_sample(penu, self.grid_identity + _grid_offset_penu)) / 2
 
