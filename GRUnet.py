@@ -66,19 +66,14 @@ class GRUnetBlock(nn.Module):
 
 
 class GRUnet(nn.Module):
-    def grid_identity_def(self, bs, os, depth=1, length=128):
-        result = torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float).view(-1, 3, 4).cuda()
-        return nn.functional.affine_grid(result.expand(bs, 3, 4), (bs, os, depth, length, length))
-
-    def unet_def(self, h_sizes, k_sizes, out_size):
+    def unet_def(self, h_sizes, k_sizes):
         return [GRUnetBlock(h_sizes[0], h_sizes[0], k_sizes[0], output_size=h_sizes[0]),
                 GRUnetBlock(h_sizes[0], h_sizes[1], k_sizes[1], output_size=h_sizes[1]),
                 GRUnetBlock(h_sizes[1], h_sizes[2], k_sizes[2], output_size=h_sizes[1]),
-                GRUnetBlock(h_sizes[1] + h_sizes[1], h_sizes[3], k_sizes[3], output_size=out_size)]
-                #GRUnetBlock(h_sizes[1] + h_sizes[1], h_sizes[3], k_sizes[3], output_size=h_sizes[0]),
+                GRUnetBlock(h_sizes[1] + h_sizes[1], h_sizes[3], k_sizes[3], output_size=h_sizes[0])]
                 #GRUnetBlock(h_sizes[0] + h_sizes[0], h_sizes[4], k_sizes[4], output_size=out_size)]
 
-    def __init__(self, clinical_size, hidden_sizes, kernel_sizes, out_size=1, batch_size=4):
+    def __init__(self, clinical_size, hidden_sizes, kernel_sizes, batch_size=4):
         self.N_BLOCKS = 5
 
         super().__init__()
@@ -101,7 +96,7 @@ class GRUnet(nn.Module):
 
         #
         # Part 2: non-lin deformation Unet
-        self.blocks = self.unet_def(hidden_sizes, kernel_sizes, out_size)
+        self.blocks = self.unet_def(hidden_sizes, kernel_sizes)
         for i in range(len(self.blocks)):
             setattr(self, 'GRUnetBlock' + str(i).zfill(2), self.blocks[i])
 
@@ -112,11 +107,8 @@ class GRUnet(nn.Module):
         self.pool = nn.MaxPool3d(pool, pool, return_indices=True)
         self.unpool = nn.MaxUnpool3d(pool, pool)
 
-        # pooling before/after Unet
-
-        # grid parameters
-        self.grid_identity = self.grid_identity_def(batch_size, out_size)
-        self.grid_offset = nn.Conv3d(out_size, 6, 1)
+        # Grid offset prediction
+        self.grid_offset = nn.Conv3d(self.blocks[-1].conv3d.out_channels, 6, 1)
         torch.nn.init.normal(self.grid_offset.weight, 0, 0.001)
         torch.nn.init.normal(self.grid_offset.bias, 0, 0.001)
 
@@ -169,25 +161,66 @@ class GRUnet(nn.Module):
         del unpool
         del skip
 
-        _grid_offset_core = F.interpolate(self.grid_offset(output)[:, :3], scale_factor=(1, 4, 4)).permute(0, 2, 3, 4, 1)  # TODO L loss on too high values
-        _grid_offset_penu = F.interpolate(self.grid_offset(output)[:, 3:], scale_factor=(1, 4, 4)).permute(0, 2, 3, 4, 1)  # TODO L loss on too high values
-        _out = (nn.functional.grid_sample(core, self.grid_identity + _grid_offset_core) + \
-                nn.functional.grid_sample(penu, self.grid_identity + _grid_offset_penu)) / 2
+        _out = F.interpolate(self.grid_offset(output), scale_factor=(1, 4, 4)).permute(0, 2, 3, 4, 1)
 
         return [h_c, h_p] + upd_hidden, _out
 
 
-class GRUnetSequence(nn.Module):
-    def __init__(self, grunet, seq_len):
+class GRUnetBidirectionalSequence(nn.Module):
+    def grid_identity_def(self, bs, os, depth=1, length=128):
+        result = torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float).view(-1, 3, 4).cuda()
+        return nn.functional.affine_grid(result.expand(bs, 3, 4), (bs, os, depth, length, length))
+
+    def __init__(self, grunet1, grunet2, seq_len):
         super().__init__()
-        self.rnn = grunet
+        self.rnn1 = grunet1  # bi-directional
+        self.rnn2 = grunet2  # bi-directional
         self.len = seq_len
         assert seq_len > 0
 
-    def forward(self, core, penumbra, clinical):
+        batch_size = 4
+        out_size = 6
+        self.grid_identity = self.grid_identity_def(batch_size, out_size)
+
+        self.soft = nn.AvgPool3d((9, 9, 1), (1, 1, 1), padding=(4, 4, 0))
+
+        self.thresh = nn.Threshold(0.5, 0)
+
+    def forward(self, core, penu, clinical, t_core):
+        length = [self.len - t_core[i] for i in range(len(t_core))]
+        t_half = [t_core[b]+length[b]//2 for b in range(len(t_core))]
+        factor = torch.tensor([[1] * self.len] * len(t_core), dtype=torch.float).cuda()
+
+        for b in range(len(t_core)):
+            factor[b, :t_core[b]] = 1
+            factor[b, t_core[b]:t_half[b]] = torch.tensor([1 - i/length[b] for i in range(length[b]//2)], dtype=torch.float).cuda()
+            factor[b, t_half[b]:] = torch.tensor([(length[b]//2)/length[b] - i/length[b] for i in range(length[b] - length[b]//2)], dtype=torch.float).cuda()
+
+        factor = factor.unsqueeze(2).unsqueeze(3).unsqueeze(4)
+
+        offset = []
         hidden = None
-        output = []
         for i in range(self.len):
-            hidden, last_output = self.rnn(core, penumbra, clinical, hidden)
-            output.append(last_output)
-        return torch.cat(output, dim=1)
+            hidden, last_output = self.rnn1(core, penu, clinical, hidden)
+            offset.append(factor[:, i].unsqueeze(1) * last_output)
+
+        hidden = None
+        for i in range(self.len - 1, -1, -1):
+            hidden, last_output = self.rnn2(core, penu, clinical, hidden)
+            offset[i] += (1-factor[:, i].unsqueeze(1)) * last_output
+
+        output_by_core = []
+        output_by_penu = []
+        output_factors = []
+        for i in range(self.len):
+            offset[i] = self.soft(offset[i])
+            fc = factor[:, i].unsqueeze(1)
+            zero = torch.zeros(fc.size(), requires_grad=False).cuda()
+            ones = torch.ones(fc.size(), requires_grad=False).cuda()
+            output_factors.append(torch.where(fc < 0.5, zero, ones))
+            pred_by_core = nn.functional.grid_sample(core, self.grid_identity + offset[i][:, :, :, :, :3])
+            pred_by_penu = nn.functional.grid_sample(penu, self.grid_identity + offset[i][:, :, :, :, 3:])
+            output_by_core.append(pred_by_core)
+            output_by_penu.append(pred_by_penu)
+
+        return torch.cat(output_by_core, dim=1), torch.cat(output_by_penu, dim=1), torch.cat(output_factors, dim=1)

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from common import data, metrics
-from GRUnet import GRUnet, GRUnetSequence
+from GRUnet import GRUnet, GRUnetBidirectionalSequence
 import matplotlib.pyplot as plt
 
 
@@ -9,15 +9,15 @@ class Criterion(nn.Module):
     def __init__(self, weights):
         super(Criterion, self).__init__()
         self.dc = metrics.BatchDiceLoss(weights)  # weighted inversely by each volume proportion
+        self.dc_mid = metrics.BatchDiceLoss([1.0])  # weighted inversely by each volume proportion
 
-    def forward(self, pred, target):
-        loss = self.dc(pred, target)
+    def forward(self, pred, target, output, out_c, out_p):
+        loss = 0.5 * self.dc(pred, target)
+        loss += 0.25 * self.dc_mid(out_c, out_p)
 
-        '''
-        for i in range(pred.size()[1]-1):
-            diff = pred[:, i+1] - pred[:, i]
-            loss += torch.mean(torch.abs(diff) - diff)  # monotone
-        '''
+        for i in range(output.size()[1]-1):
+            diff = output[:, i+1] - output[:, i]
+            loss += 0.025 * torch.mean(torch.abs(diff) - diff)  # monotone
 
         return loss
 
@@ -57,15 +57,18 @@ valid_trafo = [data.UseLabelsAsImages(),
                data.ToTensor()]
 
 ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
-                                                          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],  #[0, 1, 2, 3],
-                                                          [16, 17, 18, 19],  #[4, 5, 6, 7],
-                                                          batchsize=batchsize, normalize=sequence_length, growth='lin',
+                                                          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],  #[0, 1, 2, 3],  #
+                                                          [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43],  #[4, 5, 6, 7],  #
+                                                          batchsize=batchsize, normalize=sequence_length, growth='fast',
                                                           zsize=zsize)
 
-grunet = GRUnetSequence(GRUnet(clinical_size=num_clinical_input,
-                               hidden_sizes=[16, 32, 64, 32, 16],
-                               kernel_sizes=[convgru_kernel] * 5,
-                               out_size=6), sequence_length).to(device)
+grunet = GRUnetBidirectionalSequence(GRUnet(clinical_size=num_clinical_input,
+                                            hidden_sizes=[16, 32, 64, 32, 16],
+                                            kernel_sizes=[convgru_kernel] * 5),
+                                     GRUnet(clinical_size=num_clinical_input,
+                                            hidden_sizes=[16, 32, 64, 32, 16],
+                                            kernel_sizes=[convgru_kernel] * 5),
+                                            sequence_length).to(device)
 
 params = [p for p in grunet.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
@@ -93,18 +96,29 @@ for epoch in range(0, 200):
         for batch in ds_train:
             gt = batch[data.KEY_LABELS].to(device)
 
-            mask = torch.zeros(gt.size()).byte()
+            t_core = []
             for b in range(batchsize):
-                mask[b, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :] = 1  # core
+                t_core.append(int(batch[data.KEY_GLOBAL][b, 0, :, :, :]))
+
+            out_c, out_p, out_f = grunet(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
+                                  gt[:, -1, :, :, :].unsqueeze(1),
+                                  batch[data.KEY_GLOBAL].to(device),
+                                  t_core)
+            output = out_f * out_c + (1-out_f) * out_p
+
+            mask = torch.zeros(gt.size()).byte()
+            mask_t_lesion = torch.zeros(gt.size()).byte()
+            for b in range(batchsize):
+                mask[b, t_core[b], :, :, :] = 1  # core
                 mask[b, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :] = 1  # lesion
+                mask_t_lesion[b, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :] = 1  # lesion
                 mask[b, -1, :, :, :] = 1  # penumbra
 
-            output = grunet(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
-                            gt[:, -1, :, :, :].unsqueeze(1),
-                            batch[data.KEY_GLOBAL].to(device))
-
             loss = criterion(output[mask].view(batchsize, 3, zsize, 128, 128),
-                             gt[mask].view(batchsize, 3, zsize, 128, 128))
+                             gt[mask].view(batchsize, 3, zsize, 128, 128),
+                             output,
+                             out_c[mask_t_lesion].view(batchsize, 1, zsize, 128, 128),
+                             out_p[mask_t_lesion].view(batchsize, 1, zsize, 128, 128))
             loss_mean += loss.item()
 
             optimizer.zero_grad()
@@ -143,18 +157,29 @@ for epoch in range(0, 200):
         for batch in ds_valid:
             gt = batch[data.KEY_LABELS].to(device)
 
-            mask = torch.zeros(gt.size()).byte()
+            t_core = []
             for b in range(batchsize):
-                mask[b, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :] = 1  # core
+                t_core.append(int(batch[data.KEY_GLOBAL][b, 0, :, :, :]))
+
+            out_c, out_p, out_f = grunet(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
+                                  gt[:, -1, :, :, :].unsqueeze(1),
+                                  batch[data.KEY_GLOBAL].to(device),
+                                  t_core)
+            output = out_f * out_c + (1-out_f) * out_p
+
+            mask = torch.zeros(gt.size()).byte()
+            mask_t_lesion = torch.zeros(gt.size()).byte()
+            for b in range(batchsize):
+                mask[b, t_core[b], :, :, :] = 1  # core
                 mask[b, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :] = 1  # lesion
+                mask_t_lesion[b, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :] = 1  # lesion
                 mask[b, -1, :, :, :] = 1  # penumbra
 
-            output = grunet(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
-                            gt[:, -1, :, :, :].unsqueeze(1),
-                            batch[data.KEY_GLOBAL].to(device))
-
             loss = criterion(output[mask].view(batchsize, 3, zsize, 128, 128),
-                             gt[mask].view(batchsize, 3, zsize, 128, 128))
+                             gt[mask].view(batchsize, 3, zsize, 128, 128),
+                             output,
+                             out_c[mask_t_lesion].view(batchsize, 1, zsize, 128, 128),
+                             out_p[mask_t_lesion].view(batchsize, 1, zsize, 128, 128))
             loss_mean += loss.item()
 
             inc += 1
