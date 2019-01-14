@@ -206,7 +206,7 @@ class ToyDataset3DSequence(Dataset):
         for i in range(dataset_length):
             labels = np.zeros(shape=(128, 128, 28, normalize))
 
-            t_imgs = int(random.random()*(normalize-2))
+            t_imgs = int(random.random()*(normalize-4))
             t_reca = int(random.random()*(normalize-2-t_imgs) + t_imgs + 1)
             self._item.append({KEY_CASE_ID: i, 'ti': t_imgs, 'tr': t_reca})
 

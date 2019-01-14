@@ -100,11 +100,11 @@ for epoch in range(0, 200):
             for b in range(batchsize):
                 t_core.append(int(batch[data.KEY_GLOBAL][b, 0, :, :, :]))
 
-            out_c, out_p, out_f = grunet(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
+            out_c, out_p, _ = grunet(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
                                   gt[:, -1, :, :, :].unsqueeze(1),
                                   batch[data.KEY_GLOBAL].to(device),
                                   t_core)
-            output = out_f * out_c + (1-out_f) * out_p
+            output = 0.5 * out_c + 0.5 * out_p
 
             mask = torch.zeros(gt.size()).byte()
             mask_t_lesion = torch.zeros(gt.size()).byte()
@@ -161,11 +161,11 @@ for epoch in range(0, 200):
             for b in range(batchsize):
                 t_core.append(int(batch[data.KEY_GLOBAL][b, 0, :, :, :]))
 
-            out_c, out_p, out_f = grunet(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
+            out_c, out_p, _ = grunet(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
                                   gt[:, -1, :, :, :].unsqueeze(1),
                                   batch[data.KEY_GLOBAL].to(device),
                                   t_core)
-            output = out_f * out_c + (1-out_f) * out_p
+            output = 0.5 * out_c + 0.5 * out_p
 
             mask = torch.zeros(gt.size()).byte()
             mask_t_lesion = torch.zeros(gt.size()).byte()
