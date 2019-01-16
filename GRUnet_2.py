@@ -25,7 +25,7 @@ class GRUnetBlock(nn.Module):
         self.update_gate = nn.Conv3d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
         self.out_gate = nn.Conv3d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
 
-        # Additional "normal" convolution as in vanilla Unet
+        # Additional "normal" convolution as in vanilla Unet to map to another channel number
         if output_size is None:
             output_size = hidden_size
         self.conv3d = nn.Conv3d(hidden_size, output_size, kernel_size, padding=padding)
@@ -262,8 +262,8 @@ class UnidirectionalNet(nn.Module):
 
         #
         # Separate (hidden) features for core / penumbra
-        self.core_rep = GRUnetBlock(rep_size // 2 -3, rep_size // 2 -3, kernel_size)
-        self.penu_rep = GRUnetBlock(rep_size // 2 -3, rep_size // 2 -3, kernel_size)
+        self.core_rep = GRUnetBlock(rep_size // 2 -4, rep_size // 2 -4, kernel_size)
+        self.penu_rep = GRUnetBlock(rep_size // 2 -4, rep_size // 2 -4, kernel_size)
 
         #
         # Affine
@@ -306,7 +306,7 @@ class UnidirectionalNet(nn.Module):
         for i in range(self.len):
             hidden_core, core_rep = self.core_rep(core_rep, hidden_core)
             hidden_penu, penu_rep = self.penu_rep(penu_rep, hidden_penu)
-            input_img = torch.cat((core_rep, penu_rep), dim=1)
+            input_img = torch.cat((core_rep, penu_rep, core, penu), dim=1)
 
             affine_grids, hidden_affine1, hidden_affine3, hidden_affine5 = self.affine(input_img, clinical, core.size(),
                                                                                        hidden_affine1, hidden_affine3,
@@ -345,8 +345,8 @@ class BidirectionalSequence(nn.Module):
 
         #
         # Part 1: Commonly used separate core/penumbra representations
-        self.common_core = self.common_rep(1, rep_size // 2 - 3)
-        self.common_penu = self.common_rep(1, rep_size // 2 - 3)
+        self.common_core = self.common_rep(1, rep_size // 2 - 4)
+        self.common_penu = self.common_rep(1, rep_size // 2 - 4)
 
         #
         # Part 2: Bidirectional Recurrence
