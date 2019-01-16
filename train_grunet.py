@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from common import data, metrics
-from GRUnet import GRUnet, BidirectionalSequence
+from GRUnet_2 import BidirectionalSequence
 import matplotlib.pyplot as plt
 
 
@@ -12,21 +12,21 @@ class Criterion(nn.Module):
         self.dc_mid = metrics.BatchDiceLoss([1.0])  # weighted inversely by each volume proportion
         self.ce = nn.CrossEntropyLoss()
 
-    def forward(self, pred, target, output, out_c, out_p, marker_pred, marker_target):
-        loss = 0.4 * self.dc(pred, target)
-        loss += 0.2 * self.dc_mid(out_c, out_p)
+    def forward(self, pred, target, output, out_c, out_p):
+        loss = 0.5 * self.dc(pred, target)
+        loss += 0.25 * self.dc_mid(out_c, out_p)
 
         for i in range(output.size()[1]-1):
             diff = output[:, i+1] - output[:, i]
-            loss += 0.02 * torch.mean(torch.abs(diff) - diff)  # monotone
+            loss += 0.025 * torch.mean(torch.abs(diff) - diff)  # monotone
 
-        loss += 0.2 * self.ce(torch.stack((1-marker_pred.flatten(),
-                                           marker_pred.flatten()), dim=1), marker_target.flatten().long())
+        #loss += 0.2 * self.ce(torch.stack((1-marker_pred.flatten(),
+        #                                   marker_pred.flatten()), dim=1), marker_target.flatten().long())
 
         return loss
 
 
-def get_title(prefix, idx, batch, seq_len, marker):
+def get_title(prefix, idx, batch, seq_len):
     suffix = ''
     if idx == int(batch[data.KEY_GLOBAL][row, 0, :, :, :]):
         suffix += 'C'
@@ -34,10 +34,7 @@ def get_title(prefix, idx, batch, seq_len, marker):
         suffix += 'L'
     elif idx == seq_len-1:
         suffix += 'P'
-    marker = float(marker[row, idx])
-    if marker > 0.5 and marker < 1.0:
-        suffix += '!'
-    return '{}{}/{:1.1f} {}'.format(prefix, str(idx), marker, suffix)
+    return '{}{}/{}'.format(prefix, str(idx), suffix)
 
 
 zsize = 1  # change here for 2D/3D: 1 or 28
@@ -69,17 +66,11 @@ ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_tra
                                                           batchsize=batchsize, normalize=sequence_length, growth='fast',
                                                           zsize=zsize)
 
-grunet = BidirectionalSequence(GRUnet(hidden_sizes=[16, 32, 64, 32, 16],
-                                      kernel_sizes=[convgru_kernel] * 5,
-                                      down_scaling=2),
-                               GRUnet(hidden_sizes=[16, 32, 64, 32, 16],
-                                      kernel_sizes=[convgru_kernel] * 5,
-                                      down_scaling=2),
-                               rep_size=16, kernel_size=convgru_kernel, seq_len=sequence_length).to(device)
+bi_net = BidirectionalSequence(rep_size=16, kernel_size=convgru_kernel, seq_len=sequence_length, convgru_kernel=convgru_kernel).to(device)
 
-params = [p for p in grunet.parameters() if p.requires_grad]
+params = [p for p in bi_net.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
-      '/ total: GRUnet', sum([p.nelement() for p in grunet.parameters()]))
+      '/ total: GRUnet', sum([p.nelement() for p in bi_net.parameters()]))
 
 criterion = Criterion([0.1, 0.8, 0.1])
 optimizer = torch.optim.Adam(params, lr=0.001)
@@ -97,7 +88,7 @@ for epoch in range(0, 200):
     ### Train ###
 
     is_train = True
-    grunet.train(is_train)
+    bi_net.train(is_train)
     with torch.set_grad_enabled(is_train):
 
         for batch in ds_train:
@@ -116,10 +107,11 @@ for epoch in range(0, 200):
                 marker_target[b, :t_lesion] = 0
                 marker_target[b, t_lesion:] = 1
 
-            out_c, out_p, marker = grunet(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
-                                          gt[:, -1, :, :, :].unsqueeze(1),
-                                          batch[data.KEY_GLOBAL].to(device),
-                                          factor)
+            out_c, out_p = bi_net(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
+                                  gt[:, -1, :, :, :].unsqueeze(1),
+                                  batch[data.KEY_GLOBAL].to(device),
+                                  factor)
+            #output = factor.unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_c + (1-factor).unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_p
             output = 0.5 * out_c + 0.5 * out_p
 
             mask = torch.zeros(gt.size()).byte()
@@ -134,9 +126,7 @@ for epoch in range(0, 200):
                              gt[mask].view(batchsize, 3, zsize, 128, 128),
                              output,
                              out_c[mask_t_lesion].view(batchsize, 1, zsize, 128, 128),
-                             out_p[mask_t_lesion].view(batchsize, 1, zsize, 128, 128),
-                             marker,
-                             marker_target)
+                             out_p[mask_t_lesion].view(batchsize, 1, zsize, 128, 128))
             loss_mean += loss.item()
 
             optimizer.zero_grad()
@@ -151,10 +141,10 @@ for epoch in range(0, 200):
             titles = []
             for i in range(sequence_length):
                 axarr[row, i].imshow(gt.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-                titles.append(get_title('GT', i, batch, sequence_length, marker_target))
+                titles.append(get_title('GT', i, batch, sequence_length))
             for i in range(sequence_length):
                 axarr[row, i + sequence_length].imshow(output.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-                titles.append(get_title('Pr', i, batch, sequence_length, marker))
+                titles.append(get_title('Pr', i, batch, sequence_length))
             for ax, title in zip(axarr[row], titles):
                 ax.set_title(title)
         del batch
@@ -169,7 +159,7 @@ for epoch in range(0, 200):
     loss_mean = 0
     is_train = False
     optimizer.zero_grad()
-    grunet.train(is_train)
+    bi_net.train(is_train)
     with torch.set_grad_enabled(is_train):
 
         for batch in ds_valid:
@@ -188,10 +178,11 @@ for epoch in range(0, 200):
                 marker_target[b, :t_lesion] = 0
                 marker_target[b, t_lesion:] = 1
 
-            out_c, out_p, marker = grunet(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
+            out_c, out_p = bi_net(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
                                           gt[:, -1, :, :, :].unsqueeze(1),
                                           batch[data.KEY_GLOBAL].to(device),
                                           factor)
+            #output = factor.unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_c + (1-factor).unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_p
             output = 0.5 * out_c + 0.5 * out_p
 
             mask = torch.zeros(gt.size()).byte()
@@ -206,9 +197,7 @@ for epoch in range(0, 200):
                              gt[mask].view(batchsize, 3, zsize, 128, 128),
                              output,
                              out_c[mask_t_lesion].view(batchsize, 1, zsize, 128, 128),
-                             out_p[mask_t_lesion].view(batchsize, 1, zsize, 128, 128),
-                             marker,
-                             marker_target)
+                             out_p[mask_t_lesion].view(batchsize, 1, zsize, 128, 128))
             loss_mean += loss.item()
 
             inc += 1
@@ -219,10 +208,10 @@ for epoch in range(0, 200):
             titles = []
             for i in range(sequence_length):
                 axarr[row + n_visual_samples, i].imshow(gt.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-                titles.append(get_title('GT', i, batch, sequence_length, marker_target))
+                titles.append(get_title('GT', i, batch, sequence_length))
             for i in range(sequence_length):
                 axarr[row + n_visual_samples, i + sequence_length].imshow(output.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-                titles.append(get_title('Pr', i, batch, sequence_length, marker))
+                titles.append(get_title('Pr', i, batch, sequence_length))
             for ax, title in zip(axarr[row + n_visual_samples], titles):
                 ax.set_title(title)
         del batch
@@ -230,14 +219,14 @@ for epoch in range(0, 200):
     print('Epoch', epoch, 'last batch training loss:', loss_train[-1], '\tvalidation batch loss:', loss_valid[-1])
 
     if epoch % 5 == 0:
-        torch.save(grunet, '/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/GRUnet.model')
+        torch.save(bi_net, '/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/_GRUnet2.model')
 
     for ax in axarr.flatten():
         ax.title.set_fontsize(3)
         ax.xaxis.set_visible(False)
         ax.yaxis.set_visible(False)
     f.subplots_adjust(hspace=0.05)
-    f.savefig('/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/GRUnet' + str(epoch) + '.png', bbox_inches='tight', dpi=300)
+    f.savefig('/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/_GRUnet2_' + str(epoch) + '.png', bbox_inches='tight', dpi=300)
 
     del f
     del axarr
@@ -248,6 +237,6 @@ for epoch in range(0, 200):
         plot.plot(epochs, loss_train, 'r-')
         plot.plot(epochs, loss_valid, 'b-')
         plot.set_ylabel('Loss Training (r) & Validation (b)')
-        fig.savefig('/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/GRUnet_plots.png', bbox_inches='tight', dpi=300)
+        fig.savefig('/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/_GRUnet2_plots.png', bbox_inches='tight', dpi=300)
         del plot
         del fig
