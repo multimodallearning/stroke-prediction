@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from common import data, metrics
-from GRUnet import GRUnet, GRUnetBidirectionalSequence
+from GRUnet import GRUnet, BidirectionalSequence
 import matplotlib.pyplot as plt
 
 
@@ -64,18 +64,18 @@ valid_trafo = [data.UseLabelsAsImages(),
                data.ToTensor()]
 
 ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
-                                                          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],  #[0, 1, 2, 3],
-                                                          [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43],  #[4, 5, 6, 7],
+                                                          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],  #[0, 1, 2, 3],  #
+                                                          [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43],  #[4, 5, 6, 7],  #
                                                           batchsize=batchsize, normalize=sequence_length, growth='fast',
                                                           zsize=zsize)
 
-grunet = GRUnetBidirectionalSequence(GRUnet(clinical_size=num_clinical_input,
-                                            hidden_sizes=[16, 32, 64, 32, 16],
-                                            kernel_sizes=[convgru_kernel] * 5),
-                                     GRUnet(clinical_size=num_clinical_input,
-                                            hidden_sizes=[16, 32, 64, 32, 16],
-                                            kernel_sizes=[convgru_kernel] * 5),
-                                     rep_size=16, kernel_size=convgru_kernel, seq_len=sequence_length).to(device)
+grunet = BidirectionalSequence(GRUnet(hidden_sizes=[16, 32, 64, 32, 16],
+                                      kernel_sizes=[convgru_kernel] * 5,
+                                      down_scaling=2),
+                               GRUnet(hidden_sizes=[16, 32, 64, 32, 16],
+                                      kernel_sizes=[convgru_kernel] * 5,
+                                      down_scaling=2),
+                               rep_size=16, kernel_size=convgru_kernel, seq_len=sequence_length).to(device)
 
 params = [p for p in grunet.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),

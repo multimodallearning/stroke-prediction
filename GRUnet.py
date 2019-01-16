@@ -70,10 +70,10 @@ class GRUnet(nn.Module):
         return [GRUnetBlock(h_sizes[0], h_sizes[0], k_sizes[0], output_size=h_sizes[0]),
                 GRUnetBlock(h_sizes[0], h_sizes[1], k_sizes[1], output_size=h_sizes[1]),
                 GRUnetBlock(h_sizes[1], h_sizes[2], k_sizes[2], output_size=h_sizes[1]),
-                GRUnetBlock(h_sizes[1] + h_sizes[1], h_sizes[3], k_sizes[3], output_size=h_sizes[0])]
-                #GRUnetBlock(h_sizes[0] + h_sizes[0], h_sizes[4], k_sizes[4], output_size=out_size)]
+                GRUnetBlock(h_sizes[1] + h_sizes[1], h_sizes[3], k_sizes[3], output_size=h_sizes[0]),
+                GRUnetBlock(h_sizes[0] + h_sizes[0], h_sizes[4], k_sizes[4], output_size=h_sizes[0])]
 
-    def __init__(self, clinical_size, hidden_sizes, kernel_sizes, batch_size=4):
+    def __init__(self, hidden_sizes, kernel_sizes, down_scaling):
         self.N_BLOCKS = 5
 
         super().__init__()
@@ -105,8 +105,12 @@ class GRUnet(nn.Module):
         torch.nn.init.normal(self.grid_offset.weight, 0, 0.001)
         torch.nn.init.normal(self.grid_offset.bias, 0, 0.001)
 
+        self.downscaling = down_scaling
+
 
     def forward(self, input_rep, hidden=None):
+        input_rep = F.interpolate(input_rep, scale_factor=(1, 1/self.downscaling, 1/self.downscaling))
+
         outputs = [None] * (self.N_BLOCKS // 2 + 1)
         indices = [None] * (self.N_BLOCKS // 2)
         upd_hidden = [None] * self.N_BLOCKS
@@ -129,7 +133,7 @@ class GRUnet(nn.Module):
         upd_hidden[self.N_BLOCKS // 2] = upd_block_hidden
         outputs[self.N_BLOCKS // 2] = output
 
-        for i in range(self.N_BLOCKS // 2 - 1):
+        for i in range(self.N_BLOCKS // 2):
             unpool = self.unpool(output, indices[self.N_BLOCKS // 2 - (i + 1)])
             skip = outputs[self.N_BLOCKS // 2 - (i + 1)]
             input_rep = torch.cat((unpool, skip), dim=1)
@@ -144,80 +148,106 @@ class GRUnet(nn.Module):
         del unpool
         del skip
 
-        return upd_hidden, F.interpolate(self.grid_offset(output), scale_factor=(1, 4, 4)).permute(0, 2, 3, 4, 1)
+        output = F.interpolate(self.grid_offset(output), scale_factor=(1, self.downscaling, self.downscaling))
+
+        return upd_hidden, output.permute(0, 2, 3, 4, 1)
 
 
-class GRUnetBidirectionalSequence(nn.Module):
-    def grid_identity_def(self, bs, os, depth=1, length=128):
-        result = torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float).view(-1, 3, 4).cuda()
-        return nn.functional.affine_grid(result.expand(bs, 3, 4), (bs, os, depth, length, length))
+class UnidirectionalNet(nn.Module):
+    def affine_identity(self):
+        return torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float)
 
-    def __init__(self, grunet1, grunet2, rep_size, kernel_size, seq_len):
+    def _init_theta(self, pos):
+        def _init(sequential):
+            sequential[pos].weight.data.zero_()
+            sequential[pos].bias.data.copy_(self.affine_identity())
+            return sequential
+
+        return _init
+
+    def _init_zero_normal(self, pos):
+        def _init(sequential):
+            sequential[pos].weight.data.normal_(mean=0, std=0.001)  # for Sigmoid()=0.5 init
+            sequential[pos].bias.data.normal_(mean=0, std=0.1)  # for Sigmoid()=0.5 init
+            return sequential
+
+        return _init
+
+    def def_img2vec(self, n_dim=[10, 15, 20, 25, 30], ksize=(1, 3, 3), psize=(0, 1, 1), dsize=(1, 2, 2)):
+        assert len(n_dim) == 5
+        return nn.Sequential(
+            nn.InstanceNorm3d(n_dim[0]),  # 128x128x28
+            nn.Conv3d(n_dim[0], n_dim[1], kernel_size=ksize, padding=psize),  # 128x128x28
+            nn.ReLU(),
+            nn.MaxPool3d(4, 4),  # 32x32x7
+            nn.InstanceNorm3d(n_dim[1]),
+            nn.Conv3d(n_dim[1], n_dim[2], kernel_size=ksize, padding=psize),  # 32x32x7
+            nn.ReLU(),
+            nn.MaxPool3d(dsize,dsize),  # 16x16x7
+            nn.InstanceNorm3d(n_dim[2]),
+            nn.Conv3d(n_dim[2], n_dim[3], kernel_size=ksize),  # 14x14x7
+            nn.ReLU(),
+            nn.MaxPool3d(dsize, dsize),  # 7x7x7
+            nn.InstanceNorm3d(n_dim[3]),
+            nn.Conv3d(n_dim[3], n_dim[4], kernel_size=1),  # 7x7x7
+            nn.ReLU(),
+            nn.MaxPool3d(7)  # 1x1x1
+        )
+
+    def def_vec2vec(self, n_dim=[16, 16], final_activation=None, init_fn=lambda x: x):
+        assert len(n_dim) > 1
+
+        result = []
+        for i in range(1, len(n_dim)-1):
+            result += [nn.Linear(n_dim[i-1], n_dim[i]), nn.ReLU(True)]
+        result += [nn.Linear(n_dim[len(n_dim)-2], n_dim[len(n_dim)-1])]
+
+        if final_activation:
+            if final_activation.lower() == 'relu':
+                result.append(nn.ReLU())
+            elif final_activation.lower() == 'sigmoid':
+                result.append(nn.Sigmoid())
+            elif final_activation.lower() == 'tanh':
+                result.append(nn.Tanh())
+            else:
+                raise AssertionError('Unknown final activation function')
+
+        return nn.Sequential(*init_fn(result))
+
+    def __init__(self, grunet, rep_size, kernel_size, seq_len):
         super().__init__()
-        self.rnn1 = grunet1
-        self.rnn2 = grunet2
+        self.core_rep = GRUnetBlock(rep_size // 2 -3, rep_size // 2 -3, kernel_size)
+        self.penu_rep = GRUnetBlock(rep_size // 2 -3, rep_size // 2 -3, kernel_size)
+
+        self.grunet = grunet
         self.len = seq_len
-        assert seq_len > 0
 
         #
-        # Part 1: Separate core / penumbra representations
-        self.core_rep1 = GRUnetBlock(1, rep_size // 2, kernel_size)
-        self.penu_rep1 = GRUnetBlock(1, rep_size // 2, kernel_size)
-        self.core_rep2 = GRUnetBlock(1, rep_size // 2, kernel_size)
-        self.penu_rep2 = GRUnetBlock(1, rep_size // 2, kernel_size)
-
-        #
-        # Part 2: non-lin deformation Unet
-        batch_size = 4
-        out_size = 6
-        self.grid_identity = self.grid_identity_def(batch_size, out_size)
-
-        self.soft = nn.AvgPool3d((9, 9, 1), (1, 1, 1), padding=(4, 4, 0))
-
-        self.thresh = nn.Threshold(0.5, 0)
-
-        #
-        # Part 3: Learn progression marker
-        ksize = (1,3,3)
-        psize = (0,1,1)
-        dsize = (1,2,2)
-        dim_in_img = 16
+        # Learn progression marker
+        dim_in_img = 16 - 6
         dim_hidden = 32
-        self.img2vec = nn.Sequential(
-            nn.InstanceNorm3d(dim_in_img),  # 128, 28
-            nn.Conv3d(16, 16, kernel_size=ksize, padding=psize),  # 128, 28
-            nn.ReLU(),
-            nn.MaxPool3d(4, 4),  # 32, 7
-            nn.InstanceNorm3d(16),
-            nn.Conv3d(16, 20, kernel_size=ksize, padding=psize),  # 32, 7
-            nn.ReLU(),
-            nn.MaxPool3d(dsize,dsize),  # 16, 7
-            nn.InstanceNorm3d(20),
-            nn.Conv3d(20, 25, kernel_size=ksize),  # 14, 7
-            nn.ReLU(),
-            nn.MaxPool3d(dsize, dsize),  # 7, 7
-            nn.InstanceNorm3d(25),
-            nn.Conv3d(25, 30, kernel_size=1),  # 7, 7
-            nn.ReLU(),
-            nn.MaxPool3d(7),  # 1, 1
-        )
+        dim_h2 = dim_hidden // 2
+        dim_h4 = dim_hidden // 4
+
+        self.img2vec = self.def_img2vec(n_dim=[dim_in_img, 16, 20, 25, 30])
+
         self.vec2vec1 = nn.GRUCell(dim_hidden, dim_hidden, bias=True)
-        self.vec2vec2 = nn.GRUCell(dim_hidden, dim_hidden, bias=True)
-        self.vec2scalar = nn.Sequential(
-            nn.Linear(dim_hidden, dim_hidden // 2),
-            nn.ReLU(True),
-            nn.Linear(dim_hidden // 2, dim_hidden // 4),
-            nn.ReLU(True),
-            nn.Linear(dim_hidden // 4, 1),
-            nn.Sigmoid()
-        )
-        self.vec2scalar[-2].weight.data.normal_(mean=0, std=0.001)  # for Sigmoid()=0.5 init
-        self.vec2scalar[-2].bias.data.normal_(mean=0, std=0.1)  # for Sigmoid()=0.5 init
+        self.vec2vec2a = nn.GRUCell(dim_hidden, dim_hidden, bias=True)
 
-    def forward(self, core, penu, clinical, factor):
-        factor = factor.unsqueeze(2).unsqueeze(3).unsqueeze(4)
+        self.vec2scalar = self.def_vec2vec(n_dim=[dim_hidden, dim_h2, dim_h4, 1],
+                                           final_activation='sigmoid',
+                                           init_fn=self._init_zero_normal(-2))
 
+        self.vec2vec2b = nn.GRUCell(dim_hidden, dim_hidden, bias=True)
+
+        self.vec2theta_core = self.def_vec2vec(n_dim=[dim_hidden, dim_h2, dim_h2, 12],
+                                               init_fn=self._init_theta(-1))
+        self.vec2theta_penu = self.def_vec2vec(n_dim=[dim_hidden, dim_h2, dim_h2, 12],
+                                               init_fn=self._init_theta(-1))
+
+    def forward(self, core, penu, core_rep, penu_rep, clinical):
         marker = []
+        affine = []
         offset = []
 
         hidden = None
@@ -225,42 +255,95 @@ class GRUnetBidirectionalSequence(nn.Module):
         hidden_penu = None
         hidden_vec1 = torch.zeros((4, 32)).cuda()
         hidden_vec2 = torch.zeros((4, 32)).cuda()
+        hidden_theta = torch.zeros((4, 32)).cuda()
+
         for i in range(self.len):
-            hidden_core, core_rep = self.core_rep1(core, hidden_core)
-            hidden_penu, penu_rep = self.penu_rep1(penu, hidden_penu)
+            hidden_core, core_rep = self.core_rep(core_rep, hidden_core)
+            hidden_penu, penu_rep = self.penu_rep(penu_rep, hidden_penu)
             input_img = torch.cat((core_rep, penu_rep), dim=1)
 
-            hidden, last_output = self.rnn1(F.interpolate(input_img, scale_factor=(1, 0.5, 0.5)), hidden)
-            offset.append(factor[:, i].unsqueeze(1) * last_output)
-
+            # common
             input_vec = torch.cat((self.img2vec(input_img), clinical), dim=1).squeeze()
             hidden_vec1 = self.vec2vec1(input_vec, hidden_vec1)
-            hidden_vec2 = self.vec2vec2(hidden_vec1, hidden_vec2)
+
+            # marker
+            hidden_vec2 = self.vec2vec2a(hidden_vec1, hidden_vec2)
             scalar = self.vec2scalar(hidden_vec2).unsqueeze(2).unsqueeze(3).unsqueeze(4)
-            marker.append(factor[:, i].unsqueeze(1) * scalar)
+            marker.append(scalar)
 
-        hidden = None
-        hidden_core = None
-        hidden_penu = None
-        hidden_vec1 = torch.zeros((4, 32)).cuda()
-        hidden_vec2 = torch.zeros((4, 32)).cuda()
-        for i in range(self.len - 1, -1, -1):
-            hidden_core, core_rep = self.core_rep2(core, hidden_core)
-            hidden_penu, penu_rep = self.penu_rep2(penu, hidden_penu)
-            input_img = torch.cat((core_rep, penu_rep), dim=1)
+            # affine params
+            hidden_theta = self.vec2vec2b(hidden_vec1, hidden_theta)
+            theta_core = self.vec2theta_core(hidden_theta).view(-1, 3, 4)
+            theta_penu = self.vec2theta_penu(hidden_theta).view(-1, 3, 4)
+            grid_core = nn.functional.affine_grid(theta_core, core.size())
+            grid_penu = nn.functional.affine_grid(theta_penu, penu.size())
+            affine.append(torch.cat((grid_core, grid_penu), dim=4))
 
-            hidden, last_output = self.rnn2(F.interpolate(input_img, scale_factor=(1, 0.5, 0.5)), hidden)
-            offset[i] += (1-factor[:, i]).unsqueeze(1) * last_output
+            # grunet params
+            input_grunet = torch.cat((input_img, affine[-1].permute(0,4,1,2,3)), dim=1)
+            hidden, last_output = self.grunet(input_grunet, hidden)
+            offset.append(last_output)
 
-            input_vec = torch.cat((self.img2vec(input_img), clinical), dim=1).squeeze()
-            hidden_vec1 = self.vec2vec1(input_vec, hidden_vec1)
-            hidden_vec2 = self.vec2vec2(hidden_vec1, hidden_vec2)
-            scalar = self.vec2scalar(hidden_vec2).unsqueeze(2).unsqueeze(3).unsqueeze(4)
-            marker[i] += (1-factor[:, i].unsqueeze(1)) * scalar
+        return marker, affine, offset
+
+
+class BidirectionalSequence(nn.Module):
+    def common_rep(self, n_in, n_out, k_size=(1,3,3), p_size=(0,1,1)):
+        n_middle = (n_in + n_out) // 2
+        return nn.Sequential(
+            nn.InstanceNorm3d(n_in),
+            nn.Conv3d(n_in, n_middle, kernel_size=k_size, padding=p_size),
+            nn.ReLU(),
+            nn.InstanceNorm3d(n_middle),
+            nn.Conv3d(n_middle, n_out, kernel_size=k_size, padding=p_size),
+            nn.ReLU()
+        )
+
+    def __init__(self, grunet1, grunet2, rep_size, kernel_size, seq_len, batch_size=4, out_size=6):
+        super().__init__()
+        self.len = seq_len
+        assert seq_len > 0
+
+        #
+        # Part 1: Commonly used separate core/penumbra representations
+        self.common_core = self.common_rep(1, rep_size // 2 - 3)
+        self.common_penu = self.common_rep(1, rep_size // 2 - 3)
+
+        #
+        # Part 2: Bidirectional Recurrence
+        self.rnn1 = UnidirectionalNet(grunet1, rep_size, kernel_size, seq_len)
+        self.rnn2 = UnidirectionalNet(grunet2, rep_size, kernel_size, seq_len)
+
+        #
+        # Part 3: Combine predictions of both directions
+        self.grid_identity = torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float)
+        self.grid_identity = self.grid_identity.view(-1, 3, 4).expand(batch_size, 3, 4).cuda()
+        self.grid_identity = nn.functional.affine_grid(self.grid_identity, (batch_size, out_size, 1, 128, 128))
+
+        self.soft = nn.AvgPool3d((9, 9, 1), (1, 1, 1), padding=(4, 4, 0))
+
+
+    def forward(self, core, penu, clinical, factor):
+        factor = factor.unsqueeze(2).unsqueeze(3).unsqueeze(4).unsqueeze(5)  # one additional dim for later when squeeze
+
+        core_rep = self.common_core(core)
+        penu_rep = self.common_penu(penu)
+
+        marker1, _, offset1 = self.rnn1(core, penu, core_rep, penu_rep, clinical)
+        marker2, _, offset2 = self.rnn2(core, penu, core_rep, penu_rep, clinical)
+
+        marker = [factor[:, i]*marker1[i] + (1-factor[:, i])*marker2[self.len - i - 1] for i in range(self.len)]
+        offset = [factor[:, i]*offset1[i] + (1-factor[:, i])*offset2[self.len - i - 1] for i in range(self.len)]
+
+        del marker1
+        del marker2
+        del offset1
+        del offset2
 
         output_by_core = []
         output_by_penu = []
         #output_factors = []
+
         for i in range(self.len):
             #fc = factor[:, i].unsqueeze(1)
             #zero = torch.zeros(fc.size(), requires_grad=False).cuda()
