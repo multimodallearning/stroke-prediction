@@ -213,7 +213,7 @@ class AffineModule(nn.Module):
         self.len = seq_len
 
         self.affine1 = GRUnetBlock(dim_in_img, dim_in_img, kernel_size)
-        self.affine2 = self.def_img2vec(n_dim=[dim_in_img, 16, 20, 25, 30])
+        self.affine2 = self.def_img2vec(n_dim=[dim_in_img, 21, 24, 27, 30])
         self.affine3 = nn.GRUCell(dim_hidden, dim_hidden, bias=True)
         self.affine4 = self.def_vec2vec(n_dim=[dim_hidden, dim_hidden // 2, dim_hidden // 2, 24], init_fn=self.init_theta(-1))
         self.affine5 = nn.GRUCell(24, 24, bias=True)
@@ -258,16 +258,16 @@ class UnidirectionalNet(nn.Module):
 
         self.len = seq_len
 
-        dim_in_img = 16 - 6
+        dim_in_img = rep_size - 8  # 2 core/penumbra + 3 affine core + 3 affine prenumbra
 
         #
         # Separate (hidden) features for core / penumbra
-        self.core_rep = GRUnetBlock(rep_size // 2 -4, rep_size // 2 -4, kernel_size)
-        self.penu_rep = GRUnetBlock(rep_size // 2 -4, rep_size // 2 -4, kernel_size)
+        self.core_rep = GRUnetBlock(dim_in_img // 2, dim_in_img // 2, kernel_size)
+        self.penu_rep = GRUnetBlock(dim_in_img // 2, dim_in_img // 2, kernel_size)
 
         #
         # Affine
-        self.affine = AffineModule(dim_in_img, dim_hidden, kernel_size, seq_len)
+        self.affine = AffineModule(dim_in_img + 2, dim_hidden, kernel_size, seq_len)
 
         #
         # Non-lin.
@@ -338,22 +338,23 @@ class BidirectionalSequence(nn.Module):
             nn.ReLU()
         )
 
-    def __init__(self, rep_size, kernel_size, seq_len, batch_size=4, out_size=6, convgru_kernel=3):
+    def __init__(self, kernel_size, seq_len, batch_size=4, out_size=6, convgru_kernel=3):
         super().__init__()
         self.len = seq_len
         assert seq_len > 0
 
         #
         # Part 1: Commonly used separate core/penumbra representations
-        self.common_core = self.common_rep(1, rep_size // 2 - 4)
-        self.common_penu = self.common_rep(1, rep_size // 2 - 4)
+        ch_feat = 24
+        self.common_core = self.common_rep(1, (ch_feat-8) // 2)
+        self.common_penu = self.common_rep(1, (ch_feat-8) // 2)
 
         #
         # Part 2: Bidirectional Recurrence
-        grunet1 = GRUnet(hidden_sizes=[16, 32, 64, 32, 16], kernel_sizes=[convgru_kernel] * 5, down_scaling=2)
-        grunet2 = GRUnet(hidden_sizes=[16, 32, 64, 32, 16], kernel_sizes=[convgru_kernel] * 5, down_scaling=2)
-        self.rnn1 = UnidirectionalNet(grunet1, rep_size, kernel_size, seq_len)
-        self.rnn2 = UnidirectionalNet(grunet2, rep_size, kernel_size, seq_len)
+        grunet1 = GRUnet(hidden_sizes=[ch_feat, 28, 32, 28, ch_feat], kernel_sizes=[convgru_kernel] * 5, down_scaling=2)
+        grunet2 = GRUnet(hidden_sizes=[ch_feat, 28, 32, 28, ch_feat], kernel_sizes=[convgru_kernel] * 5, down_scaling=2)
+        self.rnn1 = UnidirectionalNet(grunet1, ch_feat, kernel_size, seq_len)
+        self.rnn2 = UnidirectionalNet(grunet2, ch_feat, kernel_size, seq_len)
         del grunet1
         del grunet2
 
