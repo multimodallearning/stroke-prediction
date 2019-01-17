@@ -10,8 +10,8 @@ class Criterion(nn.Module):
         super(Criterion, self).__init__()
         self.dc = metrics.BatchDiceLoss(weights)  # weighted inversely by each volume proportion
         self.dc_mid = metrics.BatchDiceLoss([1.0])  # weighted inversely by each volume proportion
-        self.l1 = nn.L1Loss()
-        #self.ce = nn.CrossEntropyLoss()
+        #self.l1 = nn.L1Loss()
+        self.ce = nn.CrossEntropyLoss()
 
     def compute_2nd_order_derivative(self, x):
         a = torch.Tensor([[[1, 0, -1], [2, 0, -2], [1, 0, -1]],
@@ -42,7 +42,8 @@ class Criterion(nn.Module):
             diff = output[:, i+1] - output[:, i]
             loss += 0.02 * torch.mean(torch.abs(diff) - diff)  # monotone
 
-        loss += 0.2 * self.l1(pr_t_lesion, t_lesion)
+        #loss += 0.2 * self.l1(pr_t_lesion, t_lesion)
+        loss += 0.2 * self.ce(pr_t_lesion, torch.argmax(t_lesion, dim=1))
         #loss += 0.2 * self.ce(torch.stack((1-marker_pred.flatten(),
         #                                   marker_pred.flatten()), dim=1), marker_target.flatten().long())
 
@@ -69,13 +70,13 @@ if input2d:
 batchsize = 4
 sequence_length = 10
 num_clinical_input = 2
-n_ch_feature_single = 11
-n_ch_affine_img2vec = [24, 28, 32, 36, 40]  # first layer dim: 2 * n_ch_feature_single + 2 core/penu segmentation; list of length = 5
-n_ch_affine_vec2vec = [42, 36, 30, 24]  # first layer dim: last layer dim of img2vec + 2 clinical scalars; list of arbitrary length > 1
+n_ch_feature_single = 8
+n_ch_affine_img2vec = [18, 20, 22, 26, 30]  # first layer dim: 2 * n_ch_feature_single + 2 core/penu segmentation; list of length = 5
+n_ch_affine_vec2vec = [32, 28, 24]  # first layer dim: last layer dim of img2vec + 2 clinical scalars; list of arbitrary length > 1
 n_ch_additional_grid_input = 8  # 1 core + 1 penumbra + 3 affine core + 3 affine penumbra
-n_ch_time_img2vec = [30, 32, 34, 36, 38]  #
-n_ch_time_vec2vec = [40, 30, 15, 1]  #
-n_ch_grunet = [30, 40, 50, 40, 30]
+n_ch_time_img2vec = [24, 25, 26, 28, 30]  #
+n_ch_time_vec2vec = [32, 16, 1]  #
+n_ch_grunet = [24, 28, 32, 28, 24]
 zslice = zsize // 2
 pad = (20, 20, 20)
 n_visual_samples = min(4, batchsize)
@@ -91,8 +92,8 @@ valid_trafo = [data.UseLabelsAsImages(),
                data.ToTensor()]
 
 ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
-                                                          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],  #[0, 1, 2, 3],  #
-                                                          [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43],  #[4, 5, 6, 7],  #
+                                                          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],  #[0, 1, 2, 3],
+                                                          [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43],  #[4, 5, 6, 7],
                                                           batchsize=batchsize, normalize=sequence_length, growth='fast',
                                                           zsize=zsize)
 
