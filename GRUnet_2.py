@@ -238,7 +238,7 @@ class AffineModule(nn.Module):
         return torch.cat((grid_core, grid_penu), dim=4), hidden_affine1, hidden_affine3, hidden_affine5
 
 
-class LesionPosModule(nn.Module):
+class LesionTimeOffsetModule(nn.Module):
     def __init__(self, dim_img2vec, dim_vec2vec, dim_clinical, kernel_size, seq_len):
         super().__init__()
 
@@ -251,7 +251,11 @@ class LesionPosModule(nn.Module):
         self.affine1 = GRUnetBlock(dim_in_img, dim_in_img, kernel_size)
         self.affine2 = def_img2vec(n_dim=dim_img2vec)
         self.affine3 = nn.GRUCell(dim_hidden, dim_hidden, bias=True)
-        self.affine4 = def_vec2vec(n_dim=dim_vec2vec, final_activation='sigmoid')
+        self.affine4 = def_vec2vec(n_dim=dim_vec2vec)
+
+        torch.nn.init.normal(self.affine4[-1].weight, 0, 0.001)
+        torch.nn.init.normal(self.affine4[-1].bias, 0, 0.1)
+
 
     def forward(self, input_img, clinical, hidden_affine1, hidden_affine3, hidden_affine5):
 
@@ -310,7 +314,17 @@ class UnidirectionalNet(nn.Module):
         #
         # Time position
         assert dim_img2vec_time[-1] + dim_clinical == dim_vec2vec_time[0]
-        self.time = LesionPosModule(dim_img2vec_time, dim_vec2vec_time, dim_clinical, kernel_size, seq_len)
+        self.time_offset = LesionTimeOffsetModule(dim_img2vec_time, dim_vec2vec_time, dim_clinical, kernel_size, seq_len)
+
+        self.time_offset_fusion = nn.Sequential(
+            nn.Linear(10, 7),
+            nn.ReLU(),
+            nn.Linear(7, 4),
+            nn.ReLU(),
+            nn.Linear(4, 1)
+        )
+        torch.nn.init.normal(self.time_offset_fusion[-1].weight, 0, 0.001)
+        torch.nn.init.normal(self.time_offset_fusion[-1].bias, 0, 0.1)
 
         '''
         #
@@ -343,7 +357,7 @@ class UnidirectionalNet(nn.Module):
         hidden_affine3 = torch.zeros((self.batchsize, self.affine.affine3.hidden_size)).cuda()
         hidden_affine5 = torch.zeros((self.batchsize, 24)).cuda()
         hidden_time1 = None
-        hidden_time3 = torch.zeros((self.batchsize, self.time.affine3.hidden_size)).cuda()
+        hidden_time3 = torch.zeros((self.batchsize, self.time_offset.affine3.hidden_size)).cuda()
         hidden_time5 = torch.zeros((self.batchsize, 1)).cuda()
 
         for i in range(self.len):
@@ -359,9 +373,9 @@ class UnidirectionalNet(nn.Module):
             hidden_grunet, nonlin_grids = self.grunet(input_grunet, hidden_grunet)
             offset.append(nonlin_grids)
 
-            pr_t, hidden_time1, hidden_time3, hidden_time5 = self.time(torch.cat((input_img, nonlin_grids.permute(0,4,1,2,3)), dim=1),
-                                                                       clinical, hidden_time1, hidden_time3, hidden_time5)
-            pr_time.append(pr_t)
+            time_offset, hidden_time1, hidden_time3, hidden_time5 = self.time_offset(torch.cat((input_img, nonlin_grids.permute(0, 4, 1, 2, 3)), dim=1),
+                                                                                     clinical, hidden_time1, hidden_time3, hidden_time5)
+            pr_time.append(time_offset)
 
             '''
             # marker
@@ -370,7 +384,9 @@ class UnidirectionalNet(nn.Module):
             marker.append(scalar)
             '''
 
-        return offset, pr_time
+        time_offset = self.time_offset_fusion(torch.cat(pr_time, dim=1))
+
+        return offset, time_offset
 
 
 class BidirectionalSequence(nn.Module):
@@ -425,7 +441,7 @@ class BidirectionalSequence(nn.Module):
         ################################################
         # Part 3: Combine predictions of both directions
         offsets = [factor[:, i] * offset1[i] + (1 - factor[:, i]) * offset2[self.len - i - 1] for i in range(self.len)]
-        t_fucts = [factor[:, i].squeeze() * time1[i].squeeze() + (1 - factor[:, i]).squeeze() * time2[self.len - i - 1].squeeze() for i in range(self.len)]
+        time_offset = 0.5 * time1.squeeze() + 0.5 * time2.squeeze()
         del offset1
         del offset2
         del time1
@@ -449,4 +465,4 @@ class BidirectionalSequence(nn.Module):
             output_by_core.append(pred_by_core)
             output_by_penu.append(pred_by_penu)
 
-        return torch.cat(output_by_core, dim=1), torch.cat(output_by_penu, dim=1), torch.stack(t_fucts, dim=1)  #, torch.cat(marker, dim=1),  torch.cat(output_factors, dim=1)
+        return torch.cat(output_by_core, dim=1), torch.cat(output_by_penu, dim=1), time_offset  #, torch.cat(marker, dim=1),  torch.cat(output_factors, dim=1)

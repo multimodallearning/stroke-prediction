@@ -11,7 +11,7 @@ class Criterion(nn.Module):
         self.dc = metrics.BatchDiceLoss(weights)  # weighted inversely by each volume proportion
         self.dc_mid = metrics.BatchDiceLoss([1.0])  # weighted inversely by each volume proportion
         #self.l1 = nn.L1Loss()
-        self.ce = nn.CrossEntropyLoss()
+        #self.ce = nn.CrossEntropyLoss()
 
     def compute_2nd_order_derivative(self, x):
         a = torch.Tensor([[[1, 0, -1], [2, 0, -2], [1, 0, -1]],
@@ -34,23 +34,27 @@ class Criterion(nn.Module):
 
         return torch.sqrt(torch.pow(G_x, 2) + torch.pow(G_y, 2) + torch.pow(G_z, 2))
 
-    def forward(self, pred, target, output, out_c, out_p, pr_t_lesion, t_lesion):
+    def forward(self, pred, target, output, out_c, out_p):
         loss = 0.5 * self.dc(pred, target)
-        loss += 0.2 * self.dc_mid(out_c, out_p)
+        loss += 0.25 * self.dc_mid(out_c, out_p)
 
         for i in range(output.size()[1]-1):
             diff = output[:, i+1] - output[:, i]
-            loss += 0.02 * torch.mean(torch.abs(diff) - diff)  # monotone
+            loss += 0.025 * torch.mean(torch.abs(diff) - diff)  # monotone
 
         #loss += 0.2 * self.l1(pr_t_lesion, t_lesion)
-        loss += 0.2 * self.ce(pr_t_lesion, torch.argmax(t_lesion, dim=1))
+        #loss += 0.2 * self.ce(pr_t_lesion, torch.argmax(t_lesion, dim=1))
         #loss += 0.2 * self.ce(torch.stack((1-marker_pred.flatten(),
         #                                   marker_pred.flatten()), dim=1), marker_target.flatten().long())
 
         return loss
 
 
-def get_title(prefix, row, idx, batch, seq_len, time):
+def get_title(prefix, row, idx, batch, seq_len, time_offset=None):
+    if time_offset is not None:
+        time_offset = float(time_offset[row])
+    else:
+        time_offset = 0.0
     suffix = ''
     if idx == int(batch[data.KEY_GLOBAL][row, 0, :, :, :]):
         suffix += ' C'
@@ -58,7 +62,7 @@ def get_title(prefix, row, idx, batch, seq_len, time):
         suffix += ' L'
     elif idx == seq_len-1:
         suffix += ' P'
-    return '{}({:1.1f}){}'.format(str(idx), float(time[row, idx]), suffix)
+    return '{}({:1.1f}){}'.format(str(idx), time_offset, suffix)
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -92,8 +96,8 @@ valid_trafo = [data.UseLabelsAsImages(),
                data.ToTensor()]
 
 ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
-                                                          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],  #[0, 1, 2, 3],
-                                                          [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43],  #[4, 5, 6, 7],
+                                                          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],  #[0, 1, 2, 3],  #
+                                                          [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43],  #[4, 5, 6, 7],  #
                                                           batchsize=batchsize, normalize=sequence_length, growth='fast',
                                                           zsize=zsize)
 
@@ -141,7 +145,7 @@ for epoch in range(0, 200):
                 factor[b, t_half:] = torch.tensor([(length//2) / length - i / length for i in range(length - length//2)], dtype=torch.float).cuda()
                 marker_target[b, t_lesion] = 1
 
-            out_c, out_p, pr_t_lesion = bi_net(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
+            out_c, out_p, time_offset = bi_net(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
                                                gt[:, -1, :, :, :].unsqueeze(1),
                                                batch[data.KEY_GLOBAL].to(device),
                                                factor)
@@ -151,18 +155,20 @@ for epoch in range(0, 200):
             mask = torch.zeros(gt.size()).byte()
             mask_t_lesion = torch.zeros(gt.size()).byte()
             for b in range(batchsize):
-                mask[b, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :] = 1  # core
-                mask[b, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :] = 1  # lesion
-                mask_t_lesion[b, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :] = 1  # lesion
+                t_lesion = int(batch[data.KEY_GLOBAL][b, 1, :, :, :]) + int(time_offset[b])
+                t_core = int(batch[data.KEY_GLOBAL][b, 0, :, :, :])
+                if t_core == t_lesion:
+                    t_lesion += 1
+                mask[b, t_core, :, :, :] = 1  # core
+                mask[b, t_lesion, :, :, :] = 1  # lesion
+                mask_t_lesion[b, t_lesion, :, :, :] = 1  # lesion
                 mask[b, -1, :, :, :] = 1  # penumbra
 
             loss = criterion(output[mask].view(batchsize, 3, zsize, 128, 128),
                              gt[mask].view(batchsize, 3, zsize, 128, 128),
                              output,
                              out_c[mask_t_lesion].view(batchsize, 1, zsize, 128, 128),
-                             out_p[mask_t_lesion].view(batchsize, 1, zsize, 128, 128),
-                             pr_t_lesion,
-                             marker_target)
+                             out_p[mask_t_lesion].view(batchsize, 1, zsize, 128, 128))
             loss_mean += loss.item()
 
             optimizer.zero_grad()
@@ -177,10 +183,10 @@ for epoch in range(0, 200):
             titles = []
             for i in range(sequence_length):
                 axarr[row, i].imshow(gt.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-                titles.append(get_title('GT', row, i, batch, sequence_length, marker_target))
+                titles.append(get_title('GT', row, i, batch, sequence_length))
             for i in range(sequence_length):
                 axarr[row, i + sequence_length].imshow(output.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-                titles.append(get_title('Pr', row, i, batch, sequence_length, pr_t_lesion))
+                titles.append(get_title('Pr', row, i, batch, sequence_length, time_offset))
             for ax, title in zip(axarr[row], titles):
                 ax.set_title(title)
         del batch
@@ -213,7 +219,7 @@ for epoch in range(0, 200):
                 factor[b, t_half:] = torch.tensor([(length//2) / length - i / length for i in range(length - length//2)], dtype=torch.float).cuda()
                 marker_target[b, t_lesion] = 1
 
-            out_c, out_p, pr_t_lesion = bi_net(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
+            out_c, out_p, time_offset = bi_net(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
                                                gt[:, -1, :, :, :].unsqueeze(1),
                                                batch[data.KEY_GLOBAL].to(device),
                                                factor)
@@ -223,18 +229,20 @@ for epoch in range(0, 200):
             mask = torch.zeros(gt.size()).byte()
             mask_t_lesion = torch.zeros(gt.size()).byte()
             for b in range(batchsize):
+                t_lesion = int(batch[data.KEY_GLOBAL][b, 1, :, :, :]) + int(time_offset[b])
+                t_core = int(batch[data.KEY_GLOBAL][b, 0, :, :, :])
+                if t_core == t_lesion:
+                    t_lesion += 1
                 mask[b, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :] = 1  # core
-                mask[b, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :] = 1  # lesion
-                mask_t_lesion[b, int(batch[data.KEY_GLOBAL][b, 1, :, :, :]), :, :, :] = 1  # lesion
+                mask[b, t_lesion, :, :, :] = 1  # lesion
+                mask_t_lesion[b, t_lesion, :, :, :] = 1  # lesion
                 mask[b, -1, :, :, :] = 1  # penumbra
 
             loss = criterion(output[mask].view(batchsize, 3, zsize, 128, 128),
                              gt[mask].view(batchsize, 3, zsize, 128, 128),
                              output,
                              out_c[mask_t_lesion].view(batchsize, 1, zsize, 128, 128),
-                             out_p[mask_t_lesion].view(batchsize, 1, zsize, 128, 128),
-                             pr_t_lesion,
-                             marker_target)
+                             out_p[mask_t_lesion].view(batchsize, 1, zsize, 128, 128))
             loss_mean += loss.item()
 
             inc += 1
@@ -245,10 +253,10 @@ for epoch in range(0, 200):
             titles = []
             for i in range(sequence_length):
                 axarr[row + n_visual_samples, i].imshow(gt.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-                titles.append(get_title('GT', row, i, batch, sequence_length, marker_target))
+                titles.append(get_title('GT', row, i, batch, sequence_length))
             for i in range(sequence_length):
                 axarr[row + n_visual_samples, i + sequence_length].imshow(output.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
-                titles.append(get_title('Pr', row, i, batch, sequence_length, pr_t_lesion))
+                titles.append(get_title('Pr', row, i, batch, sequence_length, time_offset))
             for ax, title in zip(axarr[row + n_visual_samples], titles):
                 ax.set_title(title)
         del batch
