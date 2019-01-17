@@ -166,7 +166,7 @@ class AffineModule(nn.Module):
 
         return _init
 
-    def def_img2vec(self, n_dim=[10, 15, 20, 25, 30], ksize=(1, 3, 3), psize=(0, 1, 1), dsize=(1, 2, 2)):
+    def def_img2vec(self, n_dim, ksize=(1, 3, 3), psize=(0, 1, 1), dsize=(1, 2, 2)):
         assert len(n_dim) == 5
         return nn.Sequential(
             nn.InstanceNorm3d(n_dim[0]),  # 128x128x28
@@ -187,7 +187,7 @@ class AffineModule(nn.Module):
             nn.MaxPool3d(7)  # 1x1x1
         )
 
-    def def_vec2vec(self, n_dim=[16, 16], final_activation=None, init_fn=lambda x: x):
+    def def_vec2vec(self, n_dim, final_activation=None, init_fn=lambda x: x):
         assert len(n_dim) > 1
 
         result = []
@@ -207,15 +207,22 @@ class AffineModule(nn.Module):
 
         return nn.Sequential(*init_fn(result))
 
-    def __init__(self, dim_in_img, dim_hidden, kernel_size, seq_len):
+    def __init__(self, dim_img2vec, dim_vec2vec, dim_clinical, kernel_size, seq_len):
         super().__init__()
+
+        dim_in_img = dim_img2vec[0]
+        dim_hidden = dim_img2vec[-1] + dim_clinical
+        assert dim_vec2vec[0] == dim_hidden
+        assert len(dim_img2vec) == 5
+        assert len(dim_vec2vec) == 4
+        assert dim_vec2vec[-1] == 24  # core and penumbra affine parameters
 
         self.len = seq_len
 
         self.affine1 = GRUnetBlock(dim_in_img, dim_in_img, kernel_size)
-        self.affine2 = self.def_img2vec(n_dim=[dim_in_img, 21, 24, 27, 30])
+        self.affine2 = self.def_img2vec(n_dim=dim_img2vec)
         self.affine3 = nn.GRUCell(dim_hidden, dim_hidden, bias=True)
-        self.affine4 = self.def_vec2vec(n_dim=[dim_hidden, dim_hidden // 2, dim_hidden // 2, 24], init_fn=self.init_theta(-1))
+        self.affine4 = self.def_vec2vec(n_dim=dim_vec2vec, init_fn=self.init_theta(-1))
         self.affine5 = nn.GRUCell(24, 24, bias=True)
 
     def forward(self, input_img, clinical, out_size, hidden_affine1, hidden_affine3, hidden_affine5):
@@ -253,25 +260,25 @@ class UnidirectionalNet(nn.Module):
         return marker1, marker2, marker3, marker
     '''
 
-    def __init__(self, grunet, rep_size, kernel_size, seq_len, dim_hidden=32):
+    def __init__(self, n_ch_grunet, dim_img2vec, dim_vec2vec, dim_clinical, dim_feat_rnn, kernel_size, seq_len):
         super().__init__()
 
         self.len = seq_len
 
-        dim_in_img = rep_size - 8  # 2 core/penumbra + 3 affine core + 3 affine prenumbra
-
         #
         # Separate (hidden) features for core / penumbra
-        self.core_rep = GRUnetBlock(dim_in_img // 2, dim_in_img // 2, kernel_size)
-        self.penu_rep = GRUnetBlock(dim_in_img // 2, dim_in_img // 2, kernel_size)
+        self.core_rep = GRUnetBlock(dim_feat_rnn, dim_feat_rnn, kernel_size)
+        self.penu_rep = GRUnetBlock(dim_feat_rnn, dim_feat_rnn, kernel_size)
 
         #
         # Affine
-        self.affine = AffineModule(dim_in_img + 2, dim_hidden, kernel_size, seq_len)
+        assert dim_img2vec[0] == 2 * dim_feat_rnn + 2  # + core/penumbra
+        assert dim_img2vec[-1] + dim_clinical == dim_vec2vec[0]
+        self.affine = AffineModule(dim_img2vec, dim_vec2vec, dim_clinical, kernel_size, seq_len)
 
         #
         # Non-lin.
-        self.grunet = grunet
+        self.grunet = GRUnet(hidden_sizes=n_ch_grunet, kernel_sizes=[kernel_size] * 5, down_scaling=2)
 
         '''
         #
@@ -300,7 +307,7 @@ class UnidirectionalNet(nn.Module):
         hidden_penu = None
         hidden_grunet = None
         hidden_affine1 = None
-        hidden_affine3 = torch.zeros((4, 32)).cuda()
+        hidden_affine3 = torch.zeros((4, self.affine.affine3.hidden_size)).cuda()
         hidden_affine5 = torch.zeros((4, 24)).cuda()
 
         for i in range(self.len):
@@ -328,56 +335,56 @@ class UnidirectionalNet(nn.Module):
 
 class BidirectionalSequence(nn.Module):
     def common_rep(self, n_in, n_out, k_size=(1,3,3), p_size=(0,1,1)):
-        n_middle = (n_in + n_out) // 2
         return nn.Sequential(
             nn.InstanceNorm3d(n_in),
-            nn.Conv3d(n_in, n_middle, kernel_size=k_size, padding=p_size),
+            nn.Conv3d(n_in, n_out, kernel_size=k_size, padding=p_size),
             nn.ReLU(),
-            nn.InstanceNorm3d(n_middle),
-            nn.Conv3d(n_middle, n_out, kernel_size=k_size, padding=p_size),
+            nn.InstanceNorm3d(n_out),
+            nn.Conv3d(n_out, n_out, kernel_size=k_size, padding=p_size),
             nn.ReLU()
         )
 
-    def __init__(self, kernel_size, seq_len, batch_size=4, out_size=6, convgru_kernel=3):
+    def __init__(self, n_ch_feature_single, n_ch_affine_img2vec, n_ch_affine_vec2vec, n_ch_grunet, n_ch_clinical,
+                 kernel_size, seq_len, batch_size=4, out_size=6):
         super().__init__()
         self.len = seq_len
         assert seq_len > 0
 
-        #
+        ##############################################################
         # Part 1: Commonly used separate core/penumbra representations
-        ch_feat = 24
-        self.common_core = self.common_rep(1, (ch_feat-8) // 2)
-        self.common_penu = self.common_rep(1, (ch_feat-8) // 2)
+        self.common_core = self.common_rep(1, n_ch_feature_single)
+        self.common_penu = self.common_rep(1, n_ch_feature_single)
 
-        #
+        ##################################
         # Part 2: Bidirectional Recurrence
-        grunet1 = GRUnet(hidden_sizes=[ch_feat, 28, 32, 28, ch_feat], kernel_sizes=[convgru_kernel] * 5, down_scaling=2)
-        grunet2 = GRUnet(hidden_sizes=[ch_feat, 28, 32, 28, ch_feat], kernel_sizes=[convgru_kernel] * 5, down_scaling=2)
-        self.rnn1 = UnidirectionalNet(grunet1, ch_feat, kernel_size, seq_len)
-        self.rnn2 = UnidirectionalNet(grunet2, ch_feat, kernel_size, seq_len)
-        del grunet1
-        del grunet2
+        self.rnn1 = UnidirectionalNet(n_ch_grunet, n_ch_affine_img2vec, n_ch_affine_vec2vec, n_ch_clinical,
+                                      n_ch_feature_single, kernel_size, seq_len)
+        self.rnn2 = UnidirectionalNet(n_ch_grunet, n_ch_affine_img2vec, n_ch_affine_vec2vec, n_ch_clinical,
+                                      n_ch_feature_single, kernel_size, seq_len)
 
-        #
+        ################################################
         # Part 3: Combine predictions of both directions
+        self.soften = nn.AvgPool3d((9, 9, 1), (1, 1, 1), padding=(4, 4, 0))
         self.grid_identity = torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float)
         self.grid_identity = self.grid_identity.view(-1, 3, 4).expand(batch_size, 3, 4).cuda()
         self.grid_identity = nn.functional.affine_grid(self.grid_identity, (batch_size, out_size, 1, 128, 128))
 
-        self.soften = nn.AvgPool3d((9, 9, 1), (1, 1, 1), padding=(4, 4, 0))
-
-
     def forward(self, core, penu, clinical, factor):
         factor = factor.unsqueeze(2).unsqueeze(3).unsqueeze(4).unsqueeze(5)  # one additional dim for later when squeeze
 
+        ##############################################################
+        # Part 1: Commonly used separate core/penumbra representations
         core_rep = self.common_core(core)
         penu_rep = self.common_penu(penu)
 
+        ##################################
+        # Part 2: Bidirectional Recurrence
         offset1 = self.rnn1(core, penu, core_rep, penu_rep, clinical)
         offset2 = self.rnn2(core, penu, core_rep, penu_rep, clinical)
 
-        offset = [factor[:, i]*offset1[i] + (1-factor[:, i])*offset2[self.len - i - 1] for i in range(self.len)]
-
+        ################################################
+        # Part 3: Combine predictions of both directions
+        offsets = [factor[:, i]*offset1[i] + (1-factor[:, i])*offset2[self.len - i - 1] for i in range(self.len)]
         del offset1
         del offset2
 
@@ -391,9 +398,9 @@ class BidirectionalSequence(nn.Module):
             ones = torch.ones(fc.size(), requires_grad=False).cuda()
             output_factors.append(torch.where(fc < 0.5, zero, ones))
 
-            offset[i] = self.soften(offset[i])
-            pred_by_core = nn.functional.grid_sample(core, self.grid_identity + offset[i][:, :, :, :, :3])
-            pred_by_penu = nn.functional.grid_sample(penu, self.grid_identity + offset[i][:, :, :, :, 3:])
+            offsets[i] = self.soften(offsets[i])
+            pred_by_core = nn.functional.grid_sample(core, self.grid_identity + offsets[i][:, :, :, :, :3])
+            pred_by_penu = nn.functional.grid_sample(penu, self.grid_identity + offsets[i][:, :, :, :, 3:])
             output_by_core.append(pred_by_core)
             output_by_penu.append(pred_by_penu)
 

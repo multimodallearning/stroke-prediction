@@ -29,23 +29,28 @@ class Criterion(nn.Module):
 def get_title(prefix, idx, batch, seq_len):
     suffix = ''
     if idx == int(batch[data.KEY_GLOBAL][row, 0, :, :, :]):
-        suffix += 'C'
+        suffix += '/C'
     elif idx == int(batch[data.KEY_GLOBAL][row, 1, :, :, :]):
-        suffix += 'L'
+        suffix += '/L'
     elif idx == seq_len-1:
-        suffix += 'P'
-    return '{}{}/{}'.format(prefix, str(idx), suffix)
+        suffix += '/P'
+    return '{}{}'.format(str(idx), suffix)
 
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 zsize = 1  # change here for 2D/3D: 1 or 28
 input2d = (zsize == 1)
 convgru_kernel = 3
 if input2d:
     convgru_kernel = (1, 3, 3)
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-sequence_length = 24
-num_clinical_input = 2
 batchsize = 4
+sequence_length = 10
+num_clinical_input = 2
+n_ch_feature_single = 11
+n_ch_affine_img2vec = [24, 28, 32, 36, 40]
+n_ch_affine_vec2vec = [42, 36, 30, 24]
+n_ch_grunet_input_additional = 8  # 1 core + 1 penumbra + 3 affine core + 3 affine penumbra
+n_ch_grunet = [30, 40, 50, 40, 30]
 zslice = zsize // 2
 pad = (20, 20, 20)
 n_visual_samples = min(4, batchsize)
@@ -61,12 +66,14 @@ valid_trafo = [data.UseLabelsAsImages(),
                data.ToTensor()]
 
 ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
-                                                          [0, 1, 2, 3],  #[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],  #
-                                                          [4, 5, 6, 7],  #[32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43],  #
+                                                          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],  #[0, 1, 2, 3],  #
+                                                          [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43],  #[4, 5, 6, 7],  #
                                                           batchsize=batchsize, normalize=sequence_length, growth='fast',
                                                           zsize=zsize)
 
-bi_net = BidirectionalSequence(kernel_size=convgru_kernel, seq_len=sequence_length, convgru_kernel=convgru_kernel).to(device)
+assert n_ch_grunet[0] == 2 * n_ch_feature_single + n_ch_grunet_input_additional
+bi_net = BidirectionalSequence(n_ch_feature_single, n_ch_affine_img2vec, n_ch_affine_vec2vec, n_ch_grunet,
+                               num_clinical_input, kernel_size=convgru_kernel, seq_len=sequence_length).to(device)
 
 params = [p for p in bi_net.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
