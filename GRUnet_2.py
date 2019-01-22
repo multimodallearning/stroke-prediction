@@ -238,7 +238,7 @@ class AffineModule(nn.Module):
         return torch.cat((grid_core, grid_penu), dim=4), hidden_affine1, hidden_affine3, hidden_affine5
 
 
-class LesionTimeOffsetModule(nn.Module):
+class LesionPositionModule(nn.Module):
     def __init__(self, dim_img2vec, dim_vec2vec, dim_clinical, kernel_size, seq_len):
         super().__init__()
 
@@ -251,10 +251,10 @@ class LesionTimeOffsetModule(nn.Module):
         self.affine1 = GRUnetBlock(dim_in_img, dim_in_img, kernel_size)
         self.affine2 = def_img2vec(n_dim=dim_img2vec)
         self.affine3 = nn.GRUCell(dim_hidden, dim_hidden, bias=True)
-        self.affine4 = def_vec2vec(n_dim=dim_vec2vec)
+        self.affine4 = def_vec2vec(n_dim=dim_vec2vec, final_activation='sigmoid')
 
-        torch.nn.init.normal(self.affine4[-1].weight, 0, 0.001)
-        torch.nn.init.normal(self.affine4[-1].bias, 0, 0.1)
+        torch.nn.init.normal(self.affine4[-2].weight, 0, 0.001)
+        torch.nn.init.normal(self.affine4[-2].bias, 0, 0.1)
 
 
     def forward(self, input_img, clinical, hidden_affine1, hidden_affine3, hidden_affine5):
@@ -275,19 +275,6 @@ class UnidirectionalNet(nn.Module):
             return sequential
 
         return _init
-
-    '''
-    def def_marker_module(self, dim_in_img, dim_hidden):
-        marker1 = GRUnetBlock(dim_in_img, dim_in_img)
-        marker2 = self.def_img2vec(n_dim=[dim_in_img, 16, 20, 25, 30])
-        marker3 = nn.GRUCell(dim_hidden, dim_hidden, bias=True)
-
-        marker = self.def_vec2vec(n_dim=[dim_hidden, dim_hidden // 2, dim_hidden // 4, 1],
-                                  final_activation='sigmoid',
-                                  init_fn=self._init_zero_normal(-2))
-
-        return marker1, marker2, marker3, marker
-    '''
 
     def __init__(self, n_ch_grunet, dim_img2vec_affine, dim_vec2vec_affine, dim_img2vec_time, dim_vec2vec_time,
                  dim_clinical, dim_feat_rnn, kernel_size, seq_len, batchsize=4):
@@ -313,38 +300,11 @@ class UnidirectionalNet(nn.Module):
 
         #
         # Time position
-        assert dim_img2vec_time[-1] + dim_clinical == dim_vec2vec_time[0]
-        self.time_offset = LesionTimeOffsetModule(dim_img2vec_time, dim_vec2vec_time, dim_clinical, kernel_size, seq_len)
-
-        self.time_offset_fusion = nn.Sequential(
-            nn.Linear(10, 7),
-            nn.ReLU(),
-            nn.Linear(7, 4),
-            nn.ReLU(),
-            nn.Linear(4, 1)
-        )
-        torch.nn.init.normal(self.time_offset_fusion[-1].weight, 0, 0.001)
-        torch.nn.init.normal(self.time_offset_fusion[-1].bias, 0, 0.1)
-
-        '''
-        #
-        # Marker
-        self.marker1, self.marker2, self.marker3, self.marker = self.def_marker_module(30?, dim_hidden)
-
-        self.vec2vec1 = nn.GRUCell(dim_hidden, dim_hidden, bias=True)
-        self.vec2vec2a = nn.GRUCell(dim_hidden, dim_hidden, bias=True)
-
-        self.vec2scalar = self.def_vec2vec(n_dim=[dim_hidden, dim_h2, dim_h4, 1],
-                                           final_activation='sigmoid',
-                                           init_fn=self._init_zero_normal(-2))
-
-        self.vec2vec2b = nn.GRUCell(dim_hidden, dim_hidden, bias=True)
-
-        self.vec2theta_core = self.def_vec2vec(n_dim=[dim_hidden, dim_h2, dim_h2, 12],
-                                               init_fn=self._init_theta(-1))
-        self.vec2theta_penu = self.def_vec2vec(n_dim=[dim_hidden, dim_h2, dim_h2, 12],
-                                               init_fn=self._init_theta(-1))
-        '''
+        if dim_img2vec_time and dim_vec2vec_time:
+            assert dim_img2vec_time[-1] + dim_clinical == dim_vec2vec_time[0]
+            self.lesion_pos = LesionPositionModule(dim_img2vec_time, dim_vec2vec_time, dim_clinical, kernel_size, seq_len)
+        else:
+            self.lesion_pos = None
 
     def forward(self, core, penu, core_rep, penu_rep, clinical):
         offset = []
@@ -353,40 +313,37 @@ class UnidirectionalNet(nn.Module):
         hidden_core = None
         hidden_penu = None
         hidden_grunet = None
-        hidden_affine1 = None
-        hidden_affine3 = torch.zeros((self.batchsize, self.affine.affine3.hidden_size)).cuda()
-        hidden_affine5 = torch.zeros((self.batchsize, 24)).cuda()
-        hidden_time1 = None
-        hidden_time3 = torch.zeros((self.batchsize, self.time_offset.affine3.hidden_size)).cuda()
-        hidden_time5 = torch.zeros((self.batchsize, 1)).cuda()
+        h_affine1 = None
+        h_affine3 = torch.zeros((self.batchsize, self.affine.affine3.hidden_size)).cuda()
+        h_affine5 = torch.zeros((self.batchsize, 24)).cuda()
+        if self.lesion_pos:
+            h_time1 = None
+            h_time3 = torch.zeros((self.batchsize, self.lesion_pos.affine3.hidden_size)).cuda()
+            h_time5 = torch.zeros((self.batchsize, 1)).cuda()
 
         for i in range(self.len):
             hidden_core, core_rep = self.core_rep(core_rep, hidden_core)
             hidden_penu, penu_rep = self.penu_rep(penu_rep, hidden_penu)
             input_img = torch.cat((core_rep, penu_rep, core, penu), dim=1)
 
-            affine_grids, hidden_affine1, hidden_affine3, hidden_affine5 = self.affine(input_img, clinical, core.size(),
-                                                                                       hidden_affine1, hidden_affine3,
-                                                                                       hidden_affine5)
+            affine_grids, h_affine1, h_affine3, h_affine5 = self.affine(input_img, clinical, core.size(),  h_affine1,
+                                                                        h_affine3, h_affine5)
 
             input_grunet = torch.cat((input_img, affine_grids.permute(0,4,1,2,3)), dim=1)
             hidden_grunet, nonlin_grids = self.grunet(input_grunet, hidden_grunet)
             offset.append(nonlin_grids)
 
-            time_offset, hidden_time1, hidden_time3, hidden_time5 = self.time_offset(torch.cat((input_img, nonlin_grids.permute(0, 4, 1, 2, 3)), dim=1),
-                                                                                     clinical, hidden_time1, hidden_time3, hidden_time5)
-            pr_time.append(time_offset)
+            if self.lesion_pos:
+                lesion_pos, h_time1, h_time3, h_time5 = self.lesion_pos(
+                    torch.cat((input_img, nonlin_grids.permute(0, 4, 1, 2, 3)), dim=1),
+                    clinical,
+                    h_time1,
+                    h_time3,
+                    h_time5
+                )
+                pr_time.append(lesion_pos)
 
-            '''
-            # marker
-            hidden_vec2 = self.vec2vec2a(hidden_vec1, hidden_vec2)
-            scalar = self.vec2scalar(hidden_vec2).unsqueeze(2).unsqueeze(3).unsqueeze(4)
-            marker.append(scalar)
-            '''
-
-        time_offset = self.time_offset_fusion(torch.cat(pr_time, dim=1))
-
-        return offset, time_offset
+        return offset, pr_time  # lesion cannot be first or last!
 
 
 class BidirectionalSequence(nn.Module):
@@ -435,17 +392,22 @@ class BidirectionalSequence(nn.Module):
 
         ##################################
         # Part 2: Bidirectional Recurrence
-        offset1, time1 = self.rnn1(core, penu, core_rep, penu_rep, clinical)
-        offset2, time2 = self.rnn2(core, penu, core_rep, penu_rep, clinical)
+        offset1, lesion_pos1 = self.rnn1(core, penu, core_rep, penu_rep, clinical)
+        offset2, lesion_pos2 = self.rnn2(core, penu, core_rep, penu_rep, clinical)
 
         ################################################
         # Part 3: Combine predictions of both directions
         offsets = [factor[:, i] * offset1[i] + (1 - factor[:, i]) * offset2[self.len - i - 1] for i in range(self.len)]
-        time_offset = 0.5 * time1.squeeze() + 0.5 * time2.squeeze()
+        if lesion_pos1 and lesion_pos2:
+            lesion_pos = [factor[:, i].squeeze() * lesion_pos1[i].squeeze()
+                          + (1 - factor[:, i]).squeeze() * lesion_pos2[self.len - i - 1].squeeze() for i in range(self.len)]
+            lesion_pos = torch.stack(lesion_pos, dim=1)
+        else:
+            lesion_pos = None
         del offset1
         del offset2
-        del time1
-        del time2
+        del lesion_pos1
+        del lesion_pos2
 
         output_by_core = []
         output_by_penu = []
@@ -465,4 +427,4 @@ class BidirectionalSequence(nn.Module):
             output_by_core.append(pred_by_core)
             output_by_penu.append(pred_by_penu)
 
-        return torch.cat(output_by_core, dim=1), torch.cat(output_by_penu, dim=1), time_offset  #, torch.cat(marker, dim=1),  torch.cat(output_factors, dim=1)
+        return torch.cat(output_by_core, dim=1), torch.cat(output_by_penu, dim=1), lesion_pos  #torch.cat(output_factors, dim=1)

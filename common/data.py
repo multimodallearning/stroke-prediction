@@ -265,6 +265,90 @@ class ToyDataset3DSequence(Dataset):
         return result
 
 
+class ToyDataset3DSequenceTopologyChange(Dataset):
+    def __init__(self, transform=[], dataset_length=20, normalize=10, growth='lin', zsize=28):
+        self._transform = transform
+
+        self._labels = []
+        self._item = []
+        for i in range(dataset_length):
+            labels = np.zeros(shape=(128, 128, 28, normalize))
+
+            t_imgs = int(random.random()*(normalize-4))
+            t_reca = int(random.random()*(normalize-2-t_imgs) + t_imgs + 1)
+            self._item.append({KEY_CASE_ID: i, 'ti': t_imgs, 'tr': t_reca})
+
+            left_right = (random.random() < 0.5)
+
+            seg0 = np.zeros((128, 128, 28))
+            seg1 = np.zeros((128, 128, 28))
+
+            w = random.randint(10, 30)
+            h = random.randint(10, 60)
+            d = random.randint(3, 11)
+
+            off_x = (64 - w * 2) // 2 + left_right * 64
+            off_y = (128 - h * 2) // 2
+            off_z = (28 - d * 2) // 2
+            seg1[off_x-1:off_x+2*w+2, off_y-1:off_y+2*h+2, off_z-1:off_z+2*d+2] = ellipsoid(w, h, d).astype(np.float)
+
+            if random.random() < 0.5:
+
+                w -= random.randint(2, 4) * 2
+                h -= random.randint(2, 4) * 2
+
+                off_x = (64 - w * 2) // 2 + left_right * 64
+                off_y = (128 - h * 2) // 2
+                seg1[off_x - 1:off_x + 2 * w + 2, off_y - 1:off_y + 2 * h + 2, off_z - 1:off_z + 2 * d + 2] -= ellipsoid(w, h, d).astype(np.float)
+
+            com = np.round(ndi.center_of_mass(seg1)).astype(np.int)
+
+            if random.random() < 0.5:
+                seg0[com[0] - 2:com[0] + 2, com[1] - 2:com[1] + 2, com[2] - 2:com[2] + 2] = 1
+            else:
+                rnd = int(48 * random.random() + 40)
+                seg0[:, :rnd, :] = seg1[:, :rnd, :]
+
+            if seg0.sum() == 0:
+                seg0[com[0] - 2:com[0] + 2, com[1] - 2:com[1] + 2, com[2] - 2:com[2] + 2] = 1
+
+            labels[:, :, :, 0] = seg0
+            for j in range(1, normalize - 1):
+                _, dist_int, _ = sdm_interpolate_numpy(seg0, seg1, time_func(j / normalize, growth))
+                intp = (dist_int > 0).astype(seg1.dtype)
+                labels[:, :, :, j] = np.maximum(intp * seg1,
+                                                labels[:, :, :, j - 1])  # TODO: correct? monotone property
+            labels[:, :, :, normalize - 1] = seg1
+
+            if zsize == 1:
+                labels = labels[:, :, com[2], np.newaxis, :]
+
+            self._labels.append(labels)
+
+            self._zsize = zsize
+
+    def __len__(self):
+        return len(self._item)
+
+    def __getitem__(self, item):
+        item_id = self._item[item]
+        case_id = item_id[KEY_CASE_ID]
+
+        globalss = np.zeros((1, 1, 1, 2))
+        globalss[:, :, :, 0] = item_id['ti']  # t_imaging
+        globalss[:, :, :, 1] = item_id['tr']  # t_recanalization
+
+        result = {KEY_CASE_ID: case_id, KEY_IMAGES: [], KEY_LABELS: [], KEY_GLOBAL: globalss}
+
+        result[KEY_LABELS] = self._labels[item].copy()
+
+        result[KEY_IMAGES] = np.zeros((128, 128, self._zsize, 2))
+
+        if self._transform:
+            result = self._transform(result)
+
+        return result
+
 
 class StrokeLindaDataset3D(Dataset):
     """Ischemic stroke dataset with CBV, TTD, clinical data, and CBVmap, TTDmap, FUmap, and interpolations."""
@@ -438,16 +522,18 @@ def get_toy_seq_shape_training_data(train_transform, valid_transform, t_indices,
 
     dataset_length = len(t_indices) + len(v_indices)
 
-    dataset = ToyDataset3DSequence(transform=transforms.Compose(train_transform), dataset_length=dataset_length,
-                                   normalize=normalize, growth=growth, zsize=zsize)
+    dataset = ToyDataset3DSequence(transform=transforms.Compose(train_transform),
+                                                 dataset_length=dataset_length, normalize=normalize, growth=growth,
+                                                 zsize=zsize)
     items = list(set(range(len(dataset))).intersection(set(t_indices)))
     print('Indices used:', items)
     train_sampler = SubsetRandomSampler(items)
     train_loader = DataLoader(dataset, batch_size=batchsize, sampler=train_sampler)
 
     if v_indices:
-        dataset = ToyDataset3DSequence(transform=transforms.Compose(valid_transform), dataset_length=dataset_length,
-                                       normalize=normalize, growth=growth, zsize=zsize)
+        dataset = ToyDataset3DSequence(transform=transforms.Compose(valid_transform),
+                                                     dataset_length=dataset_length, normalize=normalize, growth=growth,
+                                                     zsize=zsize)
         items = list(set(range(len(dataset))).intersection(set(v_indices)))
         print('Indices used:', items)
         valid_sampler = SequentialSampler(dataset)
