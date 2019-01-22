@@ -79,12 +79,14 @@ zslice = zsize // 2
 pad = (20, 20, 20)
 n_visual_samples = min(4, batchsize)
 
-train_trafo = [data.UseLabelsAsImages(),
+train_trafo = [data.Slice14(),
+               data.UseLabelsAsImages(),
                #data.PadImages(0,0,4,0),  TODO for 28 slices
                data.HemisphericFlip(),
                data.ElasticDeform2D(apply_to_images=True, random=0.95),
                data.ToTensor()]
-valid_trafo = [data.UseLabelsAsImages(),
+valid_trafo = [data.Slice14(),
+               data.UseLabelsAsImages(),
                #data.PadImages(0,0,4,0),  TODO for 28 slices
                data.ElasticDeform2D(apply_to_images=True, random=0.67, seed=0),
                data.ToTensor()]
@@ -156,7 +158,7 @@ for epoch in range(0, 200):
             pr_out_c = []
             pr_out_p = []
 
-            if n_ch_time_img2vec is not None:
+            if lesion_pos is not None:
                 index_lesion = lesion_pos * torch.tensor([list(range(sequence_length))] * batchsize).float().cuda()
                 index_lesion = torch.sum(index_lesion, dim=1) / torch.sum(lesion_pos, dim=1)
                 floor = torch.floor(index_lesion)
@@ -259,7 +261,7 @@ for epoch in range(0, 200):
             pr_out_c = []
             pr_out_p = []
 
-            if n_ch_time_img2vec is not None:
+            if lesion_pos is not None:
                 index_lesion = lesion_pos * torch.tensor([list(range(sequence_length))] * batchsize).float().cuda()
                 index_lesion = torch.sum(index_lesion, dim=1) / torch.sum(lesion_pos, dim=1)
                 floor = torch.floor(index_lesion)

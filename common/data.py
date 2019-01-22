@@ -350,6 +350,79 @@ class ToyDataset3DSequenceTopologyChange(Dataset):
         return result
 
 
+class StrokeLindaDataset2D(Dataset):
+    """Ischemic stroke dataset with CBV, TTD, clinical data, and CBVmap, TTDmap, FUmap, and interpolations."""
+    PATH_ROOT = '/share/data_zoe1/lucas/Linda_Segmentations'
+    PATH_CSV = '/share/data_zoe1/lucas/Linda_Segmentations/clinical_cleaned.csv'
+    FN_PREFIX = 'train'
+    FN_PATTERN = '{1}/{0}{1}{2}.nii.gz'
+    ROW_OFFSET = 1
+    COL_OFFSET = 1
+
+    def __init__(self, root_dir=PATH_ROOT, modalities=[], labels=[], clinical=PATH_CSV, transform=None,
+                 single_case_id=None):
+        self._root_dir = root_dir
+        self._clinical = self._load_clinical_data_from_csv(clinical, row_offset=self.ROW_OFFSET, col_offset=0)
+        self._transform = transform
+        self._modalities = modalities
+        self._labels = labels
+
+        self._item_index_map = []
+        for index in range(len(self._clinical)):
+            case_id = int(self._clinical[index][0])
+            if single_case_id is not None and single_case_id != case_id:
+                continue
+            self._item_index_map.append({KEY_CASE_ID: case_id, KEY_CLINICAL_IDX: index})
+
+    def _load_clinical_data_from_csv(self, filename, col_offset=0, row_offset=0):
+        result = []
+        with open(filename, 'r') as f:
+            rows = csv.reader(f, delimiter=',')
+            for row in rows:
+                if row_offset == 0:
+                    result.append(row[col_offset:])
+                else:
+                    row_offset -= 1
+        return result
+
+    def _load_image_data_from_nifti(self, case_id, suffix):
+        img_name = self.FN_PATTERN.format(self.FN_PREFIX, str(case_id), suffix)
+        filename = os.path.join(self._root_dir, img_name)
+        img_data = nib.load(filename).get_data()
+        return img_data[:, :, :, np.newaxis]
+
+    def __len__(self):
+        return len(self._item_index_map)
+
+    def __getitem__(self, item):
+        item_id = self._item_index_map[item]
+        case_id = item_id[KEY_CASE_ID]
+        clinical_data = self._clinical[item_id[KEY_CLINICAL_IDX]][1:]
+
+        result = {KEY_CASE_ID: case_id, KEY_IMAGES: [], KEY_LABELS: [], KEY_GLOBAL: []}
+
+        for value in clinical_data:
+            result[KEY_GLOBAL].append(float(value))
+        if result[KEY_GLOBAL]:
+            result[KEY_GLOBAL] = np.array(result[KEY_GLOBAL]).reshape((1, 1, 1, len(clinical_data)))
+
+        for label in self._labels:
+            result[KEY_LABELS].append(self._load_image_data_from_nifti(case_id, label))
+        if result[KEY_LABELS]:
+            result[KEY_LABELS] = np.concatenate(result[KEY_LABELS], axis=DIM_CHANNEL_NUMPY_3D)
+
+        for modality in self._modalities:
+            result[KEY_IMAGES].append(self._load_image_data_from_nifti(case_id, modality))
+        if result[KEY_IMAGES]:
+            result[KEY_IMAGES] = np.concatenate(result[KEY_IMAGES], axis=DIM_CHANNEL_NUMPY_3D)
+
+        if self._transform:
+            result = self._transform(result)
+
+        return result
+
+
+
 class StrokeLindaDataset3D(Dataset):
     """Ischemic stroke dataset with CBV, TTD, clinical data, and CBVmap, TTDmap, FUmap, and interpolations."""
     PATH_ROOT = '/share/data_zoe1/lucas/Linda_Segmentations'
@@ -608,6 +681,17 @@ class HemisphericFlipFixedToCaseId(object):
         return sample
 
 
+class Slice14(object):  # return z-slice at center of mass of lesion?
+    LESION_CHANNEL = 1
+
+    def __call__(self, sample):
+        result = emptyCopyFromSample(sample)
+        result[KEY_GLOBAL] = sample[KEY_GLOBAL]
+        result[KEY_IMAGES] = sample[KEY_IMAGES][:, :, :, :]
+        result[KEY_LABELS] = sample[KEY_LABELS][:, :, 13, :]
+        return result
+
+
 class ClipImages(object):
     def __init__(self, min=None, max=None):
         self.min = min
@@ -615,6 +699,7 @@ class ClipImages(object):
 
     """Clip numpy images at min and max value."""
     def __call__(self, sample):
+        result = emptyCopyFromSample(sample)
         if sample[KEY_IMAGES] != []:
             result[KEY_IMAGES] = np.clip(sample[KEY_IMAGES], self.min, self.max).copy()
         return result
