@@ -79,14 +79,13 @@ zslice = zsize // 2
 pad = (20, 20, 20)
 n_visual_samples = min(4, batchsize)
 
-train_trafo = [data.Slice14(),
-               data.UseLabelsAsImages(),
+'''
+train_trafo = [data.UseLabelsAsImages(),
                #data.PadImages(0,0,4,0),  TODO for 28 slices
                data.HemisphericFlip(),
                data.ElasticDeform2D(apply_to_images=True, random=0.95),
                data.ToTensor()]
-valid_trafo = [data.Slice14(),
-               data.UseLabelsAsImages(),
+valid_trafo = [data.UseLabelsAsImages(),
                #data.PadImages(0,0,4,0),  TODO for 28 slices
                data.ElasticDeform2D(apply_to_images=True, random=0.67, seed=0),
                data.ToTensor()]
@@ -94,9 +93,19 @@ valid_trafo = [data.Slice14(),
 ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
                                                           [0, 1, 2, 3],  #[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],  #
                                                           [4, 5, 6, 7],  #[32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43],  #
-
                                                           batchsize=batchsize, normalize=sequence_length, growth='fast',
                                                           zsize=zsize)
+'''
+
+train_trafo = [data.ResamplePlaneXY(.5),
+               data.Slice14(),
+               data.UseLabelsAsImages(),
+               data.HemisphericFlip(),
+               data.ElasticDeform2D(apply_to_images=True, random=0.95),
+               data.ClinicalTimeOnly(),
+               data.ToTensor()]
+
+ds_train, ds_valid = data.get_stroke_shape_training_data_2D(train_trafo, [1, 2, 5, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 22, 23, 24, 25, 26, 27, 28, 29, 30], batchsize=batchsize)
 
 assert n_ch_grunet[0] == 2 * n_ch_feature_single + n_ch_additional_grid_input
 assert not n_ch_time_img2vec or n_ch_time_img2vec[0] == 2 * n_ch_feature_single + n_ch_additional_grid_input
@@ -117,7 +126,7 @@ loss_valid = []
 
 for epoch in range(0, 200):
     scheduler.step()
-    f, axarr = plt.subplots(n_visual_samples * 2, sequence_length * 2)
+    f, axarr = plt.subplots(n_visual_samples * 2, sequence_length + 3)
     loss_mean = 0
     inc = 0
 
@@ -142,7 +151,7 @@ for epoch in range(0, 200):
                 factor[b, t_half:] = torch.tensor([(length//2) / length - i / length for i in range(length - length//2)], dtype=torch.float).cuda()
                 marker_target[b, t_lesion] = 1
 
-            out_c, out_p, lesion_pos = bi_net(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
+            out_c, out_p, lesion_pos = bi_net(gt[:, 0, :, :, :].unsqueeze(1),  # gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
                                               gt[:, -1, :, :, :].unsqueeze(1),
                                               batch[data.KEY_GLOBAL].to(device),
                                               factor)
@@ -172,11 +181,11 @@ for epoch in range(0, 200):
             else:
                 index_lesion = batch[data.KEY_GLOBAL][:, 1].long().squeeze().cuda()
                 for b in range(batchsize):
-                    pr_lesion.append(torch.index_select(pr[b], 0, index_lesion[b]))
-                    gt_lesion.append(torch.index_select(gt[b], 0, index_lesion[b]))
-                    pr_out_c.append(torch.index_select(out_c[b], 0, index_lesion[b]))
-                    pr_out_p.append(torch.index_select(out_p[b], 0, index_lesion[b]))
+                    pr_lesion.append(pr[b, index_lesion[b]])
+                    pr_out_c.append(out_c[b, index_lesion[b]])
+                    pr_out_p.append(out_p[b, index_lesion[b]])
 
+            '''
             index_core = batch[data.KEY_GLOBAL][:, 0].long().squeeze().cuda()
             index_penu = torch.stack([torch.tensor(9)] * batchsize, dim=0).cuda()
             for b in range(batchsize):
@@ -184,13 +193,17 @@ for epoch in range(0, 200):
                 gt_core.append(torch.index_select(gt[b], 0, index_core[b]))
                 pr_penu.append(torch.index_select(pr[b], 0, index_penu[b]))
                 gt_penu.append(torch.index_select(gt[b], 0, index_penu[b]))
+            '''
+            for b in range(batchsize):
+                pr_core.append(pr[b, int(batch[data.KEY_GLOBAL][b, 0, :, :, :])])
+                pr_penu.append(pr[b, -1])
 
             loss = criterion(torch.stack(pr_core, dim=0),
-                             torch.stack(gt_core, dim=0),
+                             gt[:, 0, :, :, :].unsqueeze(1),  # torch.stack(gt_core, dim=0),
                              torch.stack(pr_lesion, dim=0),
-                             torch.stack(gt_lesion, dim=0),
+                             gt[:, 1, :, :, :].unsqueeze(1),  # torch.stack(gt_lesion, dim=0),
                              torch.stack(pr_penu, dim=0),
-                             torch.stack(gt_penu, dim=0),
+                             gt[:, 2, :, :, :].unsqueeze(1),  # torch.stack(gt_penu, dim=0),
                              pr,
                              torch.stack(pr_out_c, dim=0),
                              torch.stack(pr_out_p, dim=0))
@@ -207,11 +220,19 @@ for epoch in range(0, 200):
 
         for row in range(n_visual_samples):
             titles = []
+            '''
             for i in range(sequence_length):
                 axarr[row, i].imshow(gt.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
                 titles.append(get_title('GT', row, i, batch, sequence_length))
+            '''
+            axarr[row, 0].imshow(gt.cpu().detach().numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            titles.append('CORE')
+            axarr[row, 1].imshow(gt.cpu().detach().numpy()[row, 1, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            titles.append('FUCT')
+            axarr[row, 2].imshow(gt.cpu().detach().numpy()[row, 2, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            titles.append('PENU')
             for i in range(sequence_length):
-                axarr[row, i + sequence_length].imshow(pr.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+                axarr[row, i + 3].imshow(pr.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
                 titles.append(get_title('Pr', row, i, batch, sequence_length, index_lesion))
             for ax, title in zip(axarr[row], titles):
                 ax.set_title(title)
@@ -245,10 +266,10 @@ for epoch in range(0, 200):
                 factor[b, t_half:] = torch.tensor([(length//2) / length - i / length for i in range(length - length//2)], dtype=torch.float).cuda()
                 marker_target[b, t_lesion] = 1
 
-            out_c, out_p, index_lesion = bi_net(gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
-                                               gt[:, -1, :, :, :].unsqueeze(1),
-                                                batch[data.KEY_GLOBAL].to(device),
-                                                factor)
+            out_c, out_p, lesion_pos = bi_net(gt[:, 0, :, :, :].unsqueeze(1),  # gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
+                                              gt[:, -1, :, :, :].unsqueeze(1),
+                                              batch[data.KEY_GLOBAL].to(device),
+                                              factor)
             #output = factor.unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_c + (1-factor).unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_p
             pr = 0.5 * out_c + 0.5 * out_p
 
@@ -275,11 +296,11 @@ for epoch in range(0, 200):
             else:
                 index_lesion = batch[data.KEY_GLOBAL][:, 1].long().squeeze().cuda()
                 for b in range(batchsize):
-                    pr_lesion.append(torch.index_select(pr[b], 0, index_lesion[b]))
-                    gt_lesion.append(torch.index_select(gt[b], 0, index_lesion[b]))
-                    pr_out_c.append(torch.index_select(out_c[b], 0, index_lesion[b]))
-                    pr_out_p.append(torch.index_select(out_p[b], 0, index_lesion[b]))
+                    pr_lesion.append(pr[b, index_lesion[b]])
+                    pr_out_c.append(out_c[b, index_lesion[b]])
+                    pr_out_p.append(out_p[b, index_lesion[b]])
 
+            '''
             index_core = batch[data.KEY_GLOBAL][:, 0].long().squeeze().cuda()
             index_penu = torch.stack([torch.tensor(9)] * batchsize, dim=0).cuda()
             for b in range(batchsize):
@@ -287,13 +308,17 @@ for epoch in range(0, 200):
                 gt_core.append(torch.index_select(gt[b], 0, index_core[b]))
                 pr_penu.append(torch.index_select(pr[b], 0, index_penu[b]))
                 gt_penu.append(torch.index_select(gt[b], 0, index_penu[b]))
+            '''
+            for b in range(batchsize):
+                pr_core.append(pr[b, int(batch[data.KEY_GLOBAL][b, 0, :, :, :])])
+                pr_penu.append(pr[b, -1])
 
             loss = criterion(torch.stack(pr_core, dim=0),
-                             torch.stack(gt_core, dim=0),
+                             gt[:, 0, :, :, :].unsqueeze(1),  # torch.stack(gt_core, dim=0),
                              torch.stack(pr_lesion, dim=0),
-                             torch.stack(gt_lesion, dim=0),
+                             gt[:, 1, :, :, :].unsqueeze(1),  # torch.stack(gt_lesion, dim=0),
                              torch.stack(pr_penu, dim=0),
-                             torch.stack(gt_penu, dim=0),
+                             gt[:, 2, :, :, :].unsqueeze(1),  # torch.stack(gt_penu, dim=0),
                              pr,
                              torch.stack(pr_out_c, dim=0),
                              torch.stack(pr_out_p, dim=0))
@@ -306,11 +331,19 @@ for epoch in range(0, 200):
 
         for row in range(n_visual_samples):
             titles = []
+            '''
             for i in range(sequence_length):
-                axarr[row + n_visual_samples, i].imshow(gt.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+                axarr[row, i].imshow(gt.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
                 titles.append(get_title('GT', row, i, batch, sequence_length))
+            '''
+            axarr[row + n_visual_samples, 0].imshow(gt.cpu().detach().numpy()[row, 0, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            titles.append('CORE')
+            axarr[row + n_visual_samples, 1].imshow(gt.cpu().detach().numpy()[row, 1, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            titles.append('FUCT')
+            axarr[row + n_visual_samples, 2].imshow(gt.cpu().detach().numpy()[row, 2, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+            titles.append('PENU')
             for i in range(sequence_length):
-                axarr[row + n_visual_samples, i + sequence_length].imshow(pr.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
+                axarr[row + n_visual_samples, i + 3].imshow(pr.cpu().detach().numpy()[row, i, zslice, :, :], vmin=0, vmax=1, cmap='gray')
                 titles.append(get_title('Pr', row, i, batch, sequence_length, index_lesion))
             for ax, title in zip(axarr[row + n_visual_samples], titles):
                 ax.set_title(title)

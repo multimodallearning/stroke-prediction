@@ -543,6 +543,76 @@ def split_data_loader3D(modalities, labels, indices, batch_size, random_seed=Non
     return (train_loader, valid_loader)
 
 
+def split_data_loader3D(modalities, labels, indices, batch_size, random_seed=None, valid_size=0.5, shuffle=True,
+                        num_workers=4, pin_memory=False, train_transform=[], valid_transform=[]):
+    assert ((valid_size >= 0) and (valid_size <= 1)), "[!] valid_size should be in the range [0, 1]."
+    assert train_transform, "You must provide at least a numpy-to-torch transformation."
+    assert valid_transform, "You must provide at least a numpy-to-torch transformation."
+
+    # load the dataset
+    dataset_train = StrokeLindaDataset2D(modalities=modalities, labels=labels,
+                                         transform=transforms.Compose(train_transform))
+    dataset_valid = StrokeLindaDataset2D(modalities=modalities, labels=labels,
+                                         transform=transforms.Compose(valid_transform))
+
+    items = list(set(range(len(dataset_train))).intersection(set(indices)))
+    num_train = len(items)
+    split = int(np.floor(valid_size * num_train))
+
+    if shuffle == True:
+        random_state = np.random.RandomState(random_seed)
+        random_state.shuffle(items)
+
+    train_idx, valid_idx = items[split:], items[:split]
+
+    train_sampler = SubsetRandomSampler(train_idx)
+    valid_sampler = SequentialSampler(valid_idx)
+
+    train_loader = DataLoader(dataset_train,
+                    batch_size=batch_size, sampler=train_sampler,
+                    num_workers=num_workers, pin_memory=pin_memory,
+                    worker_init_fn=set_np_seed, drop_last=True)
+
+    valid_loader = DataLoader(dataset_valid,
+                    batch_size=batch_size, sampler=valid_sampler,
+                    num_workers=num_workers, pin_memory=pin_memory, drop_last=True)
+
+    return (train_loader, valid_loader)
+
+
+def single_data_loader2D_full(indices, batch_size, random_seed=None, shuffle=True, sequential=False,
+                              num_workers=4, pin_memory=False, transform=[]):
+    assert transform, "You must provide at least a numpy-to-torch transformation."
+    modalities = ['_CBV_reg1_downsampled',
+                  '_TTD_reg1_downsampled']
+    labels = ['_CBVmap_subset_reg1_downsampled',
+              '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled',
+              '_TTDmap_subset_reg1_downsampled']
+
+    # load the dataset
+    dataset_train = StrokeLindaDataset2D(modalities=modalities, labels=labels,
+                                         transform=transforms.Compose(transform),
+                                         clinical='/share/data_zoe1/lucas/Linda_Segmentations/clinical_cleaned_full.csv')
+
+    items = list(set(range(len(dataset_train))).intersection(set(indices)))
+    print('Indices used:', items)
+
+    if shuffle == True:
+        random_state = np.random.RandomState(random_seed)
+        random_state.shuffle(items)
+
+    sampler = SubsetRandomSampler(items)
+
+    drop_last = False
+    if len(items) % batch_size != 0:
+        drop_last = True
+
+    train_loader = DataLoader(dataset_train, batch_size=batch_size, sampler=sampler, drop_last=drop_last,
+                              num_workers=num_workers, pin_memory=pin_memory, worker_init_fn=set_np_seed)
+
+    return train_loader
+
+
 def single_data_loader3D_full(modalities, labels, indices, batch_size, random_seed=None, shuffle=True,
                               num_workers=4, pin_memory=False, train_transform=[]):
     assert train_transform, "You must provide at least a numpy-to-torch transformation."
@@ -617,6 +687,17 @@ def get_toy_seq_shape_training_data(train_transform, valid_transform, t_indices,
     return train_loader, valid_loader
 
 
+def get_stroke_shape_training_data_2D(train_transform, train_indices, seed=4, batchsize=2):
+    tmp_valid = single_data_loader2D_full([0, 4, 8, 19, 21, 31], batchsize, random_seed=seed, sequential=True,
+                                          transform=[ResamplePlaneXY(.5),
+                                                     Slice14(),
+                                                     UseLabelsAsImages(),
+                                                     ClinicalTimeOnly(),
+                                                     ToTensor()], num_workers=0)
+
+    return single_data_loader2D_full(train_indices, batchsize, random_seed=seed, transform=train_transform, num_workers=0), tmp_valid
+
+
 def get_stroke_shape_training_data(modalities, labels, train_transform, valid_transform, fold_indices, ratio, seed=4,
                                    batchsize=2, split=True):
     if split:
@@ -688,7 +769,7 @@ class Slice14(object):  # return z-slice at center of mass of lesion?
         result = emptyCopyFromSample(sample)
         result[KEY_GLOBAL] = sample[KEY_GLOBAL]
         result[KEY_IMAGES] = sample[KEY_IMAGES][:, :, :, :]
-        result[KEY_LABELS] = sample[KEY_LABELS][:, :, 13, :]
+        result[KEY_LABELS] = sample[KEY_LABELS][:, :, 13, np.newaxis, :]
         return result
 
 
@@ -913,4 +994,11 @@ class ResamplePlaneXY(object):
                 for z in range(sample[KEY_LABELS].shape[DIM_DEPTH_NUMPY_3D]):
                     result[KEY_LABELS][:, :, z, c] = ndi.zoom(sample[KEY_LABELS][:, :, z, c], self._scale_factor, order=self._order)
 
+        return result
+
+
+class ClinicalTimeOnly(object):
+    def __call__(self, sample):
+        result = sample
+        result[KEY_GLOBAL] = result[KEY_GLOBAL][:, :, :, :2]
         return result
