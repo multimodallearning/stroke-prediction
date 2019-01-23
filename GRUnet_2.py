@@ -371,9 +371,11 @@ class BidirectionalSequence(nn.Module):
         ##################################
         # Part 2: Bidirectional Recurrence
         self.rnn1 = UnidirectionalNet(n_ch_grunet, n_ch_affine_img2vec, n_ch_affine_vec2vec, dim_img2vec_time,
-                                      dim_vec2vec_time, n_ch_clinical, n_ch_feature_single, kernel_size, seq_len)
+                                      dim_vec2vec_time, n_ch_clinical, n_ch_feature_single, kernel_size, seq_len,
+                                      batchsize=batch_size)
         self.rnn2 = UnidirectionalNet(n_ch_grunet, n_ch_affine_img2vec, n_ch_affine_vec2vec, dim_img2vec_time,
-                                      dim_vec2vec_time, n_ch_clinical, n_ch_feature_single, kernel_size, seq_len)
+                                      dim_vec2vec_time, n_ch_clinical, n_ch_feature_single, kernel_size, seq_len,
+                                      batchsize=batch_size)
 
         ################################################
         # Part 3: Combine predictions of both directions
