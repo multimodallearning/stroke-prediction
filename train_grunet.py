@@ -72,13 +72,13 @@ if input2d:
 batchsize = 2
 sequence_length = 10
 num_clinical_input = 2
-n_ch_feature_single = 1 #8
-n_ch_affine_img2vec = [4, 4, 4, 4, 4] #[18, 20, 22, 26, 30]  # first layer dim: 2 * n_ch_feature_single + 2 core/penu segmentation; list of length = 5
-n_ch_affine_vec2vec = [6, 6, 24] #[32, 28, 24]  # first layer dim: last layer dim of img2vec + 2 clinical scalars; list of arbitrary length > 1
+n_ch_feature_single = 4 #8
+n_ch_affine_img2vec = [10, 12, 14, 16, 18] #[18, 20, 22, 26, 30]  # first layer dim: 2 * n_ch_feature_single + 2 core/penu segmentation; list of length = 5
+n_ch_affine_vec2vec = [20, 22, 24] #[32, 28, 24]  # first layer dim: last layer dim of img2vec + 2 clinical scalars; list of arbitrary length > 1
 n_ch_additional_grid_input = 8  # 1 core + 1 penumbra + 3 affine core + 3 affine penumbra
 n_ch_time_img2vec = None  #[24, 25, 26, 28, 30]
 n_ch_time_vec2vec = None  #[32, 16, 1]
-n_ch_grunet = [10, 10, 10, 10, 10]  #[24, 28, 32, 28, 24]
+n_ch_grunet = [16, 18, 20, 18, 16]  #[24, 28, 32, 28, 24]
 zslice = zsize // 2
 pad = (20, 20, 20)
 n_visual_samples = min(4, batchsize)
@@ -252,6 +252,8 @@ for epoch in range(0, 200):
                 ax.set_title(title)
         del batch
 
+        torch.cuda.empty_cache()
+
     del pr
     del loss
     del gt
@@ -331,6 +333,8 @@ for epoch in range(0, 200):
             loss_mean += loss.item()
 
             inc += 1
+
+        torch.cuda.empty_cache()
 
         loss_valid.append(loss_mean/inc)
 
