@@ -72,13 +72,13 @@ if input2d:
 batchsize = 2
 sequence_length = 10
 num_clinical_input = 2
-n_ch_feature_single = 4 #8
-n_ch_affine_img2vec = [10, 12, 14, 16, 18] #[18, 20, 22, 26, 30]  # first layer dim: 2 * n_ch_feature_single + 2 core/penu segmentation; list of length = 5
-n_ch_affine_vec2vec = [20, 22, 24] #[32, 28, 24]  # first layer dim: last layer dim of img2vec + 2 clinical scalars; list of arbitrary length > 1
-n_ch_additional_grid_input = 8  # 1 core + 1 penumbra + 3 affine core + 3 affine penumbra
+n_ch_feature_single = 1  #4  #8
+n_ch_affine_img2vec = [10, 2, 2, 2, 2]  #[10, 12, 14, 16, 18]  #[18, 20, 22, 26, 30]  # first layer dim: 2 * n_ch_feature_single + 2 core/penu segmentation + 6 previous grid result; list of length = 5
+n_ch_affine_vec2vec = [4, 4, 24]  #[20, 22, 24]  #[32, 28, 24]  # first layer dim: last layer dim of img2vec + 2 clinical scalars; list of arbitrary length > 1
+n_ch_additional_grid_input = 14  #8  # 1 core + 1 penumbra + 3 affine core + 3 affine penumbra + 6 previous grid result
 n_ch_time_img2vec = None  #[24, 25, 26, 28, 30]
 n_ch_time_vec2vec = None  #[32, 16, 1]
-n_ch_grunet = [16, 18, 20, 18, 16]  #[24, 28, 32, 28, 24]
+n_ch_grunet = [16, 8, 4, 8, 16]  #[16, 18, 20, 18, 16]  #[24, 28, 32, 28, 24]
 zslice = zsize // 2
 pad = (20, 20, 20)
 n_visual_samples = min(4, batchsize)
@@ -137,7 +137,7 @@ assert n_ch_grunet[0] == 2 * n_ch_feature_single + n_ch_additional_grid_input
 assert not n_ch_time_img2vec or n_ch_time_img2vec[0] == 2 * n_ch_feature_single + n_ch_additional_grid_input
 bi_net = BidirectionalSequence(n_ch_feature_single, n_ch_affine_img2vec, n_ch_affine_vec2vec, n_ch_time_img2vec,
                                n_ch_time_vec2vec, n_ch_grunet, num_clinical_input, kernel_size=convgru_kernel,
-                               seq_len=sequence_length, batch_size=batchsize).to(device)
+                               seq_len=sequence_length, batch_size=batchsize, depth2d=input2d).to(device)
 
 params = [p for p in bi_net.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
@@ -233,6 +233,8 @@ for epoch in range(0, 200):
 
             inc += 1
 
+            torch.cuda.empty_cache()
+
         loss_train.append(loss_mean/inc)
 
         for row in range(n_visual_samples):
@@ -251,8 +253,6 @@ for epoch in range(0, 200):
             for ax, title in zip(axarr[row], titles):
                 ax.set_title(title)
         del batch
-
-        torch.cuda.empty_cache()
 
     del pr
     del loss
@@ -334,7 +334,7 @@ for epoch in range(0, 200):
 
             inc += 1
 
-        torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
 
         loss_valid.append(loss_mean/inc)
 
@@ -358,14 +358,14 @@ for epoch in range(0, 200):
     print('Epoch', epoch, 'last batch training loss:', loss_train[-1], '\tvalidation batch loss:', loss_valid[-1])
 
     if epoch % 5 == 0:
-        torch.save(bi_net, '/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/_GRUnet3.model')
+        torch.save(bi_net, '/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/_GRUnet2.model')
 
     for ax in axarr.flatten():
         ax.title.set_fontsize(3)
         ax.xaxis.set_visible(False)
         ax.yaxis.set_visible(False)
     f.subplots_adjust(hspace=0.05)
-    f.savefig('/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/_GRUnet3_' + str(epoch) + '.png', bbox_inches='tight', dpi=300)
+    f.savefig('/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/_GRUnet2_' + str(epoch) + '.png', bbox_inches='tight', dpi=300)
 
     del f
     del axarr
@@ -376,6 +376,6 @@ for epoch in range(0, 200):
         plot.plot(epochs, loss_train, 'r-')
         plot.plot(epochs, loss_valid, 'b-')
         plot.set_ylabel('Loss Training (r) & Validation (b)')
-        fig.savefig('/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/_GRUnet3_plots.png', bbox_inches='tight', dpi=300)
+        fig.savefig('/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/_GRUnet2_plots.png', bbox_inches='tight', dpi=300)
         del plot
         del fig
