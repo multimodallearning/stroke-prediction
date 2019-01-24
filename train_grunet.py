@@ -50,17 +50,17 @@ class Criterion(nn.Module):
 
 def get_title(prefix, row, idx, batch, seq_len, lesion_pos=None):
     if lesion_pos is not None:
-        lesion_pos = float(lesion_pos[row])
+        lesion_pos = int(lesion_pos[row])
     else:
-        lesion_pos = 0.0
+        lesion_pos = 0
     suffix = ''
     if idx == int(batch[data.KEY_GLOBAL][row, 0, :, :, :]):
-        suffix += ' C'
-    elif idx == int(batch[data.KEY_GLOBAL][row, 1, :, :, :]):
-        suffix += ' L'
-    elif idx == seq_len-1:
-        suffix += ' P'
-    return '{}({:1.1f}){}'.format(str(idx), lesion_pos, suffix)
+        suffix += ' [C]'
+    if idx == int(batch[data.KEY_GLOBAL][row, 0, :, :, :]) + int(batch[data.KEY_GLOBAL][row, 1, :, :, :]):
+        suffix += ' [L]'
+    if idx == seq_len-1:
+        suffix += ' [P]'
+    return '{}{}'.format(str(idx), suffix)
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
