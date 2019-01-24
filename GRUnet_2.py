@@ -110,15 +110,12 @@ class GRUnetBlock(nn.Module):
         spatial_size = input_.data.size()[2:]
 
         # Generate empty prev_state, if None is provided
-        assert prev_state is not None
-        '''
         if prev_state is None:
             state_size = [batch_size, self.hidden_size] + list(spatial_size)
             if torch.cuda.is_available():
                 prev_state = torch.zeros(state_size).cuda()
             else:
                 prev_state = torch.zeros(state_size)
-        '''
 
         # Data size: [batch, channel, depth, height, width]
         stacked_inputs = torch.cat([input_, prev_state], dim=1)
@@ -174,14 +171,13 @@ class GRUnet(nn.Module):
 
         self.downscaling = down_scaling
 
-
-    def forward(self, input_rep, hidden=None):
+    def forward(self, input_rep, *hidden):
         input_rep = F.interpolate(input_rep, scale_factor=(1, 1/self.downscaling, 1/self.downscaling))
 
         outputs = [None] * (self.N_BLOCKS // 2 + 1)
         indices = [None] * (self.N_BLOCKS // 2)
         upd_hidden = [None] * self.N_BLOCKS
-        if hidden is None:
+        if len(hidden) == 1 and hidden[0] is None:
             hidden = [None] * (self.N_BLOCKS + 2)
 
         #
@@ -217,7 +213,7 @@ class GRUnet(nn.Module):
 
         output = F.interpolate(self.grid_offset(output), scale_factor=(1, self.downscaling, self.downscaling))
 
-        return upd_hidden, output.permute(0, 2, 3, 4, 1)
+        return output.permute(0, 2, 3, 4, 1), upd_hidden[0], upd_hidden[1], upd_hidden[2], upd_hidden[3], upd_hidden[4]
 
 
 class AffineModule(nn.Module):
@@ -245,11 +241,14 @@ class AffineModule(nn.Module):
         self.affine4 = def_vec2vec(n_dim=dim_vec2vec, init_fn=self.init_theta(-1))
         self.affine5 = nn.GRUCell(24, 24, bias=True)
 
-    def forward(self, input_img, clinical, out_size, hidden_affine1, hidden_affine3, hidden_affine5):
-
+    def forward(self, input_img, clinical, core, hidden_affine1, hidden_affine3, hidden_affine5):
+        out_size = core.size()
+        del core
         hidden_affine1, affine1 = self.affine1(input_img, hidden_affine1)
+        del input_img
         affine2 = self.affine2(affine1)
         hidden_affine3 = self.affine3(torch.cat((affine2, clinical), dim=1).squeeze(), hidden_affine3)
+        del clinical
         affine4 = self.affine4(hidden_affine3)
         hidden_affine5 = self.affine5(affine4, hidden_affine5)
         grid_core = nn.functional.affine_grid(hidden_affine5[:, :12].view(-1, 3, 4), out_size)
@@ -303,7 +302,6 @@ class UnidirectionalSequence(nn.Module):
         self.len = seq_len
         self.batchsize = batchsize
         self.out_size = out_size
-        self.dim_feat_rnn = dim_feat_rnn
 
         #
         # Separate (hidden) features for core / penumbra
@@ -336,10 +334,14 @@ class UnidirectionalSequence(nn.Module):
 
         nonlin_grids = grid_identity(self.batchsize, 2, (self.batchsize, self.out_size, 28, 128, 128))
 
-        hidden_core = torch.zeros(self.batchsize, self.dim_feat_rnn, 28, 128, 128).cuda()
-        hidden_penu = None
-        hidden_grunet = None
-        h_affine1 = None
+        hidden_core = torch.zeros(self.batchsize, self.core_rep.hidden_size, 28, 128, 128).cuda()
+        hidden_penu = torch.zeros(self.batchsize, self.penu_rep.hidden_size, 28, 128, 128).cuda()
+        hidden_grunet = [torch.zeros([self.batchsize, self.grunet.blocks[0].hidden_size, 28, 64, 64]).cuda(),
+                         torch.zeros([self.batchsize, self.grunet.blocks[1].hidden_size, 14, 32, 32]).cuda(),
+                         torch.zeros([self.batchsize, self.grunet.blocks[2].hidden_size, 7, 16, 16]).cuda(),
+                         torch.zeros([self.batchsize, self.grunet.blocks[3].hidden_size, 14, 32, 32]).cuda(),
+                         torch.zeros([self.batchsize, self.grunet.blocks[4].hidden_size, 28, 64, 64]).cuda()]
+        h_affine1 = torch.zeros(self.batchsize, self.affine.affine1.hidden_size, 28, 128, 128).cuda()
         h_affine3 = torch.zeros((self.batchsize, self.affine.affine3.hidden_size)).cuda()
         h_affine5 = torch.zeros((self.batchsize, 24)).cuda()
         if self.lesion_pos:
@@ -348,15 +350,15 @@ class UnidirectionalSequence(nn.Module):
             h_time5 = torch.zeros((self.batchsize, 1)).cuda()
 
         for i in range(self.len):
-            hidden_core, core_rep = checkpoint(lambda x, y: self.core_rep(x, y), core_rep, hidden_core)  #self.core_rep(core_rep, hidden_core)
-            hidden_penu, penu_rep = self.penu_rep(penu_rep, hidden_penu)
+            hidden_core, core_rep = checkpoint(lambda a, b: self.core_rep(a, b), core_rep, hidden_core)  #self.core_rep(core_rep, hidden_core)
+            hidden_penu, penu_rep = checkpoint(lambda a, b: self.penu_rep(a, b), penu_rep, hidden_penu)  #self.penu_rep(penu_rep, hidden_core)
             input_img = torch.cat((core_rep, penu_rep, core, penu, nonlin_grids.permute(0, 4, 1, 2, 3)), dim=1)
 
-            affine_grids, h_affine1, h_affine3, h_affine5 = self.affine(input_img, clinical, core.size(), h_affine1,
-                                                                        h_affine3, h_affine5)
+            affine_grids, h_affine1, h_affine3, h_affine5 = checkpoint(lambda a, b, c, d, e, f: self.affine(a, b, c, d, e, f), input_img, clinical, core, h_affine1, h_affine3, h_affine5)
 
             input_grunet = torch.cat((input_img, affine_grids.permute(0,4,1,2,3)), dim=1)
-            hidden_grunet, nonlin_grids = self.grunet(input_grunet, hidden_grunet)
+            nonlin_grids, h0, h1, h2, h3, h4 = checkpoint(lambda a, b, c, d, e, f: self.grunet(a, b, c, d, e, f), input_grunet, *hidden_grunet)
+            hidden_grunet = [h0, h1, h2, h3, h4]
             offset.append(nonlin_grids)
 
             if self.lesion_pos:
