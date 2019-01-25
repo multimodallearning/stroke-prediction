@@ -27,7 +27,7 @@ def def_vec2vec(n_dim, final_activation=None, init_fn=lambda x: x):
 
     result = []
     for i in range(1, len(n_dim) - 1):
-        result += [nn.Linear(n_dim[i - 1], n_dim[i]), nn.ReLU(True)]
+        result += [nn.Linear(n_dim[i - 1], n_dim[i]), nn.ReLU(True), nn.Dropout()]
     result += [nn.Linear(n_dim[len(n_dim) - 2], n_dim[len(n_dim) - 1])]
 
     if final_activation:
@@ -296,12 +296,13 @@ class UnidirectionalSequence(nn.Module):
         return _init
 
     def __init__(self, n_ch_grunet, dim_img2vec_affine, dim_vec2vec_affine, dim_img2vec_time, dim_vec2vec_time,
-                 dim_clinical, dim_feat_rnn, kernel_size, seq_len, batchsize=4, out_size=6, depth2d=False):
+                 dim_clinical, dim_feat_rnn, kernel_size, seq_len, batchsize=4, out_size=6, depth2d=False, reverse=False):
         super().__init__()
 
         self.len = seq_len
         self.batchsize = batchsize
         self.out_size = out_size
+        self.reverse = reverse
 
         #
         # Separate (hidden) features for core / penumbra
@@ -350,11 +351,17 @@ class UnidirectionalSequence(nn.Module):
             h_time5 = torch.zeros((self.batchsize, 1)).cuda()
 
         for i in range(self.len):
+            step = i * torch.ones((self.batchsize, 1, 1, 1, 1)).cuda()
+            if self.reverse:
+                step = self.len - 1 - step
+            clinical_step = torch.cat((clinical, step), dim=1)
+            print(self.len, self.reverse, float(step[0]), int(step[1]))
+
             hidden_core, core_rep = checkpoint(lambda a, b: self.core_rep(a, b), core_rep, hidden_core)  #self.core_rep(core_rep, hidden_core)
             hidden_penu, penu_rep = checkpoint(lambda a, b: self.penu_rep(a, b), penu_rep, hidden_penu)  #self.penu_rep(penu_rep, hidden_core)
             input_img = torch.cat((core_rep, penu_rep, core, penu, nonlin_grids.permute(0, 4, 1, 2, 3)), dim=1)
 
-            affine_grids, h_affine1, h_affine3, h_affine5 = checkpoint(lambda a, b, c, d, e, f: self.affine(a, b, c, d, e, f), input_img, clinical, core, h_affine1, h_affine3, h_affine5)
+            affine_grids, h_affine1, h_affine3, h_affine5 = checkpoint(lambda a, b, c, d, e, f: self.affine(a, b, c, d, e, f), input_img, clinical_step, core, h_affine1, h_affine3, h_affine5)
 
             input_grunet = torch.cat((input_img, affine_grids.permute(0,4,1,2,3)), dim=1)
             nonlin_grids, h0, h1, h2, h3, h4 = checkpoint(lambda a, b, c, d, e, f: self.grunet(a, b, c, d, e, f), input_grunet, *hidden_grunet)
@@ -364,7 +371,7 @@ class UnidirectionalSequence(nn.Module):
             if self.lesion_pos:
                 lesion_pos, h_time1, h_time3, h_time5 = self.lesion_pos(
                     torch.cat((input_img, nonlin_grids.permute(0, 4, 1, 2, 3)), dim=1),
-                    clinical,
+                    clinical_step,
                     h_time1,
                     h_time3,
                     h_time5
@@ -406,7 +413,7 @@ class BidirectionalSequence(nn.Module):
                                            batchsize=batch_size, out_size=out_size, depth2d=depth2d)
         self.rnn2 = UnidirectionalSequence(n_ch_grunet, n_ch_affine_img2vec, n_ch_affine_vec2vec, dim_img2vec_time,
                                            dim_vec2vec_time, n_ch_clinical, n_ch_feature_single, kernel_size, seq_len,
-                                           batchsize=batch_size, out_size=out_size, depth2d=depth2d)
+                                           batchsize=batch_size, out_size=out_size, depth2d=depth2d, reverse=True)
 
         ################################################
         # Part 3: Combine predictions of both directions

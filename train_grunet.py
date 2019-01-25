@@ -70,15 +70,15 @@ convgru_kernel = 3
 if input2d:
     convgru_kernel = (1, 3, 3)
 batchsize = 2
-sequence_length = 10
-num_clinical_input = 2
-n_ch_feature_single = 1  #4  #8
-n_ch_affine_img2vec = [10, 2, 2, 2, 2]  #[10, 12, 14, 16, 18]  #[18, 20, 22, 26, 30]  # first layer dim: 2 * n_ch_feature_single + 2 core/penu segmentation + 6 previous grid result; list of length = 5
-n_ch_affine_vec2vec = [4, 4, 24]  #[20, 22, 24]  #[32, 28, 24]  # first layer dim: last layer dim of img2vec + 2 clinical scalars; list of arbitrary length > 1
-n_ch_additional_grid_input = 14  #8  # 1 core + 1 penumbra + 3 affine core + 3 affine penumbra + 6 previous grid result
-n_ch_time_img2vec = None  #[24, 25, 26, 28, 30]
-n_ch_time_vec2vec = None  #[32, 16, 1]
-n_ch_grunet = [16, 8, 4, 8, 16]  #[16, 18, 20, 18, 16]  #[24, 28, 32, 28, 24]
+sequence_length = 11
+num_clinical_input = 2 + 1  # +1 for recurrent step information
+n_ch_feature_single = 5
+n_ch_affine_img2vec = [18, 20, 22, 24, 26]  # first layer dim: 2 * n_ch_feature_single + 2 core/penu segmentation + 6 previous grid result; list of length = 5
+n_ch_affine_vec2vec = [29, 26, 24]          # first layer dim: last layer dim of img2vec + 2 clinical scalars; list of arbitrary length > 1
+n_ch_additional_grid_input = 14             # 1 core + 1 penumbra + 3 affine core + 3 affine penumbra + 6 previous grid result
+n_ch_time_img2vec = None                    #[24, 25, 26, 28, 30]
+n_ch_time_vec2vec = None                    #[32, 16, 1]
+n_ch_grunet = [24, 28, 32, 28, 24]
 zslice = zsize // 2
 pad = (20, 20, 20)
 n_visual_samples = min(4, batchsize)
@@ -141,7 +141,7 @@ bi_net = BidirectionalSequence(n_ch_feature_single, n_ch_affine_img2vec, n_ch_af
 
 params = [p for p in bi_net.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
-      '/ total: GRUnet', sum([p.nelement() for p in bi_net.parameters()]))
+      '/ total: Bi-RNN-Sequence', sum([p.nelement() for p in bi_net.parameters()]))
 
 criterion = Criterion([0.1, 0.8, 0.1])
 optimizer = torch.optim.Adam(params, lr=0.001)
