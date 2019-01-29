@@ -314,7 +314,7 @@ class UnidirectionalSequence(nn.Module):
         #
         # Affine
         self.affine = None
-        if dim_img2vec_time and dim_vec2vec_time:
+        if dim_img2vec_affine and dim_vec2vec_affine:
             assert dim_img2vec_affine[0] == 2 * dim_feat_rnn + 8  # + 2 core/penumbra + 6 previous result
             assert dim_img2vec_affine[-1] + dim_clinical == dim_vec2vec_affine[0]
             self.affine = AffineModule(dim_img2vec_affine, dim_vec2vec_affine, dim_clinical, kernel_size, seq_len,
@@ -326,14 +326,15 @@ class UnidirectionalSequence(nn.Module):
         if n_ch_grunet:
             self.grunet = GRUnet(hidden_sizes=n_ch_grunet, kernel_sizes=[kernel_size] * 5, down_scaling=2)
 
+        assert self.grunet or self.affine
+
         #
         # Time position
+        self.lesion_pos = None
         if dim_img2vec_time and dim_vec2vec_time:
             assert dim_img2vec_time[-1] + dim_clinical == dim_vec2vec_time[0]
             self.lesion_pos = LesionPositionModule(dim_img2vec_time, dim_vec2vec_time, dim_clinical, kernel_size,
                                                    seq_len, depth2d=depth2d)
-
-        assert self.grunet or self.affine
 
     def forward(self, core, penu, core_rep, penu_rep, clinical, factor):
         offset = []
