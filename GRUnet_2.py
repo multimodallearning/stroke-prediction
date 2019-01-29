@@ -296,13 +296,15 @@ class UnidirectionalSequence(nn.Module):
         return _init
 
     def __init__(self, n_ch_grunet, dim_img2vec_affine, dim_vec2vec_affine, dim_img2vec_time, dim_vec2vec_time,
-                 dim_clinical, dim_feat_rnn, kernel_size, seq_len, batchsize=4, out_size=6, depth2d=False, reverse=False):
+                 dim_clinical, dim_feat_rnn, kernel_size, seq_len, batchsize=4, out_size=6, depth2d=False,
+                 reverse=False, add_factor=False):
         super().__init__()
 
         self.len = seq_len
         self.batchsize = batchsize
         self.out_size = out_size
         self.reverse = reverse
+        self.add_factor = add_factor
 
         #
         # Separate (hidden) features for core / penumbra
@@ -311,14 +313,18 @@ class UnidirectionalSequence(nn.Module):
 
         #
         # Affine
-        assert dim_img2vec_affine[0] == 2 * dim_feat_rnn + 8  # + 2 core/penumbra + 6 previous result
-        assert dim_img2vec_affine[-1] + dim_clinical == dim_vec2vec_affine[0]
-        self.affine = AffineModule(dim_img2vec_affine, dim_vec2vec_affine, dim_clinical, kernel_size, seq_len,
-                                   depth2d=depth2d)
+        self.affine = None
+        if dim_img2vec_time and dim_vec2vec_time:
+            assert dim_img2vec_affine[0] == 2 * dim_feat_rnn + 8  # + 2 core/penumbra + 6 previous result
+            assert dim_img2vec_affine[-1] + dim_clinical == dim_vec2vec_affine[0]
+            self.affine = AffineModule(dim_img2vec_affine, dim_vec2vec_affine, dim_clinical, kernel_size, seq_len,
+                                       depth2d=depth2d)
 
         #
         # Non-lin.
-        self.grunet = GRUnet(hidden_sizes=n_ch_grunet, kernel_sizes=[kernel_size] * 5, down_scaling=2)
+        self.grunet = None
+        if n_ch_grunet:
+            self.grunet = GRUnet(hidden_sizes=n_ch_grunet, kernel_sizes=[kernel_size] * 5, down_scaling=2)
 
         #
         # Time position
@@ -326,10 +332,10 @@ class UnidirectionalSequence(nn.Module):
             assert dim_img2vec_time[-1] + dim_clinical == dim_vec2vec_time[0]
             self.lesion_pos = LesionPositionModule(dim_img2vec_time, dim_vec2vec_time, dim_clinical, kernel_size,
                                                    seq_len, depth2d=depth2d)
-        else:
-            self.lesion_pos = None
 
-    def forward(self, core, penu, core_rep, penu_rep, clinical):
+        assert self.grunet or self.affine
+
+    def forward(self, core, penu, core_rep, penu_rep, clinical, factor):
         offset = []
         pr_time = []
 
@@ -354,19 +360,28 @@ class UnidirectionalSequence(nn.Module):
             step = i * torch.ones((self.batchsize, 1, 1, 1, 1)).cuda()
             if self.reverse:
                 step = self.len - 1 - step
-            clinical_step = torch.cat((clinical, step), dim=1)
-            print(self.len, self.reverse, float(step[0]), int(step[1]))
+
+            if self.add_factor:
+                clinical_step = torch.cat((clinical, factor[:, i]), dim=1)
+            else:
+                clinical_step = clinical
 
             hidden_core, core_rep = checkpoint(lambda a, b: self.core_rep(a, b), core_rep, hidden_core)  #self.core_rep(core_rep, hidden_core)
             hidden_penu, penu_rep = checkpoint(lambda a, b: self.penu_rep(a, b), penu_rep, hidden_penu)  #self.penu_rep(penu_rep, hidden_core)
             input_img = torch.cat((core_rep, penu_rep, core, penu, nonlin_grids.permute(0, 4, 1, 2, 3)), dim=1)
 
-            affine_grids, h_affine1, h_affine3, h_affine5 = checkpoint(lambda a, b, c, d, e, f: self.affine(a, b, c, d, e, f), input_img, clinical_step, core, h_affine1, h_affine3, h_affine5)
+            if self.affine:
+                affine_grids, h_affine1, h_affine3, h_affine5 = checkpoint(lambda a, b, c, d, e, f: self.affine(a, b, c, d, e, f), input_img, clinical_step, core, h_affine1, h_affine3, h_affine5)
+                input_grunet = torch.cat((input_img, affine_grids.permute(0,4,1,2,3)), dim=1)
+            else:
+                input_grunet = input_img
 
-            input_grunet = torch.cat((input_img, affine_grids.permute(0,4,1,2,3)), dim=1)
-            nonlin_grids, h0, h1, h2, h3, h4 = checkpoint(lambda a, b, c, d, e, f: self.grunet(a, b, c, d, e, f), input_grunet, *hidden_grunet)
-            hidden_grunet = [h0, h1, h2, h3, h4]
-            offset.append(nonlin_grids)
+            if self.grunet:
+                nonlin_grids, h0, h1, h2, h3, h4 = checkpoint(lambda a, b, c, d, e, f: self.grunet(a, b, c, d, e, f), input_grunet, *hidden_grunet)
+                hidden_grunet = [h0, h1, h2, h3, h4]
+                offset.append(nonlin_grids)
+            else:
+                offset.append(affine_grids)
 
             if self.lesion_pos:
                 lesion_pos, h_time1, h_time3, h_time5 = self.lesion_pos(
@@ -394,10 +409,12 @@ class BidirectionalSequence(nn.Module):
 
     def __init__(self, n_ch_feature_single, n_ch_affine_img2vec, n_ch_affine_vec2vec, dim_img2vec_time,
                  dim_vec2vec_time, n_ch_grunet, n_ch_clinical, kernel_size, seq_len, batch_size=4, out_size=6,
-                 depth2d=False):
+                 depth2d=False, add_factor=False, soften_kernel=(13, 13, 3)):
         super().__init__()
         self.len = seq_len
         assert seq_len > 0
+
+        self.add_factor = add_factor
 
         self.grid_identity = grid_identity(batch_size, out_size=(batch_size, out_size, 28, 128, 128))
 
@@ -410,14 +427,21 @@ class BidirectionalSequence(nn.Module):
         # Part 2: Bidirectional Recurrence
         self.rnn1 = UnidirectionalSequence(n_ch_grunet, n_ch_affine_img2vec, n_ch_affine_vec2vec, dim_img2vec_time,
                                            dim_vec2vec_time, n_ch_clinical, n_ch_feature_single, kernel_size, seq_len,
-                                           batchsize=batch_size, out_size=out_size, depth2d=depth2d)
+                                           batchsize=batch_size, out_size=out_size, depth2d=depth2d,
+                                           add_factor=add_factor)
         self.rnn2 = UnidirectionalSequence(n_ch_grunet, n_ch_affine_img2vec, n_ch_affine_vec2vec, dim_img2vec_time,
                                            dim_vec2vec_time, n_ch_clinical, n_ch_feature_single, kernel_size, seq_len,
-                                           batchsize=batch_size, out_size=out_size, depth2d=depth2d, reverse=True)
+                                           batchsize=batch_size, out_size=out_size, depth2d=depth2d, reverse=True,
+                                           add_factor=add_factor)
 
         ################################################
         # Part 3: Combine predictions of both directions
-        self.soften = nn.AvgPool3d((9, 9, 1), (1, 1, 1), padding=(4, 4, 0))
+        if len(soften_kernel) < 1:
+            soften_kernel = [soften_kernel] * 3
+        if depth2d:
+            soften_kernel[2] = 1
+
+        self.soften = nn.AvgPool3d(soften_kernel, (1, 1, 1), padding=[i//2 for i in soften_kernel])
 
     def forward(self, core, penu, clinical, factor):
         factor = factor.unsqueeze(2).unsqueeze(3).unsqueeze(4).unsqueeze(5)  # one additional dim for later when squeeze
@@ -429,8 +453,8 @@ class BidirectionalSequence(nn.Module):
 
         ##################################
         # Part 2: Bidirectional Recurrence
-        offset1, lesion_pos1 = self.rnn1(core, penu, core_rep, penu_rep, clinical)
-        offset2, lesion_pos2 = self.rnn2(core, penu, core_rep, penu_rep, clinical)
+        offset1, lesion_pos1 = self.rnn1(core, penu, core_rep, penu_rep, clinical, factor)
+        offset2, lesion_pos2 = self.rnn2(core, penu, core_rep, penu_rep, clinical, factor)
 
         ################################################
         # Part 3: Combine predictions of both directions

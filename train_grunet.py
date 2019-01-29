@@ -36,14 +36,14 @@ class Criterion(nn.Module):
         return torch.sqrt(torch.pow(G_x, 2) + torch.pow(G_y, 2) + torch.pow(G_z, 2))
 
     def forward(self, pr_core, gt_core,  pr_lesion, gt_lesion, pr_penu, gt_penu, output, out_c, out_p):
-        loss = 0.05 * self.dc(pr_core, gt_core)
-        loss += 0.4 * self.dc(pr_lesion, gt_lesion)
-        loss += 0.05 * self.dc(pr_penu, gt_penu)
+        loss = 0.1 * self.dc(pr_core, gt_core)
+        loss += 0.44 * self.dc(pr_lesion, gt_lesion)
+        loss += 0.1 * self.dc(pr_penu, gt_penu)
         loss += 0.25 * self.dc(out_c, out_p)
 
         for i in range(output.size()[1]-1):
             diff = output[:, i+1] - output[:, i]
-            loss += 0.025 * torch.mean(torch.abs(diff) - diff)  # monotone
+            loss += 0.01 * torch.mean(torch.abs(diff) - diff)  # monotone
 
         return loss
 
@@ -71,16 +71,20 @@ if input2d:
     convgru_kernel = (1, 3, 3)
 batchsize = 2
 sequence_length = 11
-num_clinical_input = 2 + 1  # +1 for recurrent step information
+num_clinical_input = 2
 n_ch_feature_single = 5
-n_ch_affine_img2vec = [18, 20, 22, 24, 26]  # first layer dim: 2 * n_ch_feature_single + 2 core/penu segmentation + 6 previous grid result; list of length = 5
-n_ch_affine_vec2vec = [29, 26, 24]          # first layer dim: last layer dim of img2vec + 2 clinical scalars; list of arbitrary length > 1
+n_ch_affine_img2vec = [18, 19, 20, 21, 22]  # first layer dim: 2 * n_ch_feature_single + 2 core/penu segmentation + 6 previous grid result; list of length = 5
+n_ch_affine_vec2vec = [24, 20, 20, 24]      # first layer dim: last layer dim of img2vec + 2 clinical scalars + (1 factor); list of arbitrary length > 1
+add_factor = False
+if add_factor:
+    num_clinical_input += 1
 n_ch_additional_grid_input = 14             # 1 core + 1 penumbra + 3 affine core + 3 affine penumbra + 6 previous grid result
 n_ch_time_img2vec = None                    #[24, 25, 26, 28, 30]
 n_ch_time_vec2vec = None                    #[32, 16, 1]
 n_ch_grunet = [24, 28, 32, 28, 24]
 zslice = zsize // 2
 pad = (20, 20, 20)
+softening_kernel = (23, 23, 5)  # for isotropic real world space; must be odd numbers!
 n_visual_samples = min(4, batchsize)
 
 '''
@@ -137,7 +141,8 @@ assert n_ch_grunet[0] == 2 * n_ch_feature_single + n_ch_additional_grid_input
 assert not n_ch_time_img2vec or n_ch_time_img2vec[0] == 2 * n_ch_feature_single + n_ch_additional_grid_input
 bi_net = BidirectionalSequence(n_ch_feature_single, n_ch_affine_img2vec, n_ch_affine_vec2vec, n_ch_time_img2vec,
                                n_ch_time_vec2vec, n_ch_grunet, num_clinical_input, kernel_size=convgru_kernel,
-                               seq_len=sequence_length, batch_size=batchsize, depth2d=input2d).to(device)
+                               seq_len=sequence_length, batch_size=batchsize, depth2d=input2d, add_factor=add_factor,
+                               soften_kernel=softening_kernel).to(device)
 
 params = [p for p in bi_net.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
@@ -166,22 +171,18 @@ for epoch in range(0, 200):
             gt = batch[data.KEY_LABELS].to(device)
 
             factor = torch.tensor([[0] * sequence_length] * batchsize, dtype=torch.float).cuda()
-            marker_target = torch.tensor(factor)
             for b in range(batchsize):
                 t_core = int(batch[data.KEY_GLOBAL][b, 0, :, :, :])
-                t_lesion = t_core + int(batch[data.KEY_GLOBAL][b, 1, :, :, :])
                 length = sequence_length - t_core
-                t_half = t_core + length // 2
                 factor[b, :t_core] = 1
-                factor[b, t_core:t_half] = torch.tensor([1 - i / length for i in range(length//2)], dtype=torch.float).cuda()
-                factor[b, t_half:] = torch.tensor([(length//2) / length - i / length for i in range(length - length//2)], dtype=torch.float).cuda()
-                marker_target[b, t_lesion] = 1
+                factor[b, t_core:-1] = torch.tensor([1 - i / (length - 1) for i in range(length - 1)], dtype=torch.float).cuda()
+                factor[b, -1] = 0
 
             out_c, out_p, lesion_pos = bi_net(gt[:, 0, :, :, :].unsqueeze(1),  # gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
                                               gt[:, -1, :, :, :].unsqueeze(1),
                                               batch[data.KEY_GLOBAL].to(device),
                                               factor)
-            #output = factor.unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_c + (1-factor).unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_p
+            #pr = factor.unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_c + (1-factor).unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_p
             pr = 0.5 * out_c + 0.5 * out_p
 
             pr_core = []
@@ -271,22 +272,18 @@ for epoch in range(0, 200):
             gt = batch[data.KEY_LABELS].to(device)
 
             factor = torch.tensor([[0] * sequence_length] * batchsize, dtype=torch.float).cuda()
-            marker_target = torch.tensor(factor)
             for b in range(batchsize):
                 t_core = int(batch[data.KEY_GLOBAL][b, 0, :, :, :])
-                t_lesion = t_core + int(batch[data.KEY_GLOBAL][b, 1, :, :, :])
                 length = sequence_length - t_core
-                t_half = t_core + length // 2
                 factor[b, :t_core] = 1
-                factor[b, t_core:t_half] = torch.tensor([1 - i / length for i in range(length//2)], dtype=torch.float).cuda()
-                factor[b, t_half:] = torch.tensor([(length//2) / length - i / length for i in range(length - length//2)], dtype=torch.float).cuda()
-                marker_target[b, t_lesion] = 1
+                factor[b, t_core:-1] = torch.tensor([1 - i / (length-1) for i in range(length-1)], dtype=torch.float).cuda()
+                factor[b, -1] = 0
 
             out_c, out_p, lesion_pos = bi_net(gt[:, 0, :, :, :].unsqueeze(1),  # gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
                                               gt[:, -1, :, :, :].unsqueeze(1),
                                               batch[data.KEY_GLOBAL].to(device),
                                               factor)
-            #output = factor.unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_c + (1-factor).unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_p
+            #pr = factor.unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_c + (1-factor).unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_p
             pr = 0.5 * out_c + 0.5 * out_p
 
             pr_core = []
