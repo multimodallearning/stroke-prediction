@@ -340,6 +340,9 @@ class UnidirectionalSequence(nn.Module):
         offset = []
         pr_time = []
 
+        if self.reverse:
+            factor = 1 - factor
+
         nonlin_grids = grid_identity(self.batchsize, 2, (self.batchsize, self.out_size, 28, 128, 128))
 
         hidden_core = torch.zeros(self.batchsize, self.core_rep.hidden_size, 28, 128, 128).cuda()
@@ -358,10 +361,6 @@ class UnidirectionalSequence(nn.Module):
             h_time5 = torch.zeros((self.batchsize, 1)).cuda()
 
         for i in range(self.len):
-            step = i * torch.ones((self.batchsize, 1, 1, 1, 1)).cuda()
-            if self.reverse:
-                step = self.len - 1 - step
-
             if self.add_factor:
                 clinical_step = torch.cat((clinical, factor[:, i]), dim=1)
             else:
@@ -473,15 +472,8 @@ class BidirectionalSequence(nn.Module):
 
         output_by_core = []
         output_by_penu = []
-        #output_factors = []
 
         for i in range(self.len):
-            '''
-            fc = factor[:, i]
-            zero = torch.zeros(fc.size(), requires_grad=False).cuda()
-            ones = torch.ones(fc.size(), requires_grad=False).cuda()
-            output_factors.append(torch.where(fc < 0.5, zero, ones))
-            '''
 
             offsets[i] = self.soften(offsets[i])
             pred_by_core = nn.functional.grid_sample(core, self.grid_identity + offsets[i][:, :, :, :, :3])
@@ -489,4 +481,4 @@ class BidirectionalSequence(nn.Module):
             output_by_core.append(pred_by_core)
             output_by_penu.append(pred_by_penu)
 
-        return torch.cat(output_by_core, dim=1), torch.cat(output_by_penu, dim=1), lesion_pos  #torch.cat(output_factors, dim=1)
+        return torch.cat(output_by_core, dim=1), torch.cat(output_by_penu, dim=1), lesion_pos

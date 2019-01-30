@@ -7,12 +7,15 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.ndimage as ndi
+import argparse
 
 
 class Criterion(nn.Module):
     def __init__(self, weights):
         super(Criterion, self).__init__()
         self.dc = metrics.BatchDiceLoss([1.0])  # weighted inversely by each volume proportion
+        assert len(weights) == 5
+        self.weights = [i/100 for i in weights]
 
     def compute_2nd_order_derivative(self, x):
         a = torch.Tensor([[[1, 0, -1], [2, 0, -2], [1, 0, -1]],
@@ -36,14 +39,14 @@ class Criterion(nn.Module):
         return torch.sqrt(torch.pow(G_x, 2) + torch.pow(G_y, 2) + torch.pow(G_z, 2))
 
     def forward(self, pr_core, gt_core,  pr_lesion, gt_lesion, pr_penu, gt_penu, output, out_c, out_p):
-        loss = 0.1 * self.dc(pr_core, gt_core)
-        loss += 0.44 * self.dc(pr_lesion, gt_lesion)
-        loss += 0.1 * self.dc(pr_penu, gt_penu)
-        loss += 0.25 * self.dc(out_c, out_p)
+        loss = self.weights[0] * self.dc(pr_core, gt_core)
+        loss += self.weights[2] * self.dc(pr_penu, gt_penu)
+        loss += self.weights[1] * self.dc(pr_lesion, gt_lesion)
+        loss += self.weights[3] * self.dc(out_c, out_p)
 
         for i in range(output.size()[1]-1):
             diff = output[:, i+1] - output[:, i]
-            loss += 0.01 * torch.mean(torch.abs(diff) - diff)  # monotone
+            loss += self.weights[4] * torch.mean(torch.abs(diff) - diff)  # monotone
 
         return loss
 
@@ -63,28 +66,46 @@ def get_title(prefix, row, idx, batch, seq_len, lesion_pos=None):
     return '{}{}'.format(str(idx), suffix)
 
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--path', help='Output path pattern', default='/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/grunet_exp_{}.{}')
+parser.add_argument('--length', type=int, help='Sequence prediction length of recurrent network', default=11)
+parser.add_argument('--batchsize', type=int, help='Batch size', default=2)
+parser.add_argument('--clinical', type=int, help='Take the first <CLINICAL> channels of clinical input vector', default=2)
+parser.add_argument('--commonfeature', type=int, help='Number of channels for common input features', default=5)
+parser.add_argument('--additional', type=int, help='Number of additional grid input channels to GRUnet', default=14)
+parser.add_argument('--img2vec1', type=int, nargs='+', help='Number of channels Image-to-vector AFFINE MODULE', default=[18, 19, 20, 21, 22])
+parser.add_argument('--vec2vec1', type=int, nargs='+', help='Number of channels Vector-to-vector AFFINE MODULE', default=[24, 20, 20, 24])
+parser.add_argument('--grunet', type=int, nargs='+', help='Number of channels GRUnet MODULE', default=[24, 28, 32, 28, 24])
+parser.add_argument('--img2vec2', type=int, nargs='+', help='Number of channels Image-to-vector LESION TIME MODULE', default=None)
+parser.add_argument('--vec2vec2', type=int, nargs='+', help='Number of channels Vector-to-vector LESION TIME MODULE', default=None)
+parser.add_argument('--addfactor', action='store_true', help='Add interpolation factor core<->penumbra to clinical vector', default=False)
+parser.add_argument('--softener', type=int, nargs='+', help='Average Pooling kernel, must be odd numbers!', default=[23, 23, 5])
+parser.add_argument('--loss', type=int, nargs='+', help='Loss weights (%)', default=[10, 44, 10, 25, 1])
+args = parser.parse_args()
+
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 zsize = 28  # change here for 2D/3D: 1 or 28
 input2d = (zsize == 1)
 convgru_kernel = 3
 if input2d:
     convgru_kernel = (1, 3, 3)
-batchsize = 2
-sequence_length = 11
-num_clinical_input = 2
-n_ch_feature_single = 5
-n_ch_affine_img2vec = [18, 19, 20, 21, 22]  # first layer dim: 2 * n_ch_feature_single + 2 core/penu segmentation + 6 previous grid result; list of length = 5
-n_ch_affine_vec2vec = [24, 20, 20, 24]      # first layer dim: last layer dim of img2vec + 2 clinical scalars + (1 factor); list of arbitrary length > 1
-add_factor = False
+batchsize = args.batchsize
+sequence_length = args.length
+num_clinical_input = args.clinical
+n_ch_feature_single = args.commonfeature
+n_ch_affine_img2vec = args.img2vec1  # first layer dim: 2 * n_ch_feature_single + 2 core/penu segmentation + 6 previous grid result; list of length = 5
+n_ch_affine_vec2vec = args.vec2vec1  # first layer dim: last layer dim of img2vec + 2 clinical scalars + (1 factor); list of arbitrary length > 1
+add_factor = args.addfactor
 if add_factor:
     num_clinical_input += 1
-n_ch_additional_grid_input = 14             # 1 core + 1 penumbra + 3 affine core + 3 affine penumbra + 6 previous grid result
-n_ch_time_img2vec = None                    #[24, 25, 26, 28, 30]
-n_ch_time_vec2vec = None                    #[32, 16, 1]
-n_ch_grunet = [24, 28, 32, 28, 24]
+n_ch_additional_grid_input = args.additional  # 1 core + 1 penumbra + 3 affine core + 3 affine penumbra + 6 previous grid result
+n_ch_time_img2vec = args.img2vec2  #[24, 25, 26, 28, 30]
+n_ch_time_vec2vec = args.img2vec2  #[32, 16, 1]
+n_ch_grunet = args.grunet
 zslice = zsize // 2
 pad = (20, 20, 20)
-softening_kernel = (23, 23, 5)  # for isotropic real world space; must be odd numbers!
+softening_kernel = args.softener  # for isotropic real world space; must be odd numbers!
 n_visual_samples = min(4, batchsize)
 
 '''
@@ -148,7 +169,7 @@ params = [p for p in bi_net.parameters() if p.requires_grad]
 print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
       '/ total: Bi-RNN-Sequence', sum([p.nelement() for p in bi_net.parameters()]))
 
-criterion = Criterion([0.1, 0.8, 0.1])
+criterion = Criterion(args.loss)
 optimizer = torch.optim.Adam(params, lr=0.001)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=75, gamma=0.1)
 
@@ -178,7 +199,15 @@ for epoch in range(0, 200):
                 factor[b, t_core:-1] = torch.tensor([1 - i / (length - 1) for i in range(length - 1)], dtype=torch.float).cuda()
                 factor[b, -1] = 0
 
-            out_c, out_p, lesion_pos = bi_net(gt[:, 0, :, :, :].unsqueeze(1),  # gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
+            output_factors = []
+            for i in range(sequence_length):
+                fc = factor[:, i]
+                zero = torch.zeros(fc.size(), requires_grad=False).cuda()
+                ones = torch.ones(fc.size(), requires_grad=False).cuda()
+                output_factors.append(torch.where(fc < 0.5, zero, ones).unsqueeze(1))
+            torch.cat(output_factors, dim=1)
+
+            out_c, out_p, lesion_pos = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
                                               gt[:, -1, :, :, :].unsqueeze(1),
                                               batch[data.KEY_GLOBAL].to(device),
                                               factor)
@@ -279,7 +308,15 @@ for epoch in range(0, 200):
                 factor[b, t_core:-1] = torch.tensor([1 - i / (length-1) for i in range(length-1)], dtype=torch.float).cuda()
                 factor[b, -1] = 0
 
-            out_c, out_p, lesion_pos = bi_net(gt[:, 0, :, :, :].unsqueeze(1),  # gt[:, int(batch[data.KEY_GLOBAL][b, 0, :, :, :]), :, :, :].unsqueeze(1),
+            output_factors = []
+            for i in range(sequence_length):
+                fc = factor[:, i]
+                zero = torch.zeros(fc.size(), requires_grad=False).cuda()
+                ones = torch.ones(fc.size(), requires_grad=False).cuda()
+                output_factors.append(torch.where(fc < 0.5, zero, ones).unsqueeze(1))
+            torch.cat(output_factors, dim=1)
+
+            out_c, out_p, lesion_pos = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
                                               gt[:, -1, :, :, :].unsqueeze(1),
                                               batch[data.KEY_GLOBAL].to(device),
                                               factor)
@@ -355,14 +392,14 @@ for epoch in range(0, 200):
     print('Epoch', epoch, 'last batch training loss:', loss_train[-1], '\tvalidation batch loss:', loss_valid[-1])
 
     if epoch % 5 == 0:
-        torch.save(bi_net, '/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/_GRUnet2.model')
+        torch.save(bi_net, args.path.format('latest','model'))
 
     for ax in axarr.flatten():
         ax.title.set_fontsize(3)
         ax.xaxis.set_visible(False)
         ax.yaxis.set_visible(False)
     f.subplots_adjust(hspace=0.05)
-    f.savefig('/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/_GRUnet2_' + str(epoch) + '.png', bbox_inches='tight', dpi=300)
+    f.savefig(args.path.format(str(epoch),'png'), bbox_inches='tight', dpi=300)
 
     del f
     del axarr
@@ -373,6 +410,6 @@ for epoch in range(0, 200):
         plot.plot(epochs, loss_train, 'r-')
         plot.plot(epochs, loss_valid, 'b-')
         plot.set_ylabel('Loss Training (r) & Validation (b)')
-        fig.savefig('/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/_GRUnet2_plots.png', bbox_inches='tight', dpi=300)
+        fig.savefig(args.path.format('plots','png'), bbox_inches='tight', dpi=300)
         del plot
         del fig
