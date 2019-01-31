@@ -326,7 +326,7 @@ class UnidirectionalSequence(nn.Module):
         if n_ch_grunet:
             self.grunet = GRUnet(hidden_sizes=n_ch_grunet, kernel_sizes=[kernel_size] * 5, down_scaling=2)
 
-        assert self.grunet or self.affine
+        assert self.grunet or self.affine, 'Either affine or non-lin. deformation parameter numbers must be given'
 
         #
         # Time position
@@ -347,14 +347,17 @@ class UnidirectionalSequence(nn.Module):
 
         hidden_core = torch.zeros(self.batchsize, self.core_rep.hidden_size, 28, 128, 128).cuda()
         hidden_penu = torch.zeros(self.batchsize, self.penu_rep.hidden_size, 28, 128, 128).cuda()
-        hidden_grunet = [torch.zeros([self.batchsize, self.grunet.blocks[0].hidden_size, 28, 64, 64]).cuda(),
-                         torch.zeros([self.batchsize, self.grunet.blocks[1].hidden_size, 14, 32, 32]).cuda(),
-                         torch.zeros([self.batchsize, self.grunet.blocks[2].hidden_size, 7, 16, 16]).cuda(),
-                         torch.zeros([self.batchsize, self.grunet.blocks[3].hidden_size, 14, 32, 32]).cuda(),
-                         torch.zeros([self.batchsize, self.grunet.blocks[4].hidden_size, 28, 64, 64]).cuda()]
-        h_affine1 = torch.zeros(self.batchsize, self.affine.affine1.hidden_size, 28, 128, 128).cuda()
-        h_affine3 = torch.zeros((self.batchsize, self.affine.affine3.hidden_size)).cuda()
-        h_affine5 = torch.zeros((self.batchsize, 24)).cuda()
+
+        if self.grunet:
+            hidden_grunet = [torch.zeros([self.batchsize, self.grunet.blocks[0].hidden_size, 28, 64, 64]).cuda(),
+                             torch.zeros([self.batchsize, self.grunet.blocks[1].hidden_size, 14, 32, 32]).cuda(),
+                             torch.zeros([self.batchsize, self.grunet.blocks[2].hidden_size, 7, 16, 16]).cuda(),
+                             torch.zeros([self.batchsize, self.grunet.blocks[3].hidden_size, 14, 32, 32]).cuda(),
+                             torch.zeros([self.batchsize, self.grunet.blocks[4].hidden_size, 28, 64, 64]).cuda()]
+        if self.affine:
+            h_affine1 = torch.zeros(self.batchsize, self.affine.affine1.hidden_size, 28, 128, 128).cuda()
+            h_affine3 = torch.zeros((self.batchsize, self.affine.affine3.hidden_size)).cuda()
+            h_affine5 = torch.zeros((self.batchsize, 24)).cuda()
         if self.lesion_pos:
             h_time1 = None
             h_time3 = torch.zeros((self.batchsize, self.lesion_pos.affine3.hidden_size)).cuda()

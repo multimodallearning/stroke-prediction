@@ -68,8 +68,13 @@ def get_title(prefix, row, idx, batch, seq_len, lesion_pos=None):
 
 
 def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
-         arg_vec2vec1, arg_grunet, arg_img2vec2, arg_img2vec2, arg_addfactor, arg_softener, arg_loss,
-         arg_epochs, arg_trainids, arg_validids):
+         arg_vec2vec1, arg_grunet, arg_img2vec2, arg_vec2vec2, arg_addfactor, arg_softener, arg_loss,
+         arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine):
+
+    print(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
+          arg_vec2vec1, arg_grunet, arg_img2vec2, arg_vec2vec2, arg_addfactor, arg_softener, arg_loss,
+          arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine)
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     zsize = 28  # change here for 2D/3D: 1 or 28
     input2d = (zsize == 1)
@@ -87,7 +92,7 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
         num_clinical_input += 1
     n_ch_additional_grid_input = arg_additional  # 1 core + 1 penumbra + 3 affine core + 3 affine penumbra + 6 previous grid result
     n_ch_time_img2vec = arg_img2vec2  #[24, 25, 26, 28, 30]
-    n_ch_time_vec2vec = arg_img2vec2  #[32, 16, 1]
+    n_ch_time_vec2vec = arg_vec2vec2  #[32, 16, 1]
     n_ch_grunet = arg_grunet
     zslice = zsize // 2
     pad = (20, 20, 20)
@@ -140,11 +145,17 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                    data.HemisphericFlipFixedToCaseId(14),
                    data.ClinicalTimeOnly(),
                    data.ToTensor()]
+    '''
     ds_train, ds_valid = data.get_stroke_shape_training_data(modalities, labels, train_trafo, valid_trafo,
                                                              list(range(32)), ratio=0.3, seed=4, batchsize=batchsize,
                                                              split=True)
+    '''
+    ds_train, ds_valid = data.get_stroke_prediction_training_data(modalities, labels, train_trafo, valid_trafo,
+                                                                  arg_fold, arg_validsize, batchsize=arg_batchsize,
+                                                                  seed=arg_seed, split=True)
 
-    assert n_ch_grunet[0] == 2 * n_ch_feature_single + n_ch_additional_grid_input
+
+    assert not n_ch_grunet or n_ch_grunet[0] == 2 * n_ch_feature_single + n_ch_additional_grid_input
     assert not n_ch_time_img2vec or n_ch_time_img2vec[0] == 2 * n_ch_feature_single + n_ch_additional_grid_input
     bi_net = BidirectionalSequence(n_ch_feature_single, n_ch_affine_img2vec, n_ch_affine_vec2vec, n_ch_time_img2vec,
                                    n_ch_time_vec2vec, n_ch_grunet, num_clinical_input, kernel_size=convgru_kernel,
@@ -162,7 +173,7 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
     loss_train = []
     loss_valid = []
 
-    for epoch in range(0, 200):
+    for epoch in range(0, arg_epochs):
         scheduler.step()
         f, axarr = plt.subplots(n_visual_samples * 2, sequence_length + 3)
         loss_mean = 0
@@ -191,21 +202,23 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                     zero = torch.zeros(fc.size(), requires_grad=False).cuda()
                     ones = torch.ones(fc.size(), requires_grad=False).cuda()
                     output_factors.append(torch.where(fc < 0.5, zero, ones).unsqueeze(1))
-                torch.cat(output_factors, dim=1)
+                output_factors = torch.cat(output_factors, dim=1).unsqueeze(2).unsqueeze(3).unsqueeze(4)
 
                 out_c, out_p, lesion_pos = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
                                                   gt[:, -1, :, :, :].unsqueeze(1),
                                                   batch[data.KEY_GLOBAL].to(device),
                                                   factor)
-                #pr = factor.unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_c + (1-factor).unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_p
-                pr = 0.5 * out_c + 0.5 * out_p
+
+                if arg_combine == 'split':
+                    pr = output_factors * out_c + (1-output_factors) * out_p
+                elif arg_combine == 'linear':
+                    pr = factor.unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_c + (1 - factor).unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_p
+                else:
+                    pr = 0.5 * out_c + 0.5 * out_p
 
                 pr_core = []
                 pr_lesion = []
                 pr_penu = []
-                gt_core = []
-                gt_lesion = []
-                gt_penu = []
                 pr_out_c = []
                 pr_out_p = []
 
@@ -217,7 +230,6 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                     alpha = (index_lesion - floor)
                     for b in range(batchsize):
                         pr_lesion.append(alpha[b] * torch.index_select(pr[b], 0, floor[b].long()) + (1-alpha[b]) * torch.index_select(pr[b], 0, ceil[b].long()))
-                        gt_lesion.append(alpha[b] * torch.index_select(gt[b], 0, floor[b].long()) + (1-alpha[b]) * torch.index_select(gt[b], 0, ceil[b].long()))
                         pr_out_c.append(alpha[b] * torch.index_select(out_c[b], 0, floor[b].long()) + (1-alpha[b]) * torch.index_select(out_c[b], 0, ceil[b].long()))
                         pr_out_p.append(alpha[b] * torch.index_select(out_p[b], 0, floor[b].long()) + (1-alpha[b]) * torch.index_select(out_p[b], 0, ceil[b].long()))
                 else:
@@ -300,21 +312,23 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                     zero = torch.zeros(fc.size(), requires_grad=False).cuda()
                     ones = torch.ones(fc.size(), requires_grad=False).cuda()
                     output_factors.append(torch.where(fc < 0.5, zero, ones).unsqueeze(1))
-                torch.cat(output_factors, dim=1)
+                output_factors = torch.cat(output_factors, dim=1).unsqueeze(2).unsqueeze(3).unsqueeze(4)
 
                 out_c, out_p, lesion_pos = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
                                                   gt[:, -1, :, :, :].unsqueeze(1),
                                                   batch[data.KEY_GLOBAL].to(device),
                                                   factor)
-                #pr = factor.unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_c + (1-factor).unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_p
-                pr = 0.5 * out_c + 0.5 * out_p
+
+                if arg_combine == 'split':
+                    pr = output_factors * out_c + (1-output_factors) * out_p
+                elif arg_combine == 'linear':
+                    pr = factor.unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_c + (1 - factor).unsqueeze(2).unsqueeze(3).unsqueeze(4) * out_p
+                else:
+                    pr = 0.5 * out_c + 0.5 * out_p
 
                 pr_core = []
                 pr_lesion = []
                 pr_penu = []
-                gt_core = []
-                gt_lesion = []
-                gt_penu = []
                 pr_out_c = []
                 pr_out_p = []
 
@@ -326,7 +340,6 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                     alpha = (index_lesion - floor)
                     for b in range(batchsize):
                         pr_lesion.append(alpha[b] * torch.index_select(pr[b], 0, floor[b].long()) + (1-alpha[b]) * torch.index_select(pr[b], 0, ceil[b].long()))
-                        gt_lesion.append(alpha[b] * torch.index_select(gt[b], 0, floor[b].long()) + (1-alpha[b]) * torch.index_select(gt[b], 0, ceil[b].long()))
                         pr_out_c.append(alpha[b] * torch.index_select(out_c[b], 0, floor[b].long()) + (1-alpha[b]) * torch.index_select(out_c[b], 0, ceil[b].long()))
                         pr_out_p.append(alpha[b] * torch.index_select(out_p[b], 0, floor[b].long()) + (1-alpha[b]) * torch.index_select(out_p[b], 0, ceil[b].long()))
                 else:
@@ -410,20 +423,22 @@ if __name__ == '__main__':
     parser.add_argument('--clinical', type=int, help='Take the first <CLINICAL> channels of clinical input vector', default=2)
     parser.add_argument('--commonfeature', type=int, help='Number of channels for common input features', default=5)
     parser.add_argument('--additional', type=int, help='Number of additional grid input channels to GRUnet', default=14)
-    parser.add_argument('--img2vec1', type=int, nargs='+', help='Number of channels Image-to-vector AFFINE MODULE', default=[18, 19, 20, 21, 22])
-    parser.add_argument('--vec2vec1', type=int, nargs='+', help='Number of channels Vector-to-vector AFFINE MODULE', default=[24, 20, 20, 24])
-    parser.add_argument('--grunet', type=int, nargs='+', help='Number of channels GRUnet MODULE', default=[24, 28, 32, 28, 24])
-    parser.add_argument('--img2vec2', type=int, nargs='+', help='Number of channels Image-to-vector LESION TIME MODULE', default=None)
-    parser.add_argument('--vec2vec2', type=int, nargs='+', help='Number of channels Vector-to-vector LESION TIME MODULE', default=None)
+    parser.add_argument('--img2vec1', type=int, nargs='*', help='Number of channels Image-to-vector AFFINE MODULE', default=[18, 19, 20, 21, 22])
+    parser.add_argument('--vec2vec1', type=int, nargs='*', help='Number of channels Vector-to-vector AFFINE MODULE', default=[24, 20, 20, 24])
+    parser.add_argument('--grunet', type=int, nargs='*', help='Number of channels GRUnet MODULE', default=[24, 28, 32, 28, 24])
+    parser.add_argument('--img2vec2', type=int, nargs='*', help='Number of channels Image-to-vector LESION TIME MODULE', default=None)
+    parser.add_argument('--vec2vec2', type=int, nargs='*', help='Number of channels Vector-to-vector LESION TIME MODULE', default=None)
     parser.add_argument('--addfactor', action='store_true', help='Add interpolation factor core<->penumbra to clinical vector', default=False)
     parser.add_argument('--softener', type=int, nargs='+', help='Average Pooling kernel, must be odd numbers!', default=[23, 23, 5])
     parser.add_argument('--loss', type=int, nargs='+', help='Loss weights (%)', default=[10, 44, 10, 25, 1])
     parser.add_argument('--epochs', type=int, help='Number of epochs', default=200)
-    parser.add_argument('--trainids', type=int, nargs='+', help='Ids of training cases', default=[])
-    parser.add_argument('--validids', type=int, nargs='+', help='Ids of validation cases', default=[])
+    parser.add_argument('--fold', type=int, nargs='+', help='Ids of this training fold', default=[])
+    parser.add_argument('--validsize', type=float, help='Valiation set fraction', default=0.275)
+    parser.add_argument('--seed', type=int, help='Randomization seed', default=4)
+    parser.add_argument('--combine', default='add', const='add', nargs='?', choices=['add', 'linear', 'split'], help='How to combine prediction from core and penumbra? Uniformly add both, linearly interpolate continously between both, or hard split in the middle.')
     args = parser.parse_args()
-    assert len(args.trainids)>args.batchsize and len(args.validids)>args.batchsize
+    assert len(args.fold) >= args.batchsize
     main(args.path, args.length, args.batchsize, args.clinical, args.commonfeature, args.additional, args.img2vec1,
-         args.vec2vec1, args.grunet, args.img2vec2, args.img2vec2, args.addfactor, args.softener, args.loss,
-         args.epochs, args.trainids, args.validids)
+         args.vec2vec1, args.grunet, args.img2vec2, args.vec2vec2, args.addfactor, args.softener, args.loss,
+         args.epochs, args.fold, args.validsize, args.seed, args.combine)
     print(datetime.datetime.now())
