@@ -4,7 +4,6 @@ import datetime
 from train_grunet import main
 
 
-FILENAME = '/epoch{}.{}'
 BATCHSIZE = 2
 CLINICAL = 2  # only clinical time values
 EPOCHS = 200
@@ -105,10 +104,40 @@ elif args.id == 6:
     grunet = grunets[3]
     softener = softeners[1]
     commonfeature = commonfeatures[1]
+elif args.id == 7:
+    print(args.id, '/ RUN DEFAULTS --> affine, combine linear')
+    additional = additionals[1]
+    img2vec1 = img2vec1s[1]
+    vec2vec1 = vec2vec1s[1]
+    grunet = grunets[1]
+    combine = combines[1]
+elif args.id == 8:
+    print(args.id, '/ RUN DEFAULTS --> affine, combine split')
+    additional = additionals[1]
+    img2vec1 = img2vec1s[1]
+    vec2vec1 = vec2vec1s[1]
+    grunet = grunets[1]
+    combine = combines[2]
+elif args.id == 9:
+    print(args.id, '/ RUN DEFAULTS --> nonlin, combine linear')
+    additional = additionals[2]
+    img2vec1 = img2vec1s[2]
+    vec2vec1 = vec2vec1s[2]
+    grunet = grunets[2]
+    combine = combines[1]
+elif args.id == 10:
+    print(args.id, '/ RUN DEFAULTS --> nonlin, combine split')
+    additional = additionals[2]
+    img2vec1 = img2vec1s[2]
+    vec2vec1 = vec2vec1s[2]
+    grunet = grunets[2]
+    combine = combines[2]
 else:
     raise Exception('No valid experiment id given')
 
-os.mkdir(path)
+if not os.path.isdir(path):
+    os.mkdir(path)
+FILENAME = '/f' + str(args.fold + 1) + '_epoch_{}.{}'
 
 print(datetime.datetime.now())
 main(path+FILENAME, length, BATCHSIZE, CLINICAL, commonfeature, additional, img2vec1, vec2vec1, grunet, img2vec2, vec2vec2,
