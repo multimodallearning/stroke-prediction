@@ -21,26 +21,32 @@ additionals = [14,  # both
                -1,  # affine
                8,   # nonlin
                14,  # less parameters
-               16]   # both, with clinical time
+               16,  # both, with clinical time
+               10]  # nonlin, with clinical time
 img2vec1s = [[18, 19, 20, 21, 22],  # both
              [18, 19, 20, 21, 22],  # affine
              None,                  # nonlin
-             [16, 17, 18, 19, 20]]  # less parameters
+             [16, 17, 18, 19, 20],  # less parameters
+             [18, 19, 20, 21, 22],  # both, with clinical time
+             None]                  # nonlin, with clinical time
 vec2vec1s = [[24, 20, 20, 24],  # both
              [24, 20, 20, 24],  # affine
              None,              # nonlin
-             [22, 24]]          # less parameters
+             [22, 24],          # less parameters
+             [24, 20, 20, 24],  # both, with clinical time
+             None]              # nonlin, with clinical time
 grunets = [[24, 28, 32, 28, 24],  # both
            None,                  # affine
            [18, 28, 32, 28, 24],  # nonlin
            [22, 24, 26, 20, 16],  # less parameters
-           [26, 28, 32, 28, 24]]  # both, with clinical time
+           [26, 28, 32, 28, 24],  # both, with clinical time
+           [20, 28, 32, 28, 24]]  # nonlin, with clinical time
 img2vec2s = [None]
 vec2vec2s = [None]
 addfactors = [False, True]
 upsampledclinicals = [False, True]
-softeners = [[5, 23, 23],  # soften offsets NOT images; third channel of size 3 for x,y,z offset
-             [7, 31, 31]]  # soften offsets NOT images; third channel of size 3 for x,y,z offset
+softeners = [[5, 23, 23],  # soften offsets NOT images
+             [7, 31, 31]]  # soften offsets NOT images
 losses = [[10, 44, 10, 25, 1],    # with monotone for seq_len=11
           [15, 45, 15, 25, 0],    # w/o  monotone for seq_len=11
           [22, 23, 22, 22, 1]]    # equally weighted for seq_len=11
@@ -140,9 +146,16 @@ elif args.id == 11:
     print(args.id, '/ RUN DEFAULTS --> with upsampled clinical for GRUnet')
     upsampledclinical = upsampledclinicals[1]
     additional = additionals[4]
-    img2vec1 = img2vec1s[0]
-    vec2vec1 = vec2vec1s[0]
+    img2vec1 = img2vec1s[4]
+    vec2vec1 = vec2vec1s[4]
     grunet = grunets[4]
+elif args.id == 13:
+    print(args.id, '/ RUN DEFAULTS --> nonlin, with upsampled clinical for GRUnet')
+    upsampledclinical = upsampledclinicals[1]
+    additional = additionals[5]
+    img2vec1 = img2vec1s[5]
+    vec2vec1 = vec2vec1s[5]
+    grunet = grunets[5]
 else:
     raise Exception('No valid experiment id given')
 
