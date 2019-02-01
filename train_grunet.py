@@ -69,11 +69,14 @@ def get_title(prefix, row, idx, batch, seq_len, lesion_pos=None):
 
 def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
          arg_vec2vec1, arg_grunet, arg_img2vec2, arg_vec2vec2, arg_addfactor, arg_softener, arg_loss,
-         arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine):
+         arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet):
 
+    print('arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,\
+           arg_vec2vec1, arg_grunet, arg_img2vec2, arg_vec2vec2, arg_addfactor, arg_softener, arg_loss,\
+           arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet')
     print(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
           arg_vec2vec1, arg_grunet, arg_img2vec2, arg_vec2vec2, arg_addfactor, arg_softener, arg_loss,
-          arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine)
+          arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     zsize = 28  # change here for 2D/3D: 1 or 28
@@ -160,7 +163,7 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
     bi_net = BidirectionalSequence(n_ch_feature_single, n_ch_affine_img2vec, n_ch_affine_vec2vec, n_ch_time_img2vec,
                                    n_ch_time_vec2vec, n_ch_grunet, num_clinical_input, kernel_size=convgru_kernel,
                                    seq_len=sequence_length, batch_size=batchsize, depth2d=input2d, add_factor=add_factor,
-                                   soften_kernel=softening_kernel).to(device)
+                                   soften_kernel=softening_kernel, clinical_grunet=arg_clinical_grunet).to(device)
 
     params = [p for p in bi_net.parameters() if p.requires_grad]
     print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
@@ -429,7 +432,8 @@ if __name__ == '__main__':
     parser.add_argument('--img2vec2', type=int, nargs='*', help='Number of channels Image-to-vector LESION TIME MODULE', default=None)
     parser.add_argument('--vec2vec2', type=int, nargs='*', help='Number of channels Vector-to-vector LESION TIME MODULE', default=None)
     parser.add_argument('--addfactor', action='store_true', help='Add interpolation factor core<->penumbra to clinical vector', default=False)
-    parser.add_argument('--softener', type=int, nargs='+', help='Average Pooling kernel, must be odd numbers!', default=[23, 23, 5])
+    parser.add_argument('--nonlinclinical', action='store_true', help='Use upsampled clinical also for non-linear GRUnet', default=False)
+    parser.add_argument('--softener', type=int, nargs='+', help='Average Pooling kernel, must be odd numbers!', default=[5, 23, 23,])
     parser.add_argument('--loss', type=int, nargs='+', help='Loss weights (%)', default=[10, 44, 10, 25, 1])
     parser.add_argument('--epochs', type=int, help='Number of epochs', default=200)
     parser.add_argument('--fold', type=int, nargs='+', help='Ids of this training fold', default=[])
@@ -440,5 +444,5 @@ if __name__ == '__main__':
     assert len(args.fold) >= args.batchsize
     main(args.path, args.length, args.batchsize, args.clinical, args.commonfeature, args.additional, args.img2vec1,
          args.vec2vec1, args.grunet, args.img2vec2, args.vec2vec2, args.addfactor, args.softener, args.loss,
-         args.epochs, args.fold, args.validsize, args.seed, args.combine)
+         args.epochs, args.fold, args.validsize, args.seed, args.combine, args.nonlinclinical)
     print(datetime.datetime.now())

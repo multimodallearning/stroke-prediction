@@ -20,7 +20,8 @@ commonfeatures = [5,
 additionals = [14,  # both
                -1,  # affine
                8,   # nonlin
-               14]  # less parameters
+               14,  # less parameters
+               16]   # both, with clinical time
 img2vec1s = [[18, 19, 20, 21, 22],  # both
              [18, 19, 20, 21, 22],  # affine
              None,                  # nonlin
@@ -32,12 +33,14 @@ vec2vec1s = [[24, 20, 20, 24],  # both
 grunets = [[24, 28, 32, 28, 24],  # both
            None,                  # affine
            [18, 28, 32, 28, 24],  # nonlin
-           [22, 24, 26, 20, 16]]  # less parameters
+           [22, 24, 26, 20, 16],  # less parameters
+           [26, 28, 32, 28, 24]]  # both, with clinical time
 img2vec2s = [None]
 vec2vec2s = [None]
 addfactors = [False, True]
-softeners = [[23, 23, 1],  # soften offsets NOT images; third channel of size 3 for x,y,z offset
-             [31, 31, 1]]  # soften offsets NOT images; third channel of size 3 for x,y,z offset
+upsampledclinicals = [False, True]
+softeners = [[5, 23, 23],  # soften offsets NOT images; third channel of size 3 for x,y,z offset
+             [7, 31, 31]]  # soften offsets NOT images; third channel of size 3 for x,y,z offset
 losses = [[10, 44, 10, 25, 1],    # with monotone for seq_len=11
           [15, 45, 15, 25, 0],    # w/o  monotone for seq_len=11
           [22, 23, 22, 22, 1]]    # equally weighted for seq_len=11
@@ -71,6 +74,7 @@ addfactor = addfactors[DEFAULT_IDX]
 softener = softeners[DEFAULT_IDX]
 combine = combines[DEFAULT_IDX]
 loss = losses[DEFAULT_IDX]
+upsampledclinical = upsampledclinicals[DEFAULT_IDX]
 
 
 if args.id == 0:
@@ -132,6 +136,13 @@ elif args.id == 10:
     vec2vec1 = vec2vec1s[2]
     grunet = grunets[2]
     combine = combines[2]
+elif args.id == 11:
+    print(args.id, '/ RUN DEFAULTS --> with upsampled clinical for GRUnet')
+    upsampledclinical = upsampledclinicals[1]
+    additional = additionals[4]
+    img2vec1 = img2vec1s[0]
+    vec2vec1 = vec2vec1s[0]
+    grunet = grunets[4]
 else:
     raise Exception('No valid experiment id given')
 
@@ -141,5 +152,5 @@ FILENAME = '/f' + str(args.fold + 1) + '_epoch_{}.{}'
 
 print(datetime.datetime.now())
 main(path+FILENAME, length, BATCHSIZE, CLINICAL, commonfeature, additional, img2vec1, vec2vec1, grunet, img2vec2, vec2vec2,
-     addfactor, softener, loss, EPOCHS, fold, VALIDSIZE, SEED, combine)
+     addfactor, softener, loss, EPOCHS, fold, VALIDSIZE, SEED, combine, upsampledclinical)
 print(datetime.datetime.now())
