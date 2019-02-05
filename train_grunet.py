@@ -181,22 +181,9 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
     loss_train = []
     loss_valid = []
 
-    visual_grid = torch.ones(batchsize, 1, 28, 128, 128, requires_grad=False).cuda()
-    visual_grid[:, :, :, :, 14::32] = 0
-    visual_grid[:, :, :, :, 15::32] = 0
-    visual_grid[:, :, :, :, 16::32] = 0
-    visual_grid[:, :, :, :, 17::32] = 0
-    visual_grid[:, :, :, :, 18::32] = 0
-    visual_grid[:, :, :, 14::32, :] = 0
-    visual_grid[:, :, :, 15::32, :] = 0
-    visual_grid[:, :, :, 16::32, :] = 0
-    visual_grid[:, :, :, 17::32, :] = 0
-    visual_grid[:, :, :, 18::32, :] = 0
-    visual_grid[:, :, 2::4, :, :] = 0
-
     for epoch in range(0, arg_epochs):
         scheduler.step()
-        f, axarr = plt.subplots(n_visual_samples * 2, sequence_length + 3 + 2)
+        f, axarr = plt.subplots(n_visual_samples * 6, sequence_length + 3)
         loss_mean = 0
         inc = 0
 
@@ -225,7 +212,7 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                     output_factors.append(torch.where(fc < 0.5, zero, ones).unsqueeze(1))
                 output_factors = torch.cat(output_factors, dim=1).unsqueeze(2).unsqueeze(3).unsqueeze(4)
 
-                out_c, out_p, lesion_pos = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
+                out_c, out_p, lesion_pos, grid_c, grid_p = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
                                                   gt[:, -1, :, :, :].unsqueeze(1),
                                                   batch[data.KEY_GLOBAL].to(device),
                                                   factor)
@@ -298,20 +285,42 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                 titles = []
                 core = gt.cpu().detach().numpy()[row, 0]
                 com = np.round(ndi.center_of_mass(core)).astype(np.int)
-                axarr[row, 0].imshow(core[com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                axarr[3*row, 0].imshow(core[com[0], :, :], vmin=0, vmax=1, cmap='gray')
                 titles.append('CORE')
-                axarr[row, 1].imshow(gt.cpu().detach().numpy()[row, 1, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                axarr[3*row, 1].imshow(gt.cpu().detach().numpy()[row, 1, com[0], :, :], vmin=0, vmax=1, cmap='gray')
                 titles.append('FUCT')
-                axarr[row, 2].imshow(gt.cpu().detach().numpy()[row, 2, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                axarr[3*row, 2].imshow(gt.cpu().detach().numpy()[row, 2, com[0], :, :], vmin=0, vmax=1, cmap='gray')
                 titles.append('PENU')
                 for i in range(sequence_length):
-                    axarr[row, i + 3].imshow(pr.cpu().detach().numpy()[row, i, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                    axarr[3*row, i + 3].imshow(pr.cpu().detach().numpy()[row, i, com[0], :, :], vmin=0, vmax=1, cmap='gray')
                     titles.append(get_title('Pr', row, i, batch, sequence_thresholds, idx_middle))
-                axarr[row, -2].imshow(out_c[row, int(idx_middle[row])].cpu().detach().numpy()[com[0], :, :], vmin=0, vmax=1, cmap='gray')
-                titles.append('GRID_c')
-                axarr[row, -1].imshow(out_p[row, int(idx_middle[row])].cpu().detach().numpy()[com[0], :, :], vmin=0, vmax=1, cmap='gray')
-                titles.append('GRID_p')
-                for ax, title in zip(axarr[row], titles):
+                for ax, title in zip(axarr[3*row], titles):
+                    ax.set_title(title)
+                titles = []
+
+                axarr[3*row+1, 0].imshow(bi_net.visual_grid.cpu().detach().numpy()[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append('')
+                axarr[3*row+1, 1].imshow(bi_net.visual_grid.cpu().detach().numpy()[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append('')
+                axarr[3*row+1, 2].imshow(bi_net.visual_grid.cpu().detach().numpy()[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append('')
+                for i in range(sequence_length):
+                    axarr[3*row+1, i + 3].imshow(grid_c.cpu().detach().numpy()[row, i, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                    titles.append(get_title('Grid_C', row, i, batch, sequence_thresholds, idx_middle))
+                for ax, title in zip(axarr[3*row+1], titles):
+                    ax.set_title(title)
+                titles = []
+
+                axarr[3*row+2, 0].imshow(bi_net.visual_grid.cpu().detach().numpy()[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append('')
+                axarr[3*row+2, 1].imshow(bi_net.visual_grid.cpu().detach().numpy()[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append('')
+                axarr[3*row+2, 2].imshow(bi_net.visual_grid.cpu().detach().numpy()[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append('')
+                for i in range(sequence_length):
+                    axarr[3*row+2, i + 3].imshow(grid_p.cpu().detach().numpy()[row, i, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                    titles.append(get_title('Grid_P', row, i, batch, sequence_thresholds, idx_middle))
+                for ax, title in zip(axarr[3*row+2], titles):
                     ax.set_title(title)
             del batch
 
@@ -347,7 +356,7 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                     output_factors.append(torch.where(fc < 0.5, zero, ones).unsqueeze(1))
                 output_factors = torch.cat(output_factors, dim=1).unsqueeze(2).unsqueeze(3).unsqueeze(4)
 
-                out_c, out_p, lesion_pos = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
+                out_c, out_p, lesion_pos, grid_c, grid_p = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
                                                   gt[:, -1, :, :, :].unsqueeze(1),
                                                   batch[data.KEY_GLOBAL].to(device),
                                                   factor)
@@ -416,20 +425,43 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                 titles = []
                 core = gt.cpu().detach().numpy()[row, 0]
                 com = np.round(ndi.center_of_mass(core)).astype(np.int)
-                axarr[row + n_visual_samples, 0].imshow(core[com[0], :, :], vmin=0, vmax=1, cmap='gray')
+
+                axarr[3*row+ n_visual_samples*3, 0].imshow(core[com[0], :, :], vmin=0, vmax=1, cmap='gray')
                 titles.append('CORE')
-                axarr[row + n_visual_samples, 1].imshow(gt.cpu().detach().numpy()[row, 1, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                axarr[3*row+ n_visual_samples*3, 1].imshow(gt.cpu().detach().numpy()[row, 1, com[0], :, :], vmin=0, vmax=1, cmap='gray')
                 titles.append('FUCT')
-                axarr[row + n_visual_samples, 2].imshow(gt.cpu().detach().numpy()[row, 2, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                axarr[3*row+ n_visual_samples*3, 2].imshow(gt.cpu().detach().numpy()[row, 2, com[0], :, :], vmin=0, vmax=1, cmap='gray')
                 titles.append('PENU')
                 for i in range(sequence_length):
-                    axarr[row + n_visual_samples, i + 3].imshow(pr.cpu().detach().numpy()[row, i, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                    axarr[3*row+ n_visual_samples*3, i + 3].imshow(pr.cpu().detach().numpy()[row, i, com[0], :, :], vmin=0, vmax=1, cmap='gray')
                     titles.append(get_title('Pr', row, i, batch, sequence_thresholds, idx_middle))
-                axarr[row + n_visual_samples, -2].imshow(out_c[row, int(idx_middle[row])].cpu().detach().numpy()[com[0], :, :], vmin=0, vmax=1, cmap='gray')
-                titles.append('GRID_c')
-                axarr[row + n_visual_samples, -1].imshow(out_p[row, int(idx_middle[row])].cpu().detach().numpy()[com[0], :, :], vmin=0, vmax=1, cmap='gray')
-                titles.append('GRID_p')
-                for ax, title in zip(axarr[row + n_visual_samples], titles):
+                for ax, title in zip(axarr[3*row+ n_visual_samples*3], titles):
+                    ax.set_title(title)
+                titles = []
+
+                axarr[3*row+1+ n_visual_samples*3, 0].imshow(bi_net.visual_grid.cpu().detach().numpy()[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append('')
+                axarr[3*row+1+ n_visual_samples*3, 1].imshow(bi_net.visual_grid.cpu().detach().numpy()[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append('')
+                axarr[3*row+1+ n_visual_samples*3, 2].imshow(bi_net.visual_grid.cpu().detach().numpy()[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append('')
+                for i in range(sequence_length):
+                    axarr[3*row+1+ n_visual_samples*3, i + 3].imshow(grid_c.cpu().detach().numpy()[row, i, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                    titles.append(get_title('Grid_C', row, i, batch, sequence_thresholds, idx_middle))
+                for ax, title in zip(axarr[3*row+1+ n_visual_samples*3], titles):
+                    ax.set_title(title)
+                titles = []
+
+                axarr[3*row+2+ n_visual_samples*3, 0].imshow(bi_net.visual_grid.cpu().detach().numpy()[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append('')
+                axarr[3*row+2+ n_visual_samples*3, 1].imshow(bi_net.visual_grid.cpu().detach().numpy()[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append('')
+                axarr[3*row+2+ n_visual_samples*3, 2].imshow(bi_net.visual_grid.cpu().detach().numpy()[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append('')
+                for i in range(sequence_length):
+                    axarr[3*row+2+ n_visual_samples*3, i + 3].imshow(grid_p.cpu().detach().numpy()[row, i, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                    titles.append(get_title('Grid_P', row, i, batch, sequence_thresholds, idx_middle))
+                for ax, title in zip(axarr[3*row+2+ n_visual_samples*3], titles):
                     ax.set_title(title)
             del batch
 

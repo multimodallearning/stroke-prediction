@@ -436,6 +436,21 @@ class BidirectionalSequence(nn.Module):
             nn.ReLU()
         )
 
+    def visualise_grid(self, batchsize):
+        visual_grid = torch.ones(batchsize, 1, 28, 128, 128, requires_grad=False).cuda()
+        visual_grid[:, :, :, :, 10::24] = 0
+        visual_grid[:, :, :, :, 11::24] = 0
+        visual_grid[:, :, :, :, 12::24] = 0
+        visual_grid[:, :, :, :, 13::24] = 0
+        visual_grid[:, :, :, :, 14::24] = 0
+        visual_grid[:, :, :, 10::24, :] = 0
+        visual_grid[:, :, :, 11::24, :] = 0
+        visual_grid[:, :, :, 12::24, :] = 0
+        visual_grid[:, :, :, 13::24, :] = 0
+        visual_grid[:, :, :, 14::24, :] = 0
+        visual_grid[:, :, 2::4, :, :] = 0.5
+        return visual_grid
+
     def __init__(self, n_ch_feature_single, n_ch_affine_img2vec, n_ch_affine_vec2vec, dim_img2vec_time,
                  dim_vec2vec_time, n_ch_grunet, n_ch_clinical, kernel_size, seq_len, batch_size=4, out_size=6,
                  depth2d=False, add_factor=False, soften_kernel=(3, 13, 13), clinical_grunet=False):
@@ -446,6 +461,8 @@ class BidirectionalSequence(nn.Module):
         self.add_factor = add_factor
 
         self.grid_identity = grid_identity(batch_size, out_size=(batch_size, out_size, 28, 128, 128))
+
+        self.visual_grid = self.visualise_grid(batch_size)
 
         ##############################################################
         # Part 1: Commonly used separate core/penumbra representations
@@ -501,6 +518,8 @@ class BidirectionalSequence(nn.Module):
 
         output_by_core = []
         output_by_penu = []
+        grids_by_core = []
+        grids_by_penu = []
 
         for i in range(self.len):
             offsets[i] = self.soften(offsets[i].permute(0, 4, 1, 2, 3)).permute(0, 2, 3, 4, 1)
@@ -508,5 +527,14 @@ class BidirectionalSequence(nn.Module):
             pred_by_penu = nn.functional.grid_sample(penu, self.grid_identity + offsets[i][:, :, :, :, 3:])
             output_by_core.append(pred_by_core)
             output_by_penu.append(pred_by_penu)
+            del pred_by_core
+            del pred_by_penu
+            grid_by_core = nn.functional.grid_sample(self.visual_grid, self.grid_identity + offsets[i][:, :, :, :, :3])
+            grid_by_penu = nn.functional.grid_sample(self.visual_grid, self.grid_identity + offsets[i][:, :, :, :, 3:])
+            grids_by_core.append(grid_by_core)
+            grids_by_penu.append(grid_by_penu)
+            del grid_by_core
+            del grid_by_penu
 
-        return torch.cat(output_by_core, dim=1), torch.cat(output_by_penu, dim=1), lesion_pos
+        return torch.cat(output_by_core, dim=1), torch.cat(output_by_penu, dim=1), lesion_pos,\
+               torch.cat(grids_by_core, dim=1), torch.cat(grids_by_penu, dim=1)
