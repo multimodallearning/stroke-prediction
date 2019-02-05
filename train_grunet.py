@@ -213,9 +213,8 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                 t_core = batch[data.KEY_GLOBAL][:, 0]
                 idx_core = tensor2index(t_core, sequence_thresholds)  #int(batch[data.KEY_GLOBAL][b, 0, :, :, :])
                 for b in range(batchsize):
-                    length = int(sequence_length - idx_core[b])
                     factor[b, :int(idx_core[b])] = 1
-                    factor[b, int(idx_core[b]):-1] = torch.tensor([1 - (sequence_thresholds[i + int(idx_core[b])] - float(t_core[b])) / (sequence_thresholds[-1] - float(t_core[b])) for i in range(length - 1)], dtype=torch.float).cuda()
+                    factor[b, int(idx_core[b]):] = torch.tensor([1 - (sequence_thresholds[i] - float(t_core[b])) / (sequence_thresholds[-1] - float(t_core[b])) for i in range(int(idx_core[b]), sequence_length)], dtype=torch.float).cuda()
                     factor[b, -1] = 0
 
                 output_factors = []
@@ -295,10 +294,6 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
 
             loss_train.append(loss_mean/inc)
 
-            bi_net.train(False)
-            out_c, out_p, _ = bi_net(visual_grid, visual_grid, batch[data.KEY_GLOBAL].to(device), factor)
-            idx_lesion = tensor2index(batch[data.KEY_GLOBAL][:, 0] + batch[data.KEY_GLOBAL][:, 1], sequence_thresholds)
-
             for row in range(n_visual_samples):
                 titles = []
                 core = gt.cpu().detach().numpy()[row, 0]
@@ -311,10 +306,10 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                 titles.append('PENU')
                 for i in range(sequence_length):
                     axarr[row, i + 3].imshow(pr.cpu().detach().numpy()[row, i, com[0], :, :], vmin=0, vmax=1, cmap='gray')
-                    titles.append(get_title('Pr', row, i, batch, sequence_thresholds, idx_lesion))
-                axarr[row, -2].imshow(out_c[row, int(idx_lesion[row])].cpu().detach().numpy()[com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                    titles.append(get_title('Pr', row, i, batch, sequence_thresholds, idx_middle))
+                axarr[row, -2].imshow(out_c[row, int(idx_middle[row])].cpu().detach().numpy()[com[0], :, :], vmin=0, vmax=1, cmap='gray')
                 titles.append('GRID_c')
-                axarr[row, -1].imshow(out_p[row, int(idx_lesion[row])].cpu().detach().numpy()[com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                axarr[row, -1].imshow(out_p[row, int(idx_middle[row])].cpu().detach().numpy()[com[0], :, :], vmin=0, vmax=1, cmap='gray')
                 titles.append('GRID_p')
                 for ax, title in zip(axarr[row], titles):
                     ax.set_title(title)
@@ -340,9 +335,8 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                 t_core = batch[data.KEY_GLOBAL][:, 0]
                 idx_core = tensor2index(t_core, sequence_thresholds)  #int(batch[data.KEY_GLOBAL][b, 0, :, :, :])
                 for b in range(batchsize):
-                    length = int(sequence_length - idx_core[b])
                     factor[b, :int(idx_core[b])] = 1
-                    factor[b, int(idx_core[b]):-1] = torch.tensor([1 - (sequence_thresholds[i + int(idx_core[b])] - float(t_core[b])) / (sequence_thresholds[-1] - float(t_core[b])) for i in range(length - 1)], dtype=torch.float).cuda()
+                    factor[b, int(idx_core[b]):] = torch.tensor([1 - (sequence_thresholds[i] - float(t_core[b])) / (sequence_thresholds[-1] - float(t_core[b])) for i in range(int(idx_core[b]), sequence_length)], dtype=torch.float).cuda()
                     factor[b, -1] = 0
 
                 output_factors = []
@@ -418,10 +412,6 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
 
             loss_valid.append(loss_mean/inc)
 
-            bi_net.train(False)
-            out_c, out_p, _ = bi_net(visual_grid, visual_grid, batch[data.KEY_GLOBAL].to(device), factor)
-            idx_lesion = tensor2index(batch[data.KEY_GLOBAL][:, 0] + batch[data.KEY_GLOBAL][:, 1], sequence_thresholds)
-
             for row in range(n_visual_samples):
                 titles = []
                 core = gt.cpu().detach().numpy()[row, 0]
@@ -434,10 +424,10 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                 titles.append('PENU')
                 for i in range(sequence_length):
                     axarr[row + n_visual_samples, i + 3].imshow(pr.cpu().detach().numpy()[row, i, com[0], :, :], vmin=0, vmax=1, cmap='gray')
-                    titles.append(get_title('Pr', row, i, batch, sequence_thresholds, idx_lesion))
-                axarr[row + n_visual_samples, -2].imshow(out_c[row, int(idx_lesion[row])].cpu().detach().numpy()[com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                    titles.append(get_title('Pr', row, i, batch, sequence_thresholds, idx_middle))
+                axarr[row + n_visual_samples, -2].imshow(out_c[row, int(idx_middle[row])].cpu().detach().numpy()[com[0], :, :], vmin=0, vmax=1, cmap='gray')
                 titles.append('GRID_c')
-                axarr[row + n_visual_samples, -1].imshow(out_p[row, int(idx_lesion[row])].cpu().detach().numpy()[com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                axarr[row + n_visual_samples, -1].imshow(out_p[row, int(idx_middle[row])].cpu().detach().numpy()[com[0], :, :], vmin=0, vmax=1, cmap='gray')
                 titles.append('GRID_p')
                 for ax, title in zip(axarr[row + n_visual_samples], titles):
                     ax.set_title(title)
