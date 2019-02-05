@@ -72,6 +72,25 @@ def def_img2vec(n_dim, depth2d=False):
     )
 
 
+def time2index(time, thresholds):
+    assert thresholds
+    idx = 0
+    while time > thresholds[idx]:
+        idx += 1
+    if idx > len(thresholds) :
+        raise Exception('Invalid time >' + thresholds[-1])
+    return idx
+
+
+def tensor2index(time_tensor, thresholds):
+    assert thresholds
+    indices = -1 * torch.ones(time_tensor.size())
+    batchsize = time_tensor.size(0)
+    for b in range(batchsize):
+        indices[b] = time2index(time_tensor[b], thresholds)
+    return indices
+
+
 class GRUnetBlock(nn.Module):
     def __init__(self, input_size, hidden_size, kernel_size, output_size=None):
         super().__init__()
@@ -184,6 +203,7 @@ class GRUnet(nn.Module):
         # Non-lin deform
 
         for i in range(self.N_BLOCKS // 2):
+            #upd_block_hidden, output = checkpoint(lambda a, b: self.blocks[i](a, b), input_rep, hidden[i])
             upd_block_hidden, output = self.blocks[i](input_rep, hidden[i])
             upd_hidden[i] = upd_block_hidden
             outputs[i] = output
@@ -316,7 +336,7 @@ class UnidirectionalSequence(nn.Module):
         # Affine
         self.affine = None
         if dim_img2vec_affine and dim_vec2vec_affine:
-            assert dim_img2vec_affine[0] == 2 * dim_feat_rnn + 8  # + 2 core/penumbra + 6 previous result
+            assert dim_img2vec_affine[0] == 2 * dim_feat_rnn + 8, '{} != 2 * {} + 8'.format(int(dim_img2vec_affine[0]), int(dim_feat_rnn))  # ... + 8 = ... + 2 core/penumbra + 6 previous result
             assert dim_img2vec_affine[-1] + dim_clinical == dim_vec2vec_affine[0]
             self.affine = AffineModule(dim_img2vec_affine, dim_vec2vec_affine, dim_clinical, kernel_size, seq_len,
                                        depth2d=depth2d)
@@ -344,8 +364,6 @@ class UnidirectionalSequence(nn.Module):
         if self.reverse:
             factor = 1 - factor
 
-        nonlin_grids = grid_identity(self.batchsize, 2, (self.batchsize, self.out_size, 28, 128, 128))
-
         hidden_core = torch.zeros(self.batchsize, self.core_rep.hidden_size, 28, 128, 128).cuda()
         hidden_penu = torch.zeros(self.batchsize, self.penu_rep.hidden_size, 28, 128, 128).cuda()
 
@@ -365,6 +383,11 @@ class UnidirectionalSequence(nn.Module):
             h_time5 = torch.zeros((self.batchsize, 1)).cuda()
 
         for i in range(self.len):
+            if i == 0:
+                previous_grid = grid_identity(self.batchsize, 2, (self.batchsize, self.out_size, 28, 128, 128))
+            else:
+                previous_grid = offset[-1]
+
             if self.add_factor:
                 clinical_step = torch.cat((clinical, factor[:, i]), dim=1)
             else:
@@ -372,7 +395,7 @@ class UnidirectionalSequence(nn.Module):
 
             hidden_core, core_rep = checkpoint(lambda a, b: self.core_rep(a, b), core_rep, hidden_core)  #self.core_rep(core_rep, hidden_core)
             hidden_penu, penu_rep = checkpoint(lambda a, b: self.penu_rep(a, b), penu_rep, hidden_penu)  #self.penu_rep(penu_rep, hidden_core)
-            input_img = torch.cat((core_rep, penu_rep, core, penu, nonlin_grids.permute(0, 4, 1, 2, 3)), dim=1)
+            input_img = torch.cat((core_rep, penu_rep, core, penu, previous_grid.permute(0, 4, 1, 2, 3)), dim=1)
 
             if self.affine:
                 affine_grids, h_affine1, h_affine3, h_affine5 = checkpoint(lambda a, b, c, d, e, f: self.affine(a, b, c, d, e, f), input_img, clinical_step, core, h_affine1, h_affine3, h_affine5)
@@ -391,7 +414,7 @@ class UnidirectionalSequence(nn.Module):
 
             if self.lesion_pos:
                 lesion_pos, h_time1, h_time3, h_time5 = self.lesion_pos(
-                    torch.cat((input_img, nonlin_grids.permute(0, 4, 1, 2, 3)), dim=1),
+                    torch.cat((input_img, offset[-1].permute(0, 4, 1, 2, 3)), dim=1),
                     clinical_step,
                     h_time1,
                     h_time3,

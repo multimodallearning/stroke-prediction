@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from common import data, metrics
-from GRUnet_2 import BidirectionalSequence
+from GRUnet_2 import BidirectionalSequence, tensor2index, time2index
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -15,7 +15,7 @@ class Criterion(nn.Module):
     def __init__(self, weights):
         super(Criterion, self).__init__()
         self.dc = metrics.BatchDiceLoss([1.0])  # weighted inversely by each volume proportion
-        assert len(weights) == 5
+        assert len(weights) == 6
         self.weights = [i/100 for i in weights]
 
     def compute_2nd_order_derivative(self, x):
@@ -39,20 +39,21 @@ class Criterion(nn.Module):
 
         return torch.sqrt(torch.pow(G_x, 2) + torch.pow(G_y, 2) + torch.pow(G_z, 2))
 
-    def forward(self, pr_core, gt_core,  pr_lesion, gt_lesion, pr_penu, gt_penu, output, out_c, out_p):
+    def forward(self, pr_core, gt_core,  pr_lesion, gt_lesion, pr_penu, gt_penu, output, out_c, out_p, mid_c, mid_p):
         loss = self.weights[0] * self.dc(pr_core, gt_core)
         loss += self.weights[2] * self.dc(pr_penu, gt_penu)
         loss += self.weights[1] * self.dc(pr_lesion, gt_lesion)
         loss += self.weights[3] * self.dc(out_c, out_p)
+        loss += self.weights[4] * self.dc(mid_c, mid_p)
 
         for i in range(output.size()[1]-1):
             diff = output[:, i+1] - output[:, i]
-            loss += self.weights[4] * torch.mean(torch.abs(diff) - diff)  # monotone
+            loss += self.weights[5] * torch.mean(torch.abs(diff) - diff)  # monotone
 
         return loss
 
 
-def get_title(prefix, row, idx, batch, seq_len, lesion_pos=None):
+def get_title(prefix, row, idx, batch, seq_thr, lesion_pos=None):
     if lesion_pos is not None:
         lesion_pos = int(lesion_pos[row])
     else:
@@ -62,9 +63,9 @@ def get_title(prefix, row, idx, batch, seq_len, lesion_pos=None):
         suffix += ' [C]'
     if idx == int(batch[data.KEY_GLOBAL][row, 0, :, :, :]) + int(batch[data.KEY_GLOBAL][row, 1, :, :, :]):
         suffix += ' [L]'
-    if idx == seq_len-1:
+    if idx == len(seq_thr)-1:
         suffix += ' [P]'
-    return '{}{}'.format(str(idx), suffix)
+    return '{}{}'.format(str(seq_thr[idx]), suffix)
 
 
 def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
@@ -85,7 +86,11 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
     if input2d:
         convgru_kernel = (1, 3, 3)
     batchsize = arg_batchsize
+    sequence_thresholds = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 7., 8., 9., 10.]
+    assert len(sequence_thresholds) == arg_length
     sequence_length = arg_length
+    #sequence_weight = [i / sum(range(arg_length + 1)) for i in range(1, arg_length + 1)]
+    #sequence_thresh = [sum(sequence_weight[:i]) for i in range(arg_length + 1)]
     num_clinical_input = arg_clinical
     n_ch_feature_single = arg_commonfeature
     n_ch_affine_img2vec = arg_img2vec1  # first layer dim: 2 * n_ch_feature_single + 2 core/penu segmentation + 6 previous grid result; list of length = 5
@@ -176,9 +181,22 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
     loss_train = []
     loss_valid = []
 
+    visual_grid = torch.ones(batchsize, 1, 28, 128, 128, requires_grad=False).cuda()
+    visual_grid[:, :, :, :, 14::32] = 0
+    visual_grid[:, :, :, :, 15::32] = 0
+    visual_grid[:, :, :, :, 16::32] = 0
+    visual_grid[:, :, :, :, 17::32] = 0
+    visual_grid[:, :, :, :, 18::32] = 0
+    visual_grid[:, :, :, 14::32, :] = 0
+    visual_grid[:, :, :, 15::32, :] = 0
+    visual_grid[:, :, :, 16::32, :] = 0
+    visual_grid[:, :, :, 17::32, :] = 0
+    visual_grid[:, :, :, 18::32, :] = 0
+    visual_grid[:, :, 2::4, :, :] = 0
+
     for epoch in range(0, arg_epochs):
         scheduler.step()
-        f, axarr = plt.subplots(n_visual_samples * 2, sequence_length + 3)
+        f, axarr = plt.subplots(n_visual_samples * 2, sequence_length + 3 + 2)
         loss_mean = 0
         inc = 0
 
@@ -192,11 +210,12 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                 gt = batch[data.KEY_LABELS].to(device)
 
                 factor = torch.tensor([[0] * sequence_length] * batchsize, dtype=torch.float).cuda()
+                t_core = batch[data.KEY_GLOBAL][:, 0]
+                idx_core = tensor2index(t_core, sequence_thresholds)  #int(batch[data.KEY_GLOBAL][b, 0, :, :, :])
                 for b in range(batchsize):
-                    t_core = int(batch[data.KEY_GLOBAL][b, 0, :, :, :])
-                    length = sequence_length - t_core
-                    factor[b, :t_core] = 1
-                    factor[b, t_core:-1] = torch.tensor([1 - i / (length - 1) for i in range(length - 1)], dtype=torch.float).cuda()
+                    length = int(sequence_length - idx_core[b])
+                    factor[b, :int(idx_core[b])] = 1
+                    factor[b, int(idx_core[b]):-1] = torch.tensor([1 - (sequence_thresholds[i + int(idx_core[b])] - float(t_core[b])) / (sequence_thresholds[-1] - float(t_core[b])) for i in range(length - 1)], dtype=torch.float).cuda()
                     factor[b, -1] = 0
 
                 output_factors = []
@@ -224,8 +243,11 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                 pr_penu = []
                 pr_out_c = []
                 pr_out_p = []
+                pr_mid_c = []
+                pr_mid_p = []
 
                 if lesion_pos is not None:
+                    raise Exception('Cannot use lesion_pos gradient back prop with non-uniform index sampling!')
                     index_lesion = lesion_pos * torch.tensor([list(range(sequence_length))] * batchsize).float().cuda()
                     index_lesion = torch.sum(index_lesion, dim=1) / torch.sum(lesion_pos, dim=1)
                     floor = torch.floor(index_lesion)
@@ -236,14 +258,17 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                         pr_out_c.append(alpha[b] * torch.index_select(out_c[b], 0, floor[b].long()) + (1-alpha[b]) * torch.index_select(out_c[b], 0, ceil[b].long()))
                         pr_out_p.append(alpha[b] * torch.index_select(out_p[b], 0, floor[b].long()) + (1-alpha[b]) * torch.index_select(out_p[b], 0, ceil[b].long()))
                 else:
-                    index_lesion = (batch[data.KEY_GLOBAL][:, 0] + batch[data.KEY_GLOBAL][:, 1]).long().squeeze().cuda()
+                    idx_lesion = tensor2index(t_core + batch[data.KEY_GLOBAL][:, 1], sequence_thresholds)
+                    idx_middle = tensor2index(t_core + (sequence_thresholds[-1] - t_core) / 2, sequence_thresholds)
                     for b in range(batchsize):
-                        pr_lesion.append(pr[b, index_lesion[b]])
-                        pr_out_c.append(out_c[b, index_lesion[b]])
-                        pr_out_p.append(out_p[b, index_lesion[b]])
+                        pr_lesion.append(pr[b, int(idx_lesion[b])])
+                        pr_out_c.append(out_c[b, int(idx_lesion[b])])
+                        pr_out_p.append(out_p[b, int(idx_lesion[b])])
+                        pr_mid_c.append(out_c[b, int(idx_middle[b])])
+                        pr_mid_p.append(out_p[b, int(idx_middle[b])])
 
                 for b in range(batchsize):
-                    pr_core.append(pr[b, int(batch[data.KEY_GLOBAL][b, 0, :, :, :])])
+                    pr_core.append(pr[b, int(idx_core[b])])  # int(batch[data.KEY_GLOBAL][b, 0, :, :, :])
                     pr_penu.append(pr[b, -1])
 
                 loss = criterion(torch.stack(pr_core, dim=0).unsqueeze(1),
@@ -254,7 +279,9 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                                  gt[:, 2, :, :, :].unsqueeze(1),  # torch.stack(gt_penu, dim=0),
                                  pr,
                                  torch.stack(pr_out_c, dim=0).unsqueeze(1),
-                                 torch.stack(pr_out_p, dim=0).unsqueeze(1))
+                                 torch.stack(pr_out_p, dim=0).unsqueeze(1),
+                                 torch.stack(pr_mid_c, dim=0).unsqueeze(1),
+                                 torch.stack(pr_mid_p, dim=0).unsqueeze(1))
 
                 loss_mean += loss.item()
 
@@ -268,6 +295,10 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
 
             loss_train.append(loss_mean/inc)
 
+            bi_net.train(False)
+            out_c, out_p, _ = bi_net(visual_grid, visual_grid, batch[data.KEY_GLOBAL].to(device), factor)
+            idx_lesion = tensor2index(batch[data.KEY_GLOBAL][:, 0] + batch[data.KEY_GLOBAL][:, 1], sequence_thresholds)
+
             for row in range(n_visual_samples):
                 titles = []
                 core = gt.cpu().detach().numpy()[row, 0]
@@ -280,7 +311,11 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                 titles.append('PENU')
                 for i in range(sequence_length):
                     axarr[row, i + 3].imshow(pr.cpu().detach().numpy()[row, i, com[0], :, :], vmin=0, vmax=1, cmap='gray')
-                    titles.append(get_title('Pr', row, i, batch, sequence_length, index_lesion))
+                    titles.append(get_title('Pr', row, i, batch, sequence_thresholds, idx_lesion))
+                axarr[row, -2].imshow(out_c[row, int(idx_lesion[row])].cpu().detach().numpy()[com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append('GRID_c')
+                axarr[row, -1].imshow(out_p[row, int(idx_lesion[row])].cpu().detach().numpy()[com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append('GRID_p')
                 for ax, title in zip(axarr[row], titles):
                     ax.set_title(title)
             del batch
@@ -302,11 +337,12 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                 gt = batch[data.KEY_LABELS].to(device)
 
                 factor = torch.tensor([[0] * sequence_length] * batchsize, dtype=torch.float).cuda()
+                t_core = batch[data.KEY_GLOBAL][:, 0]
+                idx_core = tensor2index(t_core, sequence_thresholds)  #int(batch[data.KEY_GLOBAL][b, 0, :, :, :])
                 for b in range(batchsize):
-                    t_core = int(batch[data.KEY_GLOBAL][b, 0, :, :, :])
-                    length = sequence_length - t_core
-                    factor[b, :t_core] = 1
-                    factor[b, t_core:-1] = torch.tensor([1 - i / (length-1) for i in range(length-1)], dtype=torch.float).cuda()
+                    length = int(sequence_length - idx_core[b])
+                    factor[b, :int(idx_core[b])] = 1
+                    factor[b, int(idx_core[b]):-1] = torch.tensor([1 - (sequence_thresholds[i + int(idx_core[b])] - float(t_core[b])) / (sequence_thresholds[-1] - float(t_core[b])) for i in range(length - 1)], dtype=torch.float).cuda()
                     factor[b, -1] = 0
 
                 output_factors = []
@@ -334,8 +370,11 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                 pr_penu = []
                 pr_out_c = []
                 pr_out_p = []
+                pr_mid_c = []
+                pr_mid_p = []
 
                 if lesion_pos is not None:
+                    raise Exception('Cannot use lesion_pos gradient back prop with non-uniform index sampling!')
                     index_lesion = lesion_pos * torch.tensor([list(range(sequence_length))] * batchsize).float().cuda()
                     index_lesion = torch.sum(index_lesion, dim=1) / torch.sum(lesion_pos, dim=1)
                     floor = torch.floor(index_lesion)
@@ -346,14 +385,17 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                         pr_out_c.append(alpha[b] * torch.index_select(out_c[b], 0, floor[b].long()) + (1-alpha[b]) * torch.index_select(out_c[b], 0, ceil[b].long()))
                         pr_out_p.append(alpha[b] * torch.index_select(out_p[b], 0, floor[b].long()) + (1-alpha[b]) * torch.index_select(out_p[b], 0, ceil[b].long()))
                 else:
-                    index_lesion = (batch[data.KEY_GLOBAL][:, 0] + batch[data.KEY_GLOBAL][:, 1]).long().squeeze().cuda()
+                    idx_lesion = tensor2index(batch[data.KEY_GLOBAL][:, 0] + batch[data.KEY_GLOBAL][:, 1], sequence_thresholds)
+                    idx_middle = tensor2index(batch[data.KEY_GLOBAL][:, 0] + (sequence_thresholds[-1] - batch[data.KEY_GLOBAL][:, 0]) / 2, sequence_thresholds)
                     for b in range(batchsize):
-                        pr_lesion.append(pr[b, index_lesion[b]])
-                        pr_out_c.append(out_c[b, index_lesion[b]])
-                        pr_out_p.append(out_p[b, index_lesion[b]])
+                        pr_lesion.append(pr[b, int(idx_lesion[b])])
+                        pr_out_c.append(out_c[b, int(idx_lesion[b])])
+                        pr_out_p.append(out_p[b, int(idx_lesion[b])])
+                        pr_mid_c.append(out_c[b, int(idx_middle[b])])
+                        pr_mid_p.append(out_p[b, int(idx_middle[b])])
 
                 for b in range(batchsize):
-                    pr_core.append(pr[b, int(batch[data.KEY_GLOBAL][b, 0, :, :, :])])
+                    pr_core.append(pr[b, int(idx_core[b])])  # int(batch[data.KEY_GLOBAL][b, 0, :, :, :])
                     pr_penu.append(pr[b, -1])
 
                 loss = criterion(torch.stack(pr_core, dim=0).unsqueeze(1),
@@ -364,7 +406,9 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                                  gt[:, 2, :, :, :].unsqueeze(1),  # torch.stack(gt_penu, dim=0),
                                  pr,
                                  torch.stack(pr_out_c, dim=0).unsqueeze(1),
-                                 torch.stack(pr_out_p, dim=0).unsqueeze(1))
+                                 torch.stack(pr_out_p, dim=0).unsqueeze(1),
+                                 torch.stack(pr_mid_c, dim=0).unsqueeze(1),
+                                 torch.stack(pr_mid_p, dim=0).unsqueeze(1))
 
                 loss_mean += loss.item()
 
@@ -373,6 +417,10 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                 torch.cuda.empty_cache()
 
             loss_valid.append(loss_mean/inc)
+
+            bi_net.train(False)
+            out_c, out_p, _ = bi_net(visual_grid, visual_grid, batch[data.KEY_GLOBAL].to(device), factor)
+            idx_lesion = tensor2index(batch[data.KEY_GLOBAL][:, 0] + batch[data.KEY_GLOBAL][:, 1], sequence_thresholds)
 
             for row in range(n_visual_samples):
                 titles = []
@@ -386,7 +434,11 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
                 titles.append('PENU')
                 for i in range(sequence_length):
                     axarr[row + n_visual_samples, i + 3].imshow(pr.cpu().detach().numpy()[row, i, com[0], :, :], vmin=0, vmax=1, cmap='gray')
-                    titles.append(get_title('Pr', row, i, batch, sequence_length, index_lesion))
+                    titles.append(get_title('Pr', row, i, batch, sequence_thresholds, idx_lesion))
+                axarr[row + n_visual_samples, -2].imshow(out_c[row, int(idx_lesion[row])].cpu().detach().numpy()[com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append('GRID_c')
+                axarr[row + n_visual_samples, -1].imshow(out_p[row, int(idx_lesion[row])].cpu().detach().numpy()[com[0], :, :], vmin=0, vmax=1, cmap='gray')
+                titles.append('GRID_p')
                 for ax, title in zip(axarr[row + n_visual_samples], titles):
                     ax.set_title(title)
             del batch
