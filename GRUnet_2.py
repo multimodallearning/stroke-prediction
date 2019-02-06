@@ -327,6 +327,8 @@ class UnidirectionalSequence(nn.Module):
         self.add_factor = add_factor
         self.clinical_grunet = clinical_grunet
 
+        self.grid_identity = grid_identity(batchsize, out_size=(batchsize, out_size, 28, 128, 128))
+
         #
         # Separate (hidden) features for core / penumbra
         self.core_rep = GRUnetBlock(dim_feat_rnn, dim_feat_rnn, kernel_size)
@@ -336,10 +338,9 @@ class UnidirectionalSequence(nn.Module):
         # Affine
         self.affine = None
         if dim_img2vec_affine and dim_vec2vec_affine:
-            assert dim_img2vec_affine[0] == 2 * dim_feat_rnn + 8, '{} != 2 * {} + 8'.format(int(dim_img2vec_affine[0]), int(dim_feat_rnn))  # ... + 8 = ... + 2 core/penumbra + 6 previous result
+            assert dim_img2vec_affine[0] == 2 * dim_feat_rnn + 4, '{} != 2 * {} + 4'.format(int(dim_img2vec_affine[0]), int(dim_feat_rnn))  # ... + 4 = ... + 2 core/penumbra + 2 previous deform
             assert dim_img2vec_affine[-1] + dim_clinical == dim_vec2vec_affine[0]
-            self.affine = AffineModule(dim_img2vec_affine, dim_vec2vec_affine, dim_clinical, kernel_size, seq_len,
-                                       depth2d=depth2d)
+            self.affine = AffineModule(dim_img2vec_affine, dim_vec2vec_affine, dim_clinical, kernel_size, seq_len, depth2d=depth2d)
 
         #
         # Non-lin.
@@ -384,9 +385,13 @@ class UnidirectionalSequence(nn.Module):
 
         for i in range(self.len):
             if i == 0:
-                previous_grid = grid_identity(self.batchsize, 2, (self.batchsize, self.out_size, 28, 128, 128))
+                if self.reverse:
+                    previous_result = torch.cat((penu, penu), dim=1)
+                else:
+                    previous_result = torch.cat((core, core), dim=1)
             else:
-                previous_grid = offset[-1]
+                previous_result = torch.cat((nn.functional.grid_sample(core, self.grid_identity + offset[-1][:, :, :, :, :3]),
+                                             nn.functional.grid_sample(penu, self.grid_identity + offset[-1][:, :, :, :, 3:])), dim=1)
 
             if self.add_factor:
                 clinical_step = torch.cat((clinical, factor[:, i]), dim=1)
@@ -395,7 +400,7 @@ class UnidirectionalSequence(nn.Module):
 
             hidden_core, core_rep = checkpoint(lambda a, b: self.core_rep(a, b), core_rep, hidden_core)  #self.core_rep(core_rep, hidden_core)
             hidden_penu, penu_rep = checkpoint(lambda a, b: self.penu_rep(a, b), penu_rep, hidden_penu)  #self.penu_rep(penu_rep, hidden_core)
-            input_img = torch.cat((core_rep, penu_rep, core, penu, previous_grid.permute(0, 4, 1, 2, 3)), dim=1)
+            input_img = torch.cat((core_rep, penu_rep, core, penu, previous_result), dim=1)
 
             if self.affine:
                 affine_grids, h_affine1, h_affine3, h_affine5 = checkpoint(lambda a, b, c, d, e, f: self.affine(a, b, c, d, e, f), input_img, clinical_step, core, h_affine1, h_affine3, h_affine5)
@@ -438,17 +443,15 @@ class BidirectionalSequence(nn.Module):
 
     def visualise_grid(self, batchsize):
         visual_grid = torch.ones(batchsize, 1, 28, 128, 128, requires_grad=False).cuda()
-        visual_grid[:, :, :, :, 10::24] = 0
-        visual_grid[:, :, :, :, 11::24] = 0
-        visual_grid[:, :, :, :, 12::24] = 0
-        visual_grid[:, :, :, :, 13::24] = 0
-        visual_grid[:, :, :, :, 14::24] = 0
-        visual_grid[:, :, :, 10::24, :] = 0
-        visual_grid[:, :, :, 11::24, :] = 0
-        visual_grid[:, :, :, 12::24, :] = 0
-        visual_grid[:, :, :, 13::24, :] = 0
-        visual_grid[:, :, :, 14::24, :] = 0
+        visual_grid[:, :, 1::4, :, :] = 0.75
         visual_grid[:, :, 2::4, :, :] = 0.5
+        visual_grid[:, :, 3::4, :, :] = 0.75
+        visual_grid[:, :, :, 3::24, :] = 0
+        visual_grid[:, :, :, 4::24, :] = 0
+        visual_grid[:, :, :, 5::24, :] = 0
+        visual_grid[:, :, :, :, 3::24] = 0
+        visual_grid[:, :, :, :, 4::24] = 0
+        visual_grid[:, :, :, :, 5::24] = 0
         return visual_grid
 
     def __init__(self, n_ch_feature_single, n_ch_affine_img2vec, n_ch_affine_vec2vec, dim_img2vec_time,

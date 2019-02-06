@@ -18,24 +18,24 @@ lengths = [11,
 commonfeatures = [5,
                   4,  # less parameters
                   2]  # less parameters #2
-additionals = [14,  # both
+additionals = [10,  # both
                -1,  # affine
-               8,   # nonlin
-               14,  # less parameters
-               16,  # both, with clinical time
-               10,  # nonlin, with clinical time
+               4,   # nonlin
+               10,  # less parameters
+               12,  # both, with clinical time
+               6,  # nonlin, with clinical time
                -1,  # affine, less parameters
-               16,  # less parameters, with clinical time
-               16]  # less parameters #2, with clinical time
-img2vec1s = [[18, 19, 20, 21, 22],  # both
-             [18, 19, 20, 21, 22],  # affine
+               12,  # less parameters, with clinical time
+               12]  # less parameters #2, with clinical time
+img2vec1s = [[14, 19, 20, 21, 22],  # both
+             [14, 19, 20, 21, 22],  # affine
              None,                  # nonlin
-             [16, 17, 18, 19, 20],  # less parameters
-             [18, 19, 20, 21, 22],  # both, with clinical time
+             [12, 17, 18, 19, 20],  # less parameters
+             [14, 19, 20, 21, 22],  # both, with clinical time
              None,                  # nonlin, with clinical time
-             [16, 17, 18, 19, 20],  # affine, less parameters
-             [16, 17, 18, 19, 20],  # less parameters, with clinical time
-             [12, 14, 16, 18, 20]]  # less parameters #2, with clinical time
+             [12, 17, 18, 19, 20],  # affine, less parameters
+             [12, 17, 18, 19, 20],  # less parameters, with clinical time
+             [8, 14, 16, 18, 20]]   # less parameters #2, with clinical time
 vec2vec1s = [[24, 20, 20, 24],  # both
              [24, 20, 20, 24],  # affine
              None,              # nonlin
@@ -45,15 +45,15 @@ vec2vec1s = [[24, 20, 20, 24],  # both
              [22, 24],          # affine, less parameters
              [22, 24],          # less parameters, with clinical time
              [22, 24]]          # less parameters #2, with clinical time
-grunets = [[24, 28, 32, 28, 24],  # both
+grunets = [[20, 28, 32, 28, 24],  # both
            None,                  # affine
-           [18, 28, 32, 28, 24],  # nonlin
-           [22, 24, 26, 20, 16],  # less parameters
-           [26, 28, 32, 28, 24],  # both, with clinical time
-           [20, 28, 32, 28, 24],  # nonlin, with clinical time
+           [14, 28, 32, 28, 24],  # nonlin
+           [18, 24, 26, 20, 16],  # less parameters
+           [22, 28, 32, 28, 24],  # both, with clinical time
+           [16, 28, 32, 28, 24],  # nonlin, with clinical time
            None,                  # affine, less parameters
-           [24, 25, 26, 20, 16],  # less parameters, with clinical time
-           [20, 20, 24, 20, 18]]  # less parameters #2, with clinical time
+           [20, 25, 26, 20, 16],  # less parameters, with clinical time
+           [16, 20, 24, 20, 18]]  # less parameters #2, with clinical time
 img2vec2s = [None]
 vec2vec2s = [None]
 addfactors = [False, True]
@@ -63,7 +63,7 @@ softeners = [[5, 23, 23],  # soften offsets NOT images
 losses = [[10, 44, 10, 25, 0, 1],    # with monotone for seq_len=11
           [15, 45, 15, 25, 0, 0],    # w/o  monotone for seq_len=11
           [22, 23, 22, 22, 0, 1],    # equally weighted for seq_len=11
-          [16, 20, 16, 16, 16, 1]]   # with monotone for seq_len=16, and middle overlap
+          [11, 50, 11, 12, 8, 0.5]]  # with monotone for seq_len=16, and middle overlap
 folds = [[17, 6, 2, 26, 11, 4],
          [1, 21, 16, 27, 24, 18],
          [15, 20, 28, 14, 5, 13],
