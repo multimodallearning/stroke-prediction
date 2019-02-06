@@ -203,7 +203,7 @@ class GRUnet(nn.Module):
         # Non-lin deform
 
         for i in range(self.N_BLOCKS // 2):
-            #upd_block_hidden, output = checkpoint(lambda a, b: self.blocks[i](a, b), input_rep, hidden[i])
+           # upd_block_hidden, output = checkpoint(lambda a, b: self.blocks[i](a, b), input_rep, hidden[i])
             upd_block_hidden, output = self.blocks[i](input_rep, hidden[i])
             upd_hidden[i] = upd_block_hidden
             outputs[i] = output
@@ -523,21 +523,28 @@ class BidirectionalSequence(nn.Module):
         output_by_penu = []
         grids_by_core = []
         grids_by_penu = []
+        grids_core = []
+        grids_penu = []
 
         for i in range(self.len):
             offsets[i] = self.soften(offsets[i].permute(0, 4, 1, 2, 3)).permute(0, 2, 3, 4, 1)
-            pred_by_core = nn.functional.grid_sample(core, self.grid_identity + offsets[i][:, :, :, :, :3])
-            pred_by_penu = nn.functional.grid_sample(penu, self.grid_identity + offsets[i][:, :, :, :, 3:])
+            grids_core.append(self.grid_identity + offsets[i][:, :, :, :, :3])
+            grids_penu.append(self.grid_identity + offsets[i][:, :, :, :, 3:])
+
+            pred_by_core = nn.functional.grid_sample(core, grids_core[-1])
+            pred_by_penu = nn.functional.grid_sample(penu, grids_penu[-1])
             output_by_core.append(pred_by_core)
             output_by_penu.append(pred_by_penu)
             del pred_by_core
             del pred_by_penu
-            grid_by_core = nn.functional.grid_sample(self.visual_grid, self.grid_identity + offsets[i][:, :, :, :, :3])
-            grid_by_penu = nn.functional.grid_sample(self.visual_grid, self.grid_identity + offsets[i][:, :, :, :, 3:])
+
+            grid_by_core = nn.functional.grid_sample(self.visual_grid, grids_core[-1])
+            grid_by_penu = nn.functional.grid_sample(self.visual_grid, grids_penu[-1])
             grids_by_core.append(grid_by_core)
             grids_by_penu.append(grid_by_penu)
             del grid_by_core
             del grid_by_penu
 
         return torch.cat(output_by_core, dim=1), torch.cat(output_by_penu, dim=1), lesion_pos,\
-               torch.cat(grids_by_core, dim=1), torch.cat(grids_by_penu, dim=1)
+               torch.cat(grids_by_core, dim=1), torch.cat(grids_by_penu, dim=1),\
+               torch.stack(grids_core, dim=1), torch.stack(grids_penu, dim=1)

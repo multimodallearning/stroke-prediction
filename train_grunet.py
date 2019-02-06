@@ -15,27 +15,30 @@ class Criterion(nn.Module):
     def __init__(self, weights):
         super(Criterion, self).__init__()
         self.dc = metrics.BatchDiceLoss([1.0])  # weighted inversely by each volume proportion
-        assert len(weights) == 6
+        assert len(weights) == 7
         self.weights = [i/100 for i in weights]
 
     def compute_2nd_order_derivative(self, x):
         a = torch.Tensor([[[1, 0, -1], [2, 0, -2], [1, 0, -1]],
                           [[1, 0, -1], [2, 0, -2], [1, 0, -1]],
                           [[1, 0, -1], [2, 0, -2], [1, 0, -1]]])
-        a = a.view((1, 1, 3, 3, 3))
-        G_x = nn.functional.conv3d(x, a)
+        a = a.view((1, 1, 3, 3, 3)).expand(2, 3*16, -1, -1, -1).cuda()
 
         b = torch.Tensor([[[1, 2, 1], [0, 0, 0], [-1, -2, -1]],
                           [[1, 2, 1], [0, 0, 0], [-1, -2, -1]],
                           [[1, 2, 1], [0, 0, 0], [-1, -2, -1]]])
-        b = b.view((1, 1, 3, 3, 3))
-        G_y = nn.functional.conv3d(x, b)
+        b = b.view((1, 1, 3, 3, 3)).expand(2, 3*16, -1, -1, -1).cuda()
 
-        b = torch.Tensor([[[1, 2, 1], [1, 2, 1], [1, 2, 1]],
+        c = torch.Tensor([[[1, 2, 1], [1, 2, 1], [1, 2, 1]],
                           [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
                           [[-1, -2, -1], [-1, -2, -1], [-1, -2, -1]]])
-        b = b.view((1, 1, 3, 3, 3))
-        G_z = nn.functional.conv3d(x, b)
+        c = c.view((1, 1, 3, 3, 3)).expand(2, 3*16, -1, -1, -1).cuda()
+
+        x = x.permute(0, 1, 5, 2,3,4).contiguous().view(2, 16*3, 28, 128, 128)
+
+        G_x = nn.functional.conv3d(x, a)
+        G_y = nn.functional.conv3d(x, b)
+        G_z = nn.functional.conv3d(x, c)
 
         return torch.sqrt(torch.pow(G_x, 2) + torch.pow(G_y, 2) + torch.pow(G_z, 2))
 
@@ -51,8 +54,10 @@ class Criterion(nn.Module):
             diff = output[:, i+1] - output[:, i]
             loss += self.weights[5] * torch.mean(torch.abs(diff) - diff)  # monotone
 
-        _ = self.compute_2nd_order_derivative(grid_c) + self.compute_2nd_order_derivative(grid_p)
-
+        print(float(loss), end=' --> ')
+        loss += self.weights[6] * (torch.sum(self.compute_2nd_order_derivative(grid_c)) +
+                                   torch.sum(self.compute_2nd_order_derivative(grid_p)))
+        print(float(loss))
         return loss
 
 
@@ -187,10 +192,10 @@ def process_batch(batch, batchsize, bi_net, criterion, arg_combine, sequence_len
                                                            sequence_length,
                                                            sequence_thresholds)
 
-    out_c, out_p, lesion_pos, grid_c, grid_p = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
-                                                      gt[:, -1, :, :, :].unsqueeze(1),
-                                                      batch[data.KEY_GLOBAL].to(device),
-                                                      factor)
+    out_c, out_p, lesion_pos, grid_c, grid_p, grids_core, grids_penu = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
+                                                                              gt[:, -1, :, :, :].unsqueeze(1),
+                                                                              batch[data.KEY_GLOBAL].to(device),
+                                                                              factor)
 
     pr = combine_prediction(out_c,
                             out_p,
@@ -216,8 +221,8 @@ def process_batch(batch, batchsize, bi_net, criterion, arg_combine, sequence_len
                      pr_out_p,
                      pr_mid_c,
                      pr_mid_p,
-                     grid_c,
-                     grid_p)
+                     grids_core,
+                     grids_penu)
 
     return gt, pr, grid_c, grid_p, idx_lesion, loss
 
