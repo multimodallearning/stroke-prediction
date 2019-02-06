@@ -42,8 +42,8 @@ class Criterion(nn.Module):
 
         return torch.sqrt(torch.pow(G_x, 2) + torch.pow(G_y, 2) + torch.pow(G_z, 2))
 
-    def forward(self, pr_core, gt_core,  pr_lesion, gt_lesion, pr_penu, gt_penu, output, out_c, out_p, mid_c, mid_p,
-                grid_c, grid_p):
+    def forward(self, pr_core, gt_core, pr_lesion, gt_lesion, pr_penu, gt_penu, output, out_c, out_p, mid_c, mid_p,
+                offsets_core, offsets_penu):
         loss = self.weights[0] * self.dc(pr_core, gt_core)
         loss += self.weights[2] * self.dc(pr_penu, gt_penu)
         loss += self.weights[1] * self.dc(pr_lesion, gt_lesion)
@@ -54,10 +54,9 @@ class Criterion(nn.Module):
             diff = output[:, i+1] - output[:, i]
             loss += self.weights[5] * torch.mean(torch.abs(diff) - diff)  # monotone
 
-        print(float(loss), end=' --> ')
-        loss += self.weights[6] * (torch.sum(self.compute_2nd_order_derivative(grid_c)) +
-                                   torch.sum(self.compute_2nd_order_derivative(grid_p)))
-        print(float(loss))
+        loss += self.weights[6] * (torch.mean(self.compute_2nd_order_derivative(offsets_core)) +
+                                   torch.mean(self.compute_2nd_order_derivative(offsets_penu)))
+
         return loss
 
 
@@ -192,10 +191,10 @@ def process_batch(batch, batchsize, bi_net, criterion, arg_combine, sequence_len
                                                            sequence_length,
                                                            sequence_thresholds)
 
-    out_c, out_p, lesion_pos, grid_c, grid_p, grids_core, grids_penu = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
-                                                                              gt[:, -1, :, :, :].unsqueeze(1),
-                                                                              batch[data.KEY_GLOBAL].to(device),
-                                                                              factor)
+    out_c, out_p, lesion_pos, grid_c, grid_p, offsets_core, offsets_penu = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
+                                                                                  gt[:, -1, :, :, :].unsqueeze(1),
+                                                                                  batch[data.KEY_GLOBAL].to(device),
+                                                                                  factor)
 
     pr = combine_prediction(out_c,
                             out_p,
@@ -221,8 +220,8 @@ def process_batch(batch, batchsize, bi_net, criterion, arg_combine, sequence_len
                      pr_out_p,
                      pr_mid_c,
                      pr_mid_p,
-                     grids_core,
-                     grids_penu)
+                     offsets_core,
+                     offsets_penu)
 
     return gt, pr, grid_c, grid_p, idx_lesion, loss
 
