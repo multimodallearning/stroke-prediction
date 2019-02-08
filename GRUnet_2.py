@@ -91,6 +91,106 @@ def tensor2index(time_tensor, thresholds):
     return indices
 
 
+class UnetBlock(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size, kernel_size):
+        super().__init__()
+
+        if (isinstance(kernel_size, tuple) or isinstance(kernel_size, list)) and len(kernel_size) == 3:
+            padding = (kernel_size[0] // 2, kernel_size[1] // 2, kernel_size[2] // 2)
+        else:
+            padding = kernel_size // 2
+
+        self.block = nn.Sequential(
+            nn.InstanceNorm3d(input_size),
+            nn.Conv3d(input_size, hidden_size, kernel_size, padding=padding),
+            nn.ReLU(),
+            nn.InstanceNorm3d(hidden_size),
+            nn.Conv3d(hidden_size, output_size, kernel_size, padding=padding),
+            nn.ReLU()
+        )
+
+    def forward(self, input):
+        return self.block(input)
+
+
+class Unet(nn.Module):
+    def unet_def(self, h_sizes, k_sizes):
+        return [UnetBlock(h_sizes[0], h_sizes[0], h_sizes[0], k_sizes[0]),
+                UnetBlock(h_sizes[0], h_sizes[1], h_sizes[1], k_sizes[1]),
+                UnetBlock(h_sizes[1], h_sizes[2], h_sizes[2], k_sizes[2]),
+
+                UnetBlock(h_sizes[2], h_sizes[3], h_sizes[2], k_sizes[3]),
+
+                UnetBlock(h_sizes[2] + h_sizes[2], h_sizes[4], h_sizes[1], k_sizes[4]),
+                UnetBlock(h_sizes[1] + h_sizes[1], h_sizes[5], h_sizes[0], k_sizes[5]),
+                UnetBlock(h_sizes[0] + h_sizes[0], h_sizes[6], h_sizes[0], k_sizes[6])]
+
+    def __init__(self, hidden_sizes, kernel_sizes,):
+        self.N_BLOCKS = 7
+
+        super().__init__()
+
+        if type(hidden_sizes) != list:
+            self.hidden_sizes = [hidden_sizes] * self.N_BLOCKS
+        else:
+            assert len(hidden_sizes) == self.N_BLOCKS, '`hidden_sizes` must have the same length as n_layers'
+            self.hidden_sizes = hidden_sizes
+        if type(kernel_sizes) != list:
+            self.kernel_sizes = [kernel_sizes] * self.N_BLOCKS
+        else:
+            assert len(kernel_sizes) == self.N_BLOCKS, '`kernel_sizes` must have the same length as n_layers'
+            self.kernel_sizes = kernel_sizes
+
+        self.blocks = self.unet_def(hidden_sizes, kernel_sizes)
+        for i in range(len(self.blocks)):
+            setattr(self, 'UnetBlock' + str(i).zfill(2), self.blocks[i])
+
+        # pooling between blocks / levels
+        pool = 2
+        if type(kernel_sizes[0]) == tuple:
+            pool = (1, 2, 2)
+        self.pool = nn.MaxPool3d(pool, pool, return_indices=True)
+        self.pool_anisotroph = nn.MaxPool3d((1, 2, 2), (1, 2, 2), return_indices=True)
+        self.unpool_anisotroph = nn.MaxUnpool3d((1, 2, 2), (1, 2, 2))
+        self.unpool = nn.MaxUnpool3d(pool, pool)
+
+    def forward(self, input_rep):
+
+        output0 = self.blocks[0](input_rep)
+        input_rep, indices0 = self.pool(output0)
+
+        output1 = self.blocks[1](input_rep)
+        input_rep, indices1 = self.pool(output1)
+
+        output2 = self.blocks[2](input_rep)
+        input_rep, indices2 = self.pool_anisotroph(output2)
+
+        output = self.blocks[self.N_BLOCKS // 2](input_rep)
+
+        unpool = self.unpool_anisotroph(output, indices2)
+        input_rep = torch.cat((unpool, output2), dim=1)
+        output = self.blocks[4](input_rep)
+
+        unpool = self.unpool(output, indices1)
+        input_rep = torch.cat((unpool, output1), dim=1)
+        output = self.blocks[5](input_rep)
+
+        unpool = self.unpool(output, indices0)
+        input_rep = torch.cat((unpool, output0), dim=1)
+        output = self.blocks[6](input_rep)
+
+        del unpool
+        del input_rep
+        del output0
+        del output1
+        del output2
+        del indices0
+        del indices1
+        del indices2
+
+        return output
+
+
 class GRUnetBlock(nn.Module):
     def __init__(self, input_size, hidden_size, kernel_size, output_size=None):
         super().__init__()
@@ -149,7 +249,7 @@ class GRUnetBlock(nn.Module):
 
 
 class GRUnet(nn.Module):
-    def unet_def(self, h_sizes, k_sizes):
+    def grunet_def(self, h_sizes, k_sizes):
         return [GRUnetBlock(h_sizes[0], h_sizes[0], k_sizes[0], output_size=h_sizes[0]),
                 GRUnetBlock(h_sizes[0], h_sizes[1], k_sizes[1], output_size=h_sizes[1]),
                 GRUnetBlock(h_sizes[1], h_sizes[2], k_sizes[2], output_size=h_sizes[1]),
@@ -172,7 +272,7 @@ class GRUnet(nn.Module):
             assert len(kernel_sizes) == self.N_BLOCKS, '`kernel_sizes` must have the same length as n_layers'
             self.kernel_sizes = kernel_sizes
 
-        self.blocks = self.unet_def(hidden_sizes, kernel_sizes)
+        self.blocks = self.grunet_def(hidden_sizes, kernel_sizes)
         for i in range(len(self.blocks)):
             setattr(self, 'GRUnetBlock' + str(i).zfill(2), self.blocks[i])
 
@@ -346,7 +446,15 @@ class UnidirectionalSequence(nn.Module):
         # Non-lin.
         self.grunet = None
         if n_ch_grunet:
-            self.grunet = GRUnet(hidden_sizes=n_ch_grunet, kernel_sizes=[kernel_size] * 5, down_scaling=2)
+            self.xy_downscaling = 2
+            self.unet_in = GRUnetBlock(n_ch_grunet[0], n_ch_grunet[0], kernel_size)
+
+            self.grunet = Unet(hidden_sizes=n_ch_grunet, kernel_sizes=[kernel_size] * 7)
+            # self.grunet = GRUnet(hidden_sizes=n_ch_grunet, kernel_sizes=[kernel_size] * 5, down_scaling=2)
+
+            self.grid_offset = GRUnetBlock(n_ch_grunet[-1], n_ch_grunet[-1], kernel_size, output_size=6)
+            torch.nn.init.normal(self.grid_offset.conv3d.weight, 0, 0.001)
+            torch.nn.init.normal(self.grid_offset.conv3d.bias, 0, 0.001)
 
         assert self.grunet or self.affine, 'Either affine or non-lin. deformation parameter numbers must be given'
 
@@ -369,11 +477,15 @@ class UnidirectionalSequence(nn.Module):
         hidden_penu = torch.zeros(self.batchsize, self.penu_rep.hidden_size, 28, 128, 128).cuda()
 
         if self.grunet:
+            hidden_unet_in = torch.zeros(self.batchsize, self.unet_in.hidden_size, 28, 64, 64).cuda()
+            hidden_unet_out = torch.zeros(self.batchsize, self.grid_offset.hidden_size, 28, 64, 64).cuda()
+            '''
             hidden_grunet = [torch.zeros([self.batchsize, self.grunet.blocks[0].hidden_size, 28, 64, 64]).cuda(),
                              torch.zeros([self.batchsize, self.grunet.blocks[1].hidden_size, 14, 32, 32]).cuda(),
                              torch.zeros([self.batchsize, self.grunet.blocks[2].hidden_size, 7, 16, 16]).cuda(),
                              torch.zeros([self.batchsize, self.grunet.blocks[3].hidden_size, 14, 32, 32]).cuda(),
                              torch.zeros([self.batchsize, self.grunet.blocks[4].hidden_size, 28, 64, 64]).cuda()]
+            '''
         if self.affine:
             h_affine1 = torch.zeros(self.batchsize, self.affine.affine1.hidden_size, 28, 128, 128).cuda()
             h_affine3 = torch.zeros((self.batchsize, self.affine.affine3.hidden_size)).cuda()
@@ -411,9 +523,14 @@ class UnidirectionalSequence(nn.Module):
             if self.grunet:
                 if self.clinical_grunet:
                     input_grunet = torch.cat((F.interpolate(clinical_step, input_grunet.size()[2:5]), input_grunet), dim=1)
-                nonlin_grids, h0, h1, h2, h3, h4 = checkpoint(lambda a, b, c, d, e, f: self.grunet(a, b, c, d, e, f), input_grunet, *hidden_grunet)
-                hidden_grunet = [h0, h1, h2, h3, h4]
-                offset.append(nonlin_grids)
+                #nonlin_grids, h0, h1, h2, h3, h4 = checkpoint(lambda a, b, c, d, e, f: self.grunet(a, b, c, d, e, f), input_grunet, *hidden_grunet)
+                #hidden_grunet = [h0, h1, h2, h3, h4]
+                input_grunet = F.interpolate(input_grunet, scale_factor=(1, 1 / self.xy_downscaling, 1 / self.xy_downscaling))
+                hidden_unet_in, input_grunet = checkpoint(lambda a, b: self.unet_in(a, b), input_grunet, hidden_unet_in)
+                nonlin_grids = checkpoint(lambda a: self.grunet(a), input_grunet)
+                hidden_unet_out, nonlin_grids = checkpoint(lambda a, b: self.grid_offset(a, b), nonlin_grids, hidden_unet_out)
+                nonlin_grids = F.interpolate(nonlin_grids, scale_factor=(1, self.xy_downscaling, self.xy_downscaling))
+                offset.append(nonlin_grids.permute(0, 2, 3, 4, 1))
             else:
                 offset.append(affine_grids)
 

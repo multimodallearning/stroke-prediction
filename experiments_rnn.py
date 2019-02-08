@@ -53,7 +53,7 @@ grunets = [[20, 28, 32, 28, 24],  # both
            [16, 28, 32, 28, 24],  # nonlin, with clinical time
            None,                  # affine, less parameters
            [20, 25, 26, 20, 16],  # less parameters, with clinical time
-           [16, 20, 24, 20, 18]]  # less parameters #2, with clinical time
+           [16, 20, 24, 32, 24, 20, 16]]  # less parameters #2, with clinical time
 img2vec2s = [None]
 vec2vec2s = [None]
 addfactors = [False, True]
@@ -63,7 +63,7 @@ softeners = [[5, 23, 23],  # soften offsets NOT images
 losses = [[10, 44, 10, 25, 0, 1, 0],    # with monotone for seq_len=11
           [15, 45, 15, 25, 0, 0, 0],    # w/o  monotone for seq_len=11
           [22, 23, 22, 22, 0, 1, 0],    # equally weighted for seq_len=11
-          [11, 50, 11, 11, 8, 0.5, 1]]  # with monotone for seq_len=16, and middle overlap
+          [11, 50, 11, 11.99, 8, 0.5, 0.01]]  # with monotone for seq_len=16, and middle overlap
 folds = [[17, 6, 2, 26, 11, 4],
          [1, 21, 16, 27, 24, 18],
          [15, 20, 28, 14, 5, 13],

@@ -163,7 +163,7 @@ def visualise_batch(axarr, batch, gt, pr, grid_default, grid_c, grid_p, idx_lesi
         for i in range(sequence_length):
             axarr[factor * row + init_offset, i + 3].imshow(pr[row, i, com[0], :, :], vmin=0, vmax=1, cmap='gray')
             titles.append(get_title('Pr', row, i, batch, sequence_thresholds, idx_lesion))
-        for ax, title in zip(axarr[factor * row], titles):
+        for ax, title in zip(axarr[factor * row + init_offset], titles):
             ax.set_title(title, verticalalignment='top')
         titles = []
 
