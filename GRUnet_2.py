@@ -192,7 +192,7 @@ class Unet(nn.Module):
 
 
 class GRUnetBlock(nn.Module):
-    def __init__(self, input_size, hidden_size, kernel_size, output_size=None):
+    def __init__(self, input_size, hidden_size, kernel_size, output_size=None, output_activation=True):
         super().__init__()
 
         # Allow for anisotropic inputs
@@ -211,14 +211,22 @@ class GRUnetBlock(nn.Module):
         # Additional "normal" convolution as in vanilla Unet to map to another channel number
         if output_size is None:
             output_size = hidden_size
-        self.conv3d = nn.Conv3d(hidden_size, output_size, kernel_size, padding=padding)
+        if output_activation:
+            self.conv3d = nn.Sequential(
+                nn.Conv3d(hidden_size, output_size, kernel_size, padding=padding),
+                nn.ReLU()
+            )
+            nn.init.xavier_normal(self.conv3d[0].weight)
+            nn.init.normal(self.conv3d[0].bias)
+        else:
+            self.conv3d = nn.Conv3d(hidden_size, output_size, kernel_size, padding=padding)
+            nn.init.xavier_normal(self.conv3d.weight)
+            nn.init.normal(self.conv3d.bias)
 
         # Appropriate initialization
         nn.init.orthogonal_(self.reset_gate.weight)
         nn.init.orthogonal_(self.update_gate.weight)
         nn.init.orthogonal_(self.out_gate.weight)
-        nn.init.xavier_normal(self.conv3d.weight)
-        nn.init.normal(self.conv3d.bias)
         nn.init.constant_(self.reset_gate.bias, 0.)
         nn.init.constant_(self.update_gate.bias, 0.)
         nn.init.constant_(self.out_gate.bias, 0.)
@@ -452,7 +460,7 @@ class UnidirectionalSequence(nn.Module):
             self.grunet = Unet(hidden_sizes=n_ch_grunet, kernel_sizes=[kernel_size] * 7)
             # self.grunet = GRUnet(hidden_sizes=n_ch_grunet, kernel_sizes=[kernel_size] * 5, down_scaling=2)
 
-            self.grid_offset = GRUnetBlock(n_ch_grunet[-1], n_ch_grunet[-1], kernel_size, output_size=6)
+            self.grid_offset = GRUnetBlock(n_ch_grunet[-1], n_ch_grunet[-1], kernel_size, output_size=6, output_activation=False)
             torch.nn.init.normal(self.grid_offset.conv3d.weight, 0, 0.001)
             torch.nn.init.normal(self.grid_offset.conv3d.bias, 0, 0.001)
 
