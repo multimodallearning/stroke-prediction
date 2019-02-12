@@ -191,6 +191,52 @@ class Unet(nn.Module):
         return output
 
 
+class ConvGRU(nn.Module):
+    def __init__(self, input_size, hidden_size, kernel_size):
+        super().__init__()
+
+        # Allow for anisotropic inputs
+        if (isinstance(kernel_size, tuple) or isinstance(kernel_size, list)) and len(kernel_size) == 3:
+            self.padding = (kernel_size[0] // 2, kernel_size[1] // 2, kernel_size[2] // 2)
+        else:
+            self.padding = kernel_size // 2
+
+        self.hidden_size = hidden_size
+        self.reset_gate = nn.Conv3d(input_size + hidden_size, hidden_size, kernel_size, padding=self.padding)
+        self.update_gate = nn.Conv3d(input_size + hidden_size, hidden_size, kernel_size, padding=self.padding)
+        self.out_gate = nn.Conv3d(input_size + hidden_size, hidden_size, kernel_size, padding=self.padding)
+
+        # Appropriate initialization
+        nn.init.orthogonal_(self.reset_gate.weight)
+        nn.init.orthogonal_(self.update_gate.weight)
+        nn.init.orthogonal_(self.out_gate.weight)
+        nn.init.constant_(self.reset_gate.bias, 0.)
+        nn.init.constant_(self.update_gate.bias, 0.)
+        nn.init.constant_(self.out_gate.bias, 0.)
+
+    def forward(self, input, prev_state):
+        # Get batch and spatial sizes
+        batch_size = input.data.size()[0]
+        spatial_size = input.data.size()[2:]
+
+        # Generate empty prev_state, if None is provided
+        if prev_state is None:
+            state_size = [batch_size, self.hidden_size] + list(spatial_size)
+            if torch.cuda.is_available():
+                prev_state = torch.zeros(state_size).cuda()
+            else:
+                prev_state = torch.zeros(state_size)
+
+        # Data size: [batch, channel, depth, height, width]
+        stacked_inputs = torch.cat([input, prev_state], dim=1)
+        update = torch.sigmoid(self.update_gate(stacked_inputs))
+        reset = torch.sigmoid(self.reset_gate(stacked_inputs))
+        out_inputs = torch.tanh(self.out_gate(torch.cat([input, prev_state * reset], dim=1)))
+        new_state = prev_state * (1 - update) + out_inputs * update
+
+        return new_state
+
+
 class GRUnetBlock(nn.Module):
     def __init__(self, input_size, hidden_size, kernel_size, output_size=None, output_activation=True):
         super().__init__()
@@ -439,8 +485,8 @@ class UnidirectionalSequence(nn.Module):
 
         #
         # Separate (hidden) features for core / penumbra
-        self.core_rep = GRUnetBlock(dim_feat_rnn, dim_feat_rnn, kernel_size)
-        self.penu_rep = GRUnetBlock(dim_feat_rnn, dim_feat_rnn, kernel_size)
+        self.core_rep = ConvGRU(dim_feat_rnn, dim_feat_rnn, kernel_size)
+        self.penu_rep = ConvGRU(dim_feat_rnn, dim_feat_rnn, kernel_size)
 
         #
         # Affine
@@ -531,7 +577,8 @@ class UnidirectionalSequence(nn.Module):
                 if self.reverse:
                     previous_result = torch.cat((penu, penu), dim=1)
                 else:
-                    previous_result = torch.cat((core, core), dim=1)
+                    #previous_result = torch.cat((core, core), dim=1)
+                    previous_result = torch.cat((torch.zeros(core.size()), torch.zeros(core.size())), dim=1).cuda()
             else:
                 previous_result = torch.cat((nn.functional.grid_sample(core, self.grid_identity + offset[-1][:, :, :, :, :3]),
                                              nn.functional.grid_sample(penu, self.grid_identity + offset[-1][:, :, :, :, 3:])), dim=1)
@@ -541,9 +588,9 @@ class UnidirectionalSequence(nn.Module):
             else:
                 clinical_step = clinical
 
-            hidden_core, core_rep = checkpoint(lambda a, b: self.core_rep(a, b), core_rep, hidden_core)  #self.core_rep(core_rep, hidden_core)
-            hidden_penu, penu_rep = checkpoint(lambda a, b: self.penu_rep(a, b), penu_rep, hidden_penu)  #self.penu_rep(penu_rep, hidden_core)
-            input_img = torch.cat((core_rep, penu_rep, core, penu, previous_result), dim=1)
+            hidden_core = checkpoint(lambda a, b: self.core_rep(a, b), core_rep, hidden_core)
+            hidden_penu = checkpoint(lambda a, b: self.penu_rep(a, b), penu_rep, hidden_penu)
+            input_img = torch.cat((hidden_core, hidden_penu, core, penu, previous_result), dim=1)
 
             if self.affine:
                 affine_grids, h_affine1, h_affine3, h_affine5 = checkpoint(lambda a, b, c, d, e, f: self.affine(a, b, c, d, e, f), input_img, clinical_step, core, h_affine1, h_affine3, h_affine5)

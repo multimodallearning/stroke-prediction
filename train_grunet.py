@@ -22,7 +22,8 @@ class Criterion(nn.Module):
         self.scales = [nn.AvgPool3d((1, 5, 5), (1, 1, 1), padding=(0, 2, 2)),
                        nn.AvgPool3d((3, 13, 13), (1, 1, 1), padding=(1, 6, 6)),
                        nn.AvgPool3d((5, 23, 23), (1, 1, 1), padding=(2, 11, 11)),
-                       nn.AvgPool3d((7, 31, 31), (1, 1, 1), padding=(3, 15, 15)),]
+                       nn.AvgPool3d((7, 31, 31), (1, 1, 1), padding=(3, 15, 15)),
+                       nn.AvgPool3d((9, 41, 41), (1, 1, 1), padding=(4, 20, 20))]
 
     def compute_derivative3D(self, x, order=1):
         s0, s1, s2, s3, s4, s5 = x.size()
@@ -274,7 +275,7 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
         convgru_kernel = (1, 3, 3)
     batchsize = arg_batchsize
     #sequence_thresholds = [0.4, 0.8, 1.2, 1.6, 2.0, 2.4, 2.8, 3.2, 3.6, 4.0, 4.4, 4.8, 5.2, 5.6, 6.0, 6.5, 7.1, 7.8, 8.7, 10.]
-    sequence_thresholds = [0.3, 0.6, 0.9, 1.2, 1.5, 1.8, 2.1, 2.4, 2.7, 3.0, 3.3, 3.6, 3.9, 4.2, 4.5, 4.8, 5.1, 5.4, 5.7, 6.0, 6.4, 6.9, 7.5, 8.5, 10.0]
+    sequence_thresholds = [0.0, 0.3, 0.6, 0.9, 1.2, 1.5, 1.8, 2.1, 2.4, 2.7, 3.0, 3.3, 3.6, 3.9, 4.2, 4.5, 4.8, 5.1, 5.4, 5.7, 6.0, 6.4, 7.1, 8.5, 10.0]
     assert len(sequence_thresholds) == arg_length
     sequence_length = arg_length
     #sequence_weight = [i / sum(range(arg_length + 1)) for i in range(1, arg_length + 1)]

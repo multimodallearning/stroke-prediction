@@ -64,7 +64,7 @@ softeners = [[5, 23, 23],  # soften offsets NOT images
 losses = [[10, 44, 10, 25, 0, 1, 0],    # with monotone for seq_len=11
           [15, 45, 15, 25, 0, 0, 0],    # w/o  monotone for seq_len=11
           [22, 23, 22, 22, 0, 1, 0],    # equally weighted for seq_len=11
-          [5, 50, 5, 10, 9.98, 0.5, 0.01, 0.01]]  # seq_len=20  # core_DC, lesion_DC, penu_DC, lesion_match, mid_match, monotony, grid smoothness (1st order), grid curvature (2nd order)
+          [29, 31.98, 29, 10, 0, 0, 0.01, 0.01]]  # seq_len=20  # core_DC, lesion_DC, penu_DC, lesion_match, mid_match, monotony, grid smoothness (1st order), grid curvature (2nd order)
 folds = [[17, 6, 2, 26, 11, 4],
          [1, 21, 16, 27, 24, 18],
          [15, 20, 28, 14, 5, 13],
