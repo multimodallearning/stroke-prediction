@@ -14,10 +14,11 @@ DEFAULT_IDX = 0
 
 
 lengths = [11,
-           16]
+           16,
+           25]
 commonfeatures = [5,
                   4,  # less parameters
-                  3]  # less parameters #2
+                  2]  # less parameters #2
 additionals = [10,  # both
                -1,  # affine
                4,   # nonlin
@@ -35,7 +36,7 @@ img2vec1s = [[14, 19, 20, 21, 22],  # both
              None,                  # nonlin, with clinical time
              [12, 17, 18, 19, 20],  # affine, less parameters
              [12, 17, 18, 19, 20],  # less parameters, with clinical time
-             [10, 12, 16, 20, 24]]   # less parameters #2, with clinical time
+             [8, 16, 18, 20, 22]]   # less parameters #2, with clinical time
 vec2vec1s = [[24, 20, 20, 24],  # both
              [24, 20, 20, 24],  # affine
              None,              # nonlin
@@ -44,7 +45,7 @@ vec2vec1s = [[24, 20, 20, 24],  # both
              None,              # nonlin, with clinical time
              [22, 24],          # affine, less parameters
              [22, 24],          # less parameters, with clinical time
-             [26, 25, 24]]      # less parameters #2, with clinical time
+             [24, 24, 24]]      # less parameters #2, with clinical time
 grunets = [[20, 28, 32, 28, 24],  # both
            None,                  # affine
            [14, 28, 32, 28, 24],  # nonlin
@@ -53,7 +54,7 @@ grunets = [[20, 28, 32, 28, 24],  # both
            [16, 28, 32, 28, 24],  # nonlin, with clinical time
            None,                  # affine, less parameters
            [20, 25, 26, 20, 16],  # less parameters, with clinical time
-           [18, 20, 22, 24, 22, 20, 18]]  # less parameters #2, with clinical time
+           [16, 20, 22, 24, 22, 20, 18]]  # less parameters #2, with clinical time
 img2vec2s = [None]
 vec2vec2s = [None]
 addfactors = [False, True]
@@ -63,7 +64,7 @@ softeners = [[5, 23, 23],  # soften offsets NOT images
 losses = [[10, 44, 10, 25, 0, 1, 0],    # with monotone for seq_len=11
           [15, 45, 15, 25, 0, 0, 0],    # w/o  monotone for seq_len=11
           [22, 23, 22, 22, 0, 1, 0],    # equally weighted for seq_len=11
-          [1, 50, 1, 15, 15, 0.5, 10]]  # with monotone for seq_len=16, and middle overlap
+          [5, 50, 5, 10, 9.98, 0.5, 0.01, 0.01]]  # seq_len=20  # core_DC, lesion_DC, penu_DC, lesion_match, mid_match, monotony, grid smoothness (1st order), grid curvature (2nd order)
 folds = [[17, 6, 2, 26, 11, 4],
          [1, 21, 16, 27, 24, 18],
          [15, 20, 28, 14, 5, 13],
@@ -202,10 +203,10 @@ elif args.id == 99:
     img2vec1 = img2vec1s[8]
     vec2vec1 = vec2vec1s[8]
     grunet = grunets[8]
-    softener = softeners[1]
-    combine = combines[0]
+    softener = softeners[0]
+    combine = combines[1]
     loss = losses[3]
-    length = lengths[1]
+    length = lengths[2]
 else:
     raise Exception('No valid experiment id given')
 

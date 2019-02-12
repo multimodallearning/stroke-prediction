@@ -9,53 +9,82 @@ import numpy as np
 import scipy.ndimage as ndi
 import argparse
 import datetime
+from torch.autograd import Variable
 
 
 class Criterion(nn.Module):
     def __init__(self, weights):
         super(Criterion, self).__init__()
+        self.bce = nn.BCELoss()
         self.dc = metrics.BatchDiceLoss([1.0])  # weighted inversely by each volume proportion
-        assert len(weights) == 7
+        assert len(weights) == 8
         self.weights = [i/100 for i in weights]
+        self.scales = [nn.AvgPool3d((1, 5, 5), (1, 1, 1), padding=(0, 2, 2)),
+                       nn.AvgPool3d((3, 13, 13), (1, 1, 1), padding=(1, 6, 6)),
+                       nn.AvgPool3d((5, 23, 23), (1, 1, 1), padding=(2, 11, 11)),
+                       nn.AvgPool3d((7, 31, 31), (1, 1, 1), padding=(3, 15, 15)),]
 
-    def compute_2nd_order_derivative(self, x):
+    def compute_derivative3D(self, x, order=1):
+        s0, s1, s2, s3, s4, s5 = x.size()
+
         a = torch.Tensor([[[1, 0, -1], [2, 0, -2], [1, 0, -1]],
                           [[1, 0, -1], [2, 0, -2], [1, 0, -1]],
                           [[1, 0, -1], [2, 0, -2], [1, 0, -1]]])
-        a = a.view((1, 1, 3, 3, 3)).expand(2, 3*16, -1, -1, -1).cuda()
+        a = a.view((1, 1, 3, 3, 3)).expand(s0, s5*s1, -1, -1, -1).cuda()
 
         b = torch.Tensor([[[1, 2, 1], [0, 0, 0], [-1, -2, -1]],
                           [[1, 2, 1], [0, 0, 0], [-1, -2, -1]],
                           [[1, 2, 1], [0, 0, 0], [-1, -2, -1]]])
-        b = b.view((1, 1, 3, 3, 3)).expand(2, 3*16, -1, -1, -1).cuda()
+        b = b.view((1, 1, 3, 3, 3)).expand(s0, s5*s1, -1, -1, -1).cuda()
 
         c = torch.Tensor([[[1, 2, 1], [1, 2, 1], [1, 2, 1]],
                           [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
                           [[-1, -2, -1], [-1, -2, -1], [-1, -2, -1]]])
-        c = c.view((1, 1, 3, 3, 3)).expand(2, 3*16, -1, -1, -1).cuda()
+        c = c.view((1, 1, 3, 3, 3)).expand(s0, s5*s1, -1, -1, -1).cuda()
 
-        x = x.permute(0, 1, 5, 2,3,4).contiguous().view(2, 16*3, 28, 128, 128)
+        x = x.permute(0, 1, 5, 2, 3, 4).contiguous().view(s0, s1*s5, s2, s3, s4)
 
         G_x = nn.functional.conv3d(x, a)
         G_y = nn.functional.conv3d(x, b)
         G_z = nn.functional.conv3d(x, c)
 
-        return torch.sqrt(torch.pow(G_x, 2) + torch.pow(G_y, 2) + torch.pow(G_z, 2))
+        return torch.pow(torch.pow(G_x, order) + torch.pow(G_y, 2) + torch.pow(G_z, 2), 1/order)  # nth order derivative
+
+    def multi_scale_dc(self, input, target):
+        loss = 0.0
+        for scale in self.scales:
+            loss += self.dc(scale(scale(input)), scale(scale(target)))
+        return loss/4.0
 
     def forward(self, pr_core, gt_core, pr_lesion, gt_lesion, pr_penu, gt_penu, output, out_c, out_p, mid_c, mid_p,
                 offsets_core, offsets_penu):
-        loss = self.weights[0] * self.dc(pr_core, gt_core)
-        loss += self.weights[2] * self.dc(pr_penu, gt_penu)
-        loss += self.weights[1] * self.dc(pr_lesion, gt_lesion)
-        loss += self.weights[3] * self.dc(out_c, out_p)
-        loss += self.weights[4] * self.dc(mid_c, mid_p)
+        '''
+        pr_core = torch.clamp(pr_core, min=0., max=1.)
+        pr_penu = torch.clamp(pr_penu, min=0., max=1.)
+        pr_lesion = torch.clamp(pr_lesion, min=0., max=1.)
+        out_c = torch.clamp(out_c, min=0., max=1.)
+        mid_c = torch.clamp(mid_c, min=0., max=1.)
+        loss = self.weights[0] * self.bce(pr_core, gt_core)
+        loss += self.weights[1] * self.bce(pr_lesion, gt_lesion)
+        loss += self.weights[2] * self.bce(pr_penu, gt_penu)
+        loss += self.weights[3] * self.bce(out_c, Variable(out_p, requires_grad=False))
+        loss += self.weights[4] * self.bce(mid_c, Variable(mid_p, requires_grad=False))
+        '''
+
+        loss = self.weights[0] * self.multi_scale_dc(pr_core, gt_core)
+        loss += self.weights[1] * self.multi_scale_dc(pr_lesion, gt_lesion)
+        loss += self.weights[2] * self.multi_scale_dc(pr_penu, gt_penu)
+        loss += self.weights[3] * self.multi_scale_dc(out_c, out_p)
+        loss += self.weights[4] * self.multi_scale_dc(mid_c, mid_p)
 
         for i in range(output.size()[1]-1):
             diff = output[:, i+1] - output[:, i]
             loss += self.weights[5] * torch.mean(torch.abs(diff) - diff)  # monotone
 
-        loss += self.weights[6] * (torch.mean(self.compute_2nd_order_derivative(offsets_core)) +
-                                   torch.mean(self.compute_2nd_order_derivative(offsets_penu)))
+        loss += self.weights[6] * (torch.mean(self.compute_derivative3D(offsets_core, 1)) +
+                                   torch.mean(self.compute_derivative3D(offsets_penu, 1)))
+        loss += self.weights[7] * (torch.mean(self.compute_derivative3D(offsets_core, 2)) +
+                                   torch.mean(self.compute_derivative3D(offsets_penu, 2)))
 
         return loss
 
@@ -191,7 +220,7 @@ def process_batch(batch, batchsize, bi_net, criterion, arg_combine, sequence_len
                                                            sequence_length,
                                                            sequence_thresholds)
 
-    out_c, out_p, lesion_pos, grid_c, grid_p, offsets_core, offsets_penu = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
+    out_c, out_p, lesion_pos, grid_c, grid_p, offsets_core, offsets_penu, prs = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
                                                                                   gt[:, -1, :, :, :].unsqueeze(1),
                                                                                   batch[data.KEY_GLOBAL].to(device),
                                                                                   factor)
@@ -203,7 +232,7 @@ def process_batch(batch, batchsize, bi_net, criterion, arg_combine, sequence_len
                             arg_combine)
 
     pr_lesion, pr_core, pr_penu, pr_out_c, pr_out_p, pr_mid_c, pr_mid_p, idx_lesion, _ = get_results(batch,
-                                                                                                     batchsize, pr,
+                                                                                                     batchsize, prs,
                                                                                                      out_c, out_p,
                                                                                                      lesion_pos,
                                                                                                      sequence_thresholds,
@@ -215,7 +244,7 @@ def process_batch(batch, batchsize, bi_net, criterion, arg_combine, sequence_len
                      gt[:, 1, :, :, :].unsqueeze(1),  # torch.stack(gt_lesion, dim=0),
                      pr_penu,
                      gt[:, 2, :, :, :].unsqueeze(1),  # torch.stack(gt_penu, dim=0),
-                     pr,
+                     prs,
                      pr_out_c,
                      pr_out_p,
                      pr_mid_c,
@@ -223,7 +252,7 @@ def process_batch(batch, batchsize, bi_net, criterion, arg_combine, sequence_len
                      offsets_core,
                      offsets_penu)
 
-    return gt, pr, grid_c, grid_p, idx_lesion, loss
+    return gt, prs, grid_c, grid_p, idx_lesion, loss
 
 
 def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
@@ -244,7 +273,8 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
     if input2d:
         convgru_kernel = (1, 3, 3)
     batchsize = arg_batchsize
-    sequence_thresholds = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 7., 8., 9., 10.]
+    #sequence_thresholds = [0.4, 0.8, 1.2, 1.6, 2.0, 2.4, 2.8, 3.2, 3.6, 4.0, 4.4, 4.8, 5.2, 5.6, 6.0, 6.5, 7.1, 7.8, 8.7, 10.]
+    sequence_thresholds = [0.3, 0.6, 0.9, 1.2, 1.5, 1.8, 2.1, 2.4, 2.7, 3.0, 3.3, 3.6, 3.9, 4.2, 4.5, 4.8, 5.1, 5.4, 5.7, 6.0, 6.4, 6.9, 7.5, 8.5, 10.0]
     assert len(sequence_thresholds) == arg_length
     sequence_length = arg_length
     #sequence_weight = [i / sum(range(arg_length + 1)) for i in range(1, arg_length + 1)]

@@ -68,7 +68,7 @@ def def_img2vec(n_dim, depth2d=False):
         nn.InstanceNorm3d(n_dim[3]),
         nn.Conv3d(n_dim[3], n_dim[4], kernel_size=1),  # 7x7x7
         nn.ReLU(),
-        nn.MaxPool3d(7)  # 1x1x1
+        nn.AvgPool3d(7)  # 1x1x1
     )
 
 
@@ -454,13 +454,24 @@ class UnidirectionalSequence(nn.Module):
         # Non-lin.
         self.grunet = None
         if n_ch_grunet:
-            self.xy_downscaling = 2
+            self.xy_downscaling = 4
+
+            self.refine1 = GRUnetBlock(n_ch_grunet[0], 20, kernel_size)
+            assert n_ch_grunet[0] < self.refine1.hidden_size
+            self.maxpool = nn.MaxPool3d(2, 2, return_indices=True)
+            self.refine2 = GRUnetBlock(20, 30, kernel_size, output_size=20)
+            self.munpool = nn.MaxUnpool3d(2, 2)
+            self.refine3 = GRUnetBlock(20, 20, kernel_size)
+            self.grid_offset = GRUnetBlock(20, 10, kernel_size, output_size=6, output_activation=False)
+
+            '''
             self.unet_in = GRUnetBlock(n_ch_grunet[0], n_ch_grunet[0], kernel_size)
 
             self.grunet = Unet(hidden_sizes=n_ch_grunet, kernel_sizes=[kernel_size] * 7)
             # self.grunet = GRUnet(hidden_sizes=n_ch_grunet, kernel_sizes=[kernel_size] * 5, down_scaling=2)
 
             self.grid_offset = GRUnetBlock(n_ch_grunet[-1], n_ch_grunet[-1], kernel_size, output_size=6, output_activation=False)
+            '''
             torch.nn.init.normal(self.grid_offset.conv3d.weight, 0, 0.001)
             torch.nn.init.normal(self.grid_offset.conv3d.bias, 0, 0.001)
 
@@ -475,6 +486,15 @@ class UnidirectionalSequence(nn.Module):
                                                    seq_len, depth2d=depth2d)
 
     def forward(self, core, penu, core_rep, penu_rep, clinical, factor):
+        def _nonlin(input_grunet, hidden_refine1, hidden_refine2, hidden_refine3, hidden_unet_out):
+            hidden_refine1, output = self.refine1(input_grunet, hidden_refine1)
+            output, indices = self.maxpool(output)
+            hidden_refine2, output = self.refine2(output, hidden_refine2)
+            output = self.munpool(output, indices)
+            hidden_refine3, output = self.refine3(output, hidden_refine3)
+            hidden_unet_out, nonlin_grids = self.grid_offset(output, hidden_unet_out)
+            return nonlin_grids, hidden_refine1, hidden_refine2, hidden_refine3, hidden_unet_out
+
         offset = []
         pr_time = []
 
@@ -484,9 +504,12 @@ class UnidirectionalSequence(nn.Module):
         hidden_core = torch.zeros(self.batchsize, self.core_rep.hidden_size, 28, 128, 128).cuda()
         hidden_penu = torch.zeros(self.batchsize, self.penu_rep.hidden_size, 28, 128, 128).cuda()
 
-        if self.grunet:
-            hidden_unet_in = torch.zeros(self.batchsize, self.unet_in.hidden_size, 28, 64, 64).cuda()
-            hidden_unet_out = torch.zeros(self.batchsize, self.grid_offset.hidden_size, 28, 64, 64).cuda()
+        if self.munpool is not None:  #self.grunet:
+            #hidden_unet_in = torch.zeros(self.batchsize, self.unet_in.hidden_size, 28, 64, 64).cuda()
+            hidden_refine1 = torch.zeros(self.batchsize, self.refine1.hidden_size, 28, 32, 32).cuda()
+            hidden_refine2 = torch.zeros(self.batchsize, self.refine2.hidden_size, 14, 16, 16).cuda()
+            hidden_refine3 = torch.zeros(self.batchsize, self.refine3.hidden_size, 28, 32, 32).cuda()
+            hidden_unet_out = torch.zeros(self.batchsize, self.grid_offset.hidden_size, 28, 32, 32).cuda()
             '''
             hidden_grunet = [torch.zeros([self.batchsize, self.grunet.blocks[0].hidden_size, 28, 64, 64]).cuda(),
                              torch.zeros([self.batchsize, self.grunet.blocks[1].hidden_size, 14, 32, 32]).cuda(),
@@ -528,15 +551,29 @@ class UnidirectionalSequence(nn.Module):
             else:
                 input_grunet = input_img
 
-            if self.grunet:
+            if self.munpool is not None:  #self.grunet:
                 if self.clinical_grunet:
                     input_grunet = torch.cat((F.interpolate(clinical_step, input_grunet.size()[2:5]), input_grunet), dim=1)
                 #nonlin_grids, h0, h1, h2, h3, h4 = checkpoint(lambda a, b, c, d, e, f: self.grunet(a, b, c, d, e, f), input_grunet, *hidden_grunet)
                 #hidden_grunet = [h0, h1, h2, h3, h4]
                 input_grunet = F.interpolate(input_grunet, scale_factor=(1, 1 / self.xy_downscaling, 1 / self.xy_downscaling))
+
+                '''
+                hidden_refine1, output = checkpoint(lambda a, b: self.refine1(a, b), input_grunet, hidden_refine1)
+                output, indices = self.maxpool(output)
+                hidden_refine2, output = checkpoint(lambda a, b: self.refine2(a, b), output, hidden_refine2)
+                output = self.munpool(output, indices)
+                hidden_refine3, output = checkpoint(lambda a, b: self.refine3(a, b), output, hidden_refine3)
+                hidden_unet_out, nonlin_grids = checkpoint(lambda a, b: self.grid_offset(a, b), output, hidden_unet_out)
+                '''
+                nonlin_grids, hidden_refine1, hidden_refine2, hidden_refine3, hidden_unet_out = checkpoint(lambda a, b, c, d, e: _nonlin(a, b, c, d, e), input_grunet, hidden_refine1, hidden_refine2, hidden_refine3, hidden_unet_out)
+
+                '''
                 hidden_unet_in, input_grunet = checkpoint(lambda a, b: self.unet_in(a, b), input_grunet, hidden_unet_in)
                 nonlin_grids = checkpoint(lambda a: self.grunet(a), input_grunet)
-                hidden_unet_out, nonlin_grids = checkpoint(lambda a, b: self.grid_offset(a, b), nonlin_grids, hidden_unet_out)
+                hidden_unet_out, nonlin_grids = checkpoint(lambda a, b: self.grid_offset(a, b), output, hidden_unet_out)
+                '''
+
                 nonlin_grids = F.interpolate(nonlin_grids, scale_factor=(1, self.xy_downscaling, self.xy_downscaling))
                 offset.append(nonlin_grids.permute(0, 2, 3, 4, 1))
             else:
@@ -617,7 +654,12 @@ class BidirectionalSequence(nn.Module):
 
         self.soften = nn.AvgPool3d(soften_kernel, (1, 1, 1), padding=[i//2 for i in soften_kernel])
 
+        self.combine = GRUnetBlock(4, 10, kernel_size, output_activation=None, output_size=1)
+        self.sigmoid = nn.Sigmoid()
+
     def forward(self, core, penu, clinical, factor):
+        hidden_combine = torch.zeros(self.rnn1.batchsize, self.combine.hidden_size, 28, 128, 128).cuda()
+
         factor = factor.unsqueeze(2).unsqueeze(3).unsqueeze(4).unsqueeze(5)  # one additional dim for later when squeeze
 
         ##############################################################
@@ -650,9 +692,10 @@ class BidirectionalSequence(nn.Module):
         grids_by_penu = []
         offsets_core = []
         offsets_penu = []
+        combined = []
 
         for i in range(self.len):
-            offsets[i] = self.soften(offsets[i].permute(0, 4, 1, 2, 3)).permute(0, 2, 3, 4, 1)
+            offsets[i] = self.soften(self.soften(offsets[i].permute(0, 4, 1, 2, 3))).permute(0, 2, 3, 4, 1)
             offsets_core.append(offsets[i][:, :, :, :, :3])
             offsets_penu.append(offsets[i][:, :, :, :, 3:])
 
@@ -660,6 +703,9 @@ class BidirectionalSequence(nn.Module):
             pred_by_penu = nn.functional.grid_sample(penu, self.grid_identity + offsets_penu[-1])
             output_by_core.append(pred_by_core)
             output_by_penu.append(pred_by_penu)
+            input_combine = torch.cat((F.interpolate(clinical, pred_by_core.size()[2:5]), pred_by_core, pred_by_penu), dim=1)
+            hidden_combine, combine = self.combine(input_combine, hidden_combine)
+            combined.append(self.sigmoid(combine))
             del pred_by_core
             del pred_by_penu
 
@@ -672,4 +718,5 @@ class BidirectionalSequence(nn.Module):
 
         return torch.cat(output_by_core, dim=1), torch.cat(output_by_penu, dim=1), lesion_pos,\
                torch.cat(grids_by_core, dim=1), torch.cat(grids_by_penu, dim=1),\
-               torch.stack(offsets_core, dim=1), torch.stack(offsets_penu, dim=1)
+               torch.stack(offsets_core, dim=1), torch.stack(offsets_penu, dim=1),\
+               torch.cat(combined, dim=1)
