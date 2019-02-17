@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from common import data, metrics
-from GRUnet_2 import BidirectionalSequence, tensor2index
+from GRUnet_2 import BidirectionalSequence, tensor2index, BiNet
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -9,7 +9,6 @@ import numpy as np
 import scipy.ndimage as ndi
 import argparse
 import datetime
-from torch.autograd import Variable
 
 
 class Criterion(nn.Module):
@@ -90,6 +89,38 @@ class Criterion(nn.Module):
         return loss
 
 
+class Criterion_BiNet(nn.Module):
+    def __init__(self, weights):
+        super(Criterion_BiNet, self).__init__()
+        self.dc = metrics.BatchDiceLoss([1.0])  # weighted inversely by each volume proportion
+        assert len(weights) == 4
+        self.weights = [i/100 for i in weights]
+        self.scales = [nn.AvgPool3d((1, 5, 5), (1, 1, 1), padding=(0, 2, 2)),
+                       nn.AvgPool3d((3, 13, 13), (1, 1, 1), padding=(1, 6, 6)),
+                       nn.AvgPool3d((5, 23, 23), (1, 1, 1), padding=(2, 11, 11)),
+                       nn.AvgPool3d((7, 31, 31), (1, 1, 1), padding=(3, 15, 15)),
+                       nn.AvgPool3d((9, 41, 41), (1, 1, 1), padding=(4, 20, 20))]
+
+    def multi_scale_dc(self, input, target):
+        loss = 0.0
+        for scale in self.scales:
+            loss += self.dc(scale(scale(input)), scale(scale(target)))
+        return loss/4.0
+
+    def forward(self, pr_core, gt_core, pr_lesion, gt_lesion, pr_penu, gt_penu, output, out_c, out_p, mid_c, mid_p,
+                offsets_core, offsets_penu):
+
+        loss = self.weights[0] * self.multi_scale_dc(pr_core, gt_core)
+        loss += self.weights[1] * self.multi_scale_dc(pr_lesion, gt_lesion)
+        loss += self.weights[2] * self.multi_scale_dc(pr_penu, gt_penu)
+
+        for i in range(output.size()[1]-1):
+            diff = output[:, i+1] - output[:, i]
+            loss += self.weights[3] * torch.mean(torch.abs(diff) - diff)  # monotone
+
+        return loss
+
+
 def get_factors(batch, batchsize, sequence_length, sequence_thresholds):
     factor = torch.tensor([[0] * sequence_length] * batchsize, dtype=torch.float).cuda()
     t_core = batch[data.KEY_GLOBAL][:, 0]
@@ -161,6 +192,24 @@ def get_results(batch, batchsize, pr, out_c, out_p, lesion_pos, sequence_thresho
            torch.stack(pr_out_c, dim=0).unsqueeze(1), torch.stack(pr_out_p, dim=0).unsqueeze(1),\
            torch.stack(pr_mid_c, dim=0).unsqueeze(1), torch.stack(pr_mid_p, dim=0).unsqueeze(1),\
            idx_lesion, idx_middle
+
+
+def get_results_BiNet(batch, batchsize, pr, sequence_thresholds, t_core, idx_core):
+    pr_core = []
+    pr_lesion = []
+    pr_penu = []
+
+    idx_lesion = tensor2index(t_core + batch[data.KEY_GLOBAL][:, 1], sequence_thresholds)
+    for b in range(batchsize):
+        pr_lesion.append(pr[b, int(idx_lesion[b])])
+        pr_core.append(pr[b, int(idx_core[b])])  # int(batch[data.KEY_GLOBAL][b, 0, :, :, :])
+        pr_penu.append(pr[b, -1])
+
+    return torch.stack(pr_lesion, dim=0).unsqueeze(1),\
+           torch.stack(pr_core, dim=0).unsqueeze(1), torch.stack(pr_penu, dim=0).unsqueeze(1),\
+           idx_lesion
+
+
 
 
 def get_title(prefix, row, idx, batch, seq_thr, lesion_pos=None):
@@ -256,14 +305,48 @@ def process_batch(batch, batchsize, bi_net, criterion, arg_combine, sequence_len
     return gt, prs, grid_c, grid_p, idx_lesion, loss
 
 
-def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
+def process_batch_BiNet(batch, batchsize, bi_net, criterion, arg_combine, sequence_length, sequence_thresholds, device):
+    gt = batch[data.KEY_LABELS].to(device)
+
+    t_core, idx_core, factor, output_factors = get_factors(batch,
+                                                           batchsize,
+                                                           sequence_length,
+                                                           sequence_thresholds)
+
+    grid_c, grid_p, prs = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
+                                 gt[:, -1, :, :, :].unsqueeze(1),
+                                 batch[data.KEY_GLOBAL].to(device))
+
+    pr_lesion, pr_core, pr_penu, pr_out_c, pr_out_p, pr_mid_c, pr_mid_p, idx_lesion, _ = get_results(batch,
+                                                                                                     batchsize, prs,
+                                                                                                     sequence_thresholds,
+                                                                                                     t_core, idx_core)
+
+    loss = criterion(pr_core,
+                     gt[:, 0, :, :, :].unsqueeze(1),  # torch.stack(gt_core, dim=0),
+                     pr_lesion,
+                     gt[:, 1, :, :, :].unsqueeze(1),  # torch.stack(gt_lesion, dim=0),
+                     pr_penu,
+                     gt[:, 2, :, :, :].unsqueeze(1),  # torch.stack(gt_penu, dim=0),
+                     prs,
+                     pr_out_c,
+                     pr_out_p,
+                     pr_mid_c,
+                     pr_mid_p,
+                     offsets_core,
+                     offsets_penu)
+
+    return gt, prs, grid_c, grid_p, idx_lesion, loss
+
+
+def main(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
          arg_vec2vec1, arg_grunet, arg_img2vec2, arg_vec2vec2, arg_addfactor, arg_softener, arg_loss,
          arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet):
 
-    print('arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,\
+    print('arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,\
            arg_vec2vec1, arg_grunet, arg_img2vec2, arg_vec2vec2, arg_addfactor, arg_softener, arg_loss,\
            arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet')
-    print(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
+    print(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
           arg_vec2vec1, arg_grunet, arg_img2vec2, arg_vec2vec2, arg_addfactor, arg_softener, arg_loss,
           arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet)
 
@@ -276,8 +359,7 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
     batchsize = arg_batchsize
     #sequence_thresholds = [0.4, 0.8, 1.2, 1.6, 2.0, 2.4, 2.8, 3.2, 3.6, 4.0, 4.4, 4.8, 5.2, 5.6, 6.0, 6.5, 7.1, 7.8, 8.7, 10.]
     sequence_thresholds = [0.0, 0.3, 0.6, 0.9, 1.2, 1.5, 1.8, 2.1, 2.4, 2.7, 3.0, 3.3, 3.6, 3.9, 4.2, 4.5, 4.8, 5.1, 5.4, 5.7, 6.0, 6.4, 7.1, 8.5, 10.0]
-    assert len(sequence_thresholds) == arg_length
-    sequence_length = arg_length
+    sequence_length = len(sequence_thresholds)
     #sequence_weight = [i / sum(range(arg_length + 1)) for i in range(1, arg_length + 1)]
     #sequence_thresh = [sum(sequence_weight[:i]) for i in range(arg_length + 1)]
     num_clinical_input = arg_clinical
@@ -482,11 +564,172 @@ def main(arg_path, arg_length, arg_batchsize, arg_clinical, arg_commonfeature, a
             del fig
 
 
+def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
+         arg_vec2vec1, arg_grunet, arg_img2vec2, arg_vec2vec2, arg_addfactor, arg_softener, arg_loss,
+         arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet):
+
+    print(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
+          arg_vec2vec1, arg_grunet, arg_img2vec2, arg_vec2vec2, arg_addfactor, arg_softener, arg_loss,
+          arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet)
+
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    batchsize = arg_batchsize
+    sequence_thresholds = [0.0, 0.3, 0.6, 0.9, 1.2, 1.5, 1.8, 2.1, 2.4, 2.7, 3.0, 3.3, 3.6, 3.9, 4.2, 4.5, 4.8, 5.1,
+                           5.4, 5.7, 6.0, 6.4, 7.1, 8.5, 10.0]
+    sequence_length = len(sequence_thresholds)
+    n_visual_samples = min(4, batchsize)
+
+    modalities = ['_CBV_reg1_downsampled',
+                  '_TTD_reg1_downsampled']
+    labels = ['_CBVmap_subset_reg1_downsampled',
+              '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled',
+              '_TTDmap_subset_reg1_downsampled']
+
+    train_trafo = [data.ResamplePlaneXY(0.5),
+                   data.UseLabelsAsImages(),
+                   data.HemisphericFlip(),
+                   data.ElasticDeform(apply_to_images=True),
+                   data.ClinicalTimeOnly(),
+                   data.ToTensor()]
+    valid_trafo = [data.ResamplePlaneXY(0.5),
+                   data.UseLabelsAsImages(),
+                   data.HemisphericFlipFixedToCaseId(14),
+                   data.ClinicalTimeOnly(),
+                   data.ToTensor()]
+
+    ds_train, ds_valid = data.get_stroke_prediction_training_data(modalities, labels, train_trafo, valid_trafo,
+                                                                  arg_fold, arg_validsize, batchsize=arg_batchsize,
+                                                                  seed=arg_seed, split=True)
+
+    bi_net = BiNet(seq_len=sequence_length, batch_size=batchsize).to(device)
+
+    params = [p for p in bi_net.parameters() if p.requires_grad]
+    print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
+          '/ total: Bi-Net', sum([p.nelement() for p in bi_net.parameters()]))
+
+    criterion = Criterion(arg_loss)
+    optimizer = torch.optim.Adam(params, lr=0.001)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=75, gamma=0.1)
+
+    loss_train = []
+    loss_valid = []
+
+    for epoch in range(0, arg_epochs):
+        scheduler.step()
+        f, axarr = plt.subplots(n_visual_samples * 6, sequence_length + 3)
+        loss_mean = 0
+        inc = 0
+
+        ### Train ###
+
+        is_train = True
+        bi_net.train(is_train)
+        with torch.set_grad_enabled(is_train):
+
+            for batch in ds_train:
+                gt, pr, grid_c, grid_p, idx_lesion, loss = process_batch_BiNet(batch, batchsize, bi_net, criterion,
+                                                                               arg_combine, sequence_length,
+                                                                               sequence_thresholds, device)
+
+                loss_mean += loss.item()
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+                inc += 1
+
+                torch.cuda.empty_cache()
+
+            loss_train.append(loss_mean / inc)
+
+            axarr = visualise_batch(axarr,
+                                    batch,
+                                    gt.cpu().detach().numpy(),
+                                    pr.cpu().detach().numpy(),
+                                    bi_net.visual_grid.cpu().detach().numpy(),
+                                    grid_c.cpu().detach().numpy(),
+                                    grid_p.cpu().detach().numpy(),
+                                    idx_lesion,
+                                    n_visual_samples,
+                                    sequence_length,
+                                    sequence_thresholds,
+                                    init_offset=0)
+            del batch
+
+        del pr
+        del gt
+        del grid_c
+        del grid_p
+        del idx_lesion
+        del loss
+
+        ### Validate ###
+
+        inc = 0
+        loss_mean = 0
+        is_train = False
+        optimizer.zero_grad()
+        bi_net.train(is_train)
+        with torch.set_grad_enabled(is_train):
+
+            for batch in ds_valid:
+                gt, pr, grid_c, grid_p, idx_lesion, loss = process_batch(batch, batchsize, bi_net, criterion,
+                                                                         arg_combine, sequence_length,
+                                                                         sequence_thresholds, device)
+
+                loss_mean += loss.item()
+
+                inc += 1
+
+                torch.cuda.empty_cache()
+
+            loss_valid.append(loss_mean / inc)
+
+            axarr = visualise_batch(axarr,
+                                    batch,
+                                    gt.cpu().detach().numpy(),
+                                    pr.cpu().detach().numpy(),
+                                    bi_net.visual_grid.cpu().detach().numpy(),
+                                    grid_c.cpu().detach().numpy(),
+                                    grid_p.cpu().detach().numpy(),
+                                    idx_lesion,
+                                    n_visual_samples,
+                                    sequence_length,
+                                    sequence_thresholds,
+                                    init_offset=6)
+            del batch
+
+        print('Epoch', epoch, 'last batch training loss:', loss_train[-1], '\tvalidation batch loss:', loss_valid[-1])
+
+        if epoch % 5 == 0:
+            torch.save(bi_net, arg_path.format('latest', 'model'))
+
+        for ax in axarr.flatten():
+            ax.title.set_fontsize(3)
+            ax.xaxis.set_visible(False)
+            ax.yaxis.set_visible(False)
+        f.subplots_adjust(hspace=0.05)
+        f.savefig(arg_path.format(str(epoch), 'png'), bbox_inches='tight', dpi=300)
+
+        del f
+        del axarr
+
+        if epoch > 0:
+            fig, plot = plt.subplots()
+            epochs = range(1, epoch + 2)
+            plot.plot(epochs, loss_train, 'r-')
+            plot.plot(epochs, loss_valid, 'b-')
+            plot.set_ylabel('Loss Training (r) & Validation (b)')
+            fig.savefig(arg_path.format('plots', 'png'), bbox_inches='tight', dpi=300)
+            del plot
+            del fig
+
+
 if __name__ == '__main__':
     print(datetime.datetime.now())
     parser = argparse.ArgumentParser()
     parser.add_argument('--path', help='Output path pattern', default='/share/data_zoe1/lucas/NOT_IN_BACKUP/tmp/grunet_exp_{}.{}')
-    parser.add_argument('--length', type=int, help='Sequence prediction length of recurrent network', default=11)
     parser.add_argument('--batchsize', type=int, help='Batch size', default=2)
     parser.add_argument('--clinical', type=int, help='Take the first <CLINICAL> channels of clinical input vector', default=2)
     parser.add_argument('--commonfeature', type=int, help='Number of channels for common input features', default=5)
@@ -507,7 +750,7 @@ if __name__ == '__main__':
     parser.add_argument('--combine', default='add', const='add', nargs='?', choices=['add', 'linear', 'split'], help='How to combine prediction from core and penumbra? Uniformly add both, linearly interpolate continously between both, or hard split in the middle.')
     args = parser.parse_args()
     assert len(args.fold) >= args.batchsize
-    main(args.path, args.length, args.batchsize, args.clinical, args.commonfeature, args.additional, args.img2vec1,
+    main(args.path, args.batchsize, args.clinical, args.commonfeature, args.additional, args.img2vec1,
          args.vec2vec1, args.grunet, args.img2vec2, args.vec2vec2, args.addfactor, args.softener, args.loss,
          args.epochs, args.fold, args.validsize, args.seed, args.combine, args.nonlinclinical)
     print(datetime.datetime.now())

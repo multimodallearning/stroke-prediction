@@ -1,7 +1,7 @@
 import os
 import argparse
 import datetime
-from train_grunet import main
+from train_grunet import main, main_BiNet
 
 
 BATCHSIZE = 2
@@ -13,9 +13,6 @@ SEED = 4
 DEFAULT_IDX = 0
 
 
-lengths = [11,
-           16,
-           25]
 commonfeatures = [5,
                   4,  # less parameters
                   2]  # less parameters #2
@@ -83,7 +80,6 @@ for i, f in enumerate(folds):
     if i != args.fold:
         fold += f
 
-length = lengths[DEFAULT_IDX]
 commonfeature = commonfeatures[DEFAULT_IDX]
 additional = additionals[DEFAULT_IDX]
 img2vec1 = img2vec1s[DEFAULT_IDX]
@@ -96,6 +92,7 @@ softener = softeners[DEFAULT_IDX]
 combine = combines[DEFAULT_IDX]
 loss = losses[DEFAULT_IDX]
 upsampledclinical = upsampledclinicals[DEFAULT_IDX]
+func = main
 
 
 if args.id == 0:
@@ -206,7 +203,11 @@ elif args.id == 99:
     softener = softeners[0]
     combine = combines[1]
     loss = losses[3]
-    length = lengths[2]
+elif args.id == 100:
+    print(args.id, 'DEBUG / TESTING PURPOSES - simple BiNet')
+    loss = [25, 45, 25, 0.02]
+    func = main_BiNet
+    path = '/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp' + str(args.id)
 else:
     raise Exception('No valid experiment id given')
 
@@ -215,6 +216,6 @@ if not os.path.isdir(path):
 FILENAME = '/f' + str(args.fold + 1) + '_epoch_{}.{}'
 
 print(datetime.datetime.now())
-main(path+FILENAME, length, BATCHSIZE, CLINICAL, commonfeature, additional, img2vec1, vec2vec1, grunet, img2vec2, vec2vec2,
+func(path+FILENAME, BATCHSIZE, CLINICAL, commonfeature, additional, img2vec1, vec2vec1, grunet, img2vec2, vec2vec2,
      addfactor, softener, loss, EPOCHS, fold, VALIDSIZE, SEED, combine, upsampledclinical)
 print(datetime.datetime.now())
