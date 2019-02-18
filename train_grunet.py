@@ -113,17 +113,15 @@ class Criterion_BiNet(nn.Module):
                 pr_penu_c, pr_penu_p, gt_penu, output):
 
         loss = self.weights[0] * self.multi_scale_dc(pr_core_c, gt_core)
-        loss += self.weights[1] * self.multi_scale_dc(pr_lesion_c, gt_lesion)
-        loss += self.weights[2] * self.multi_scale_dc(pr_penu_c, gt_penu)
-        loss = self.weights[3] * self.multi_scale_dc(pr_core_c, gt_core)
-        loss += self.weights[4] * self.multi_scale_dc(pr_lesion_c, gt_lesion)
-        loss += self.weights[5] * self.multi_scale_dc(pr_penu_c, gt_penu)
+        loss += self.weights[1] * self.multi_scale_dc(pr_core_p, gt_core)
+        loss += self.weights[2] * self.multi_scale_dc(pr_lesion_c, gt_lesion)
+        loss += self.weights[3] * self.multi_scale_dc(pr_lesion_p, gt_lesion)
+        loss += self.weights[4] * self.multi_scale_dc(pr_penu_c, gt_penu)
+        loss += self.weights[5] * self.multi_scale_dc(pr_penu_p, gt_penu)
 
         for i in range(output.size()[1]-1):
             diff = output[:, i+1] - output[:, i]
             loss += self.weights[6] * torch.mean(torch.abs(diff) - diff)  # monotone
-
-        loss += nn.L1Loss()
 
         return loss
 
@@ -339,7 +337,7 @@ def process_batch_BiNet(batch, batchsize, bi_net, criterion, sequence_length, se
                                                                                                     sequence_thresholds,
                                                                                                     t_core, idx_core)
 
-    prs = pred_core * 0.5 + 0.5 * pred_penu
+    prs = pred_core * factor.unsqueeze(2).unsqueeze(3).unsqueeze(4) + (1-factor).unsqueeze(2).unsqueeze(3).unsqueeze(4) * pred_penu
 
     loss = criterion(pr_core_c, pr_core_p,
                      gt[:, 0, :, :, :].unsqueeze(1),
@@ -587,10 +585,9 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     batchsize = arg_batchsize
-    sequence_thresholds = [0.0, 0.3, 0.6, 0.9, 1.2, 1.5, 1.8, 2.1, 2.4, 2.7, 3.0, 3.3, 3.6, 3.9, 4.2, 4.5, 4.8, 5.1,
-                           5.4, 5.7, 6.0, 6.4, 7.1, 8.5, 10.0]
+    sequence_thresholds = [.0, .2, .4, .6, .8, 1., 1.2, 1.4, 1.6, 1.8, 2., 2.2, 2.4, 2.6, 2.8, 3., 3.2, 3.4, 3.6, 3.8, 4., 4.2, 4.4, 4.6, 4.8, 5., 5.3, 5.6, 5.9, 6.2, 6.5, 7., 8., 10.]
     sequence_length = len(sequence_thresholds)
-    n_visual_samples = min(4, batchsize)
+    n_visual_samples = 2
 
     modalities = ['_CBV_reg1_downsampled',
                   '_TTD_reg1_downsampled']

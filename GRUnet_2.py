@@ -854,9 +854,9 @@ class BiNet(nn.Module):
         self.visual_grid = self.visualise_grid(batch_size)
 
         # Feature part
-        channels_feature = [2, 16, 24]
-        channels_img2vec = [24, 32, 48, 64]
-        channels_vec2vec = [64 + 2, 32]
+        channels_feature = [2, 16, 32]
+        channels_img2vec = [32, 48, 64, 72]
+        channels_vec2vec = [72 + 2, 61]
 
         self.feature_core = self._feature(channels_feature)
         self.img2vec_core = self._img2vec(channels_img2vec)
@@ -867,11 +867,13 @@ class BiNet(nn.Module):
         self.vec2vec_penu = self._vec2vec(channels_vec2vec)
 
         # Recurrent part
-        self.vec2gru_core = nn.GRUCell(32 + 1, 22)
-        self.gru2gru_core = nn.GRUCell(22, 12)
+        self.vec2gru_core = nn.GRUCell(61 + 3, 64)
+        self.gru2gru_core = nn.GRUCell(64, 48)
+        self.gru2aff_core = nn.GRUCell(48, 12)
 
-        self.vec2gru_penu = nn.GRUCell(32 + 1, 22)
-        self.gru2gru_penu = nn.GRUCell(22, 12)
+        self.vec2gru_penu = nn.GRUCell(61 + 3, 64)
+        self.gru2gru_penu = nn.GRUCell(64, 48)
+        self.gru2aff_penu = nn.GRUCell(48, 12)
 
     def forward(self, core, penu, clinical):
         pred_core = []
@@ -880,9 +882,12 @@ class BiNet(nn.Module):
         grid_penu = []
 
         hidden_vec2gru_core = torch.zeros(self.grid_identity_core.size(0), self.vec2gru_core.hidden_size).cuda()
-        hidden_gru2gru_core = self._affine_identity().view(-1, 12).expand(self.grid_identity_core.size(0), 12).cuda()
+        hidden_gru2gru_core = torch.zeros(self.grid_identity_core.size(0), self.gru2gru_core.hidden_size).cuda()
+        hidden_gru2aff_core = self._affine_identity().view(-1, 12).expand(self.grid_identity_core.size(0), 12).cuda()
+
         hidden_vec2gru_penu = torch.zeros(self.grid_identity_penu.size(0), self.vec2gru_penu.hidden_size).cuda()
-        hidden_gru2gru_penu = self._affine_identity().view(-1, 12).expand(self.grid_identity_penu.size(0), 12).cuda()
+        hidden_gru2gru_penu = torch.zeros(self.grid_identity_penu.size(0), self.gru2gru_penu.hidden_size).cuda()
+        hidden_gru2aff_penu = self._affine_identity().view(-1, 12).expand(self.grid_identity_penu.size(0), 12).cuda()
 
         blob_core = self.feature_core(torch.cat((core, penu), dim=1))
         blob_core = self.img2vec_core(blob_core)
@@ -895,18 +900,20 @@ class BiNet(nn.Module):
         blob_penu = self.vec2vec_penu(blob_penu.squeeze())
 
         for i in range(self.len):
-            vec_core = torch.cat((blob_core, torch.ones(self.grid_identity_core.size(0), 1).cuda() * i), dim=1)
-            vec_penu = torch.cat((blob_penu, torch.ones(self.grid_identity_penu.size(0), 1).cuda() * i), dim=1)
+            vec_core = torch.cat((blob_core, clinical.squeeze(), torch.ones(self.grid_identity_core.size(0), 1).cuda() * i), dim=1)
+            vec_penu = torch.cat((blob_penu, clinical.squeeze(), torch.ones(self.grid_identity_penu.size(0), 1).cuda() * i), dim=1)
 
             hidden_vec2gru_core = self.vec2gru_core(vec_core, hidden_vec2gru_core)
             hidden_gru2gru_core = self.gru2gru_core(hidden_vec2gru_core, hidden_gru2gru_core)
-            offsets_core = affine_grid(hidden_gru2gru_core.view(-1, 3, 4), core.size())
+            hidden_gru2aff_core = self.gru2aff_core(hidden_gru2gru_core, hidden_gru2aff_core)
+            offsets_core = affine_grid(hidden_gru2aff_core.view(-1, 3, 4), core.size())
             pred_core.append(grid_sample(core, self.grid_identity_core + offsets_core))
             grid_core.append(grid_sample(self.visual_grid, self.grid_identity_core + offsets_core))
 
             hidden_vec2gru_penu = self.vec2gru_penu(vec_penu, hidden_vec2gru_penu)
             hidden_gru2gru_penu = self.gru2gru_penu(hidden_vec2gru_penu, hidden_gru2gru_penu)
-            offsets_penu = affine_grid(hidden_gru2gru_penu.view(-1, 3, 4), penu.size())
+            hidden_gru2aff_penu = self.gru2aff_penu(hidden_gru2gru_penu, hidden_gru2aff_penu)
+            offsets_penu = affine_grid(hidden_gru2aff_penu.view(-1, 3, 4), penu.size())
             pred_penu.append(grid_sample(penu, self.grid_identity_penu + offsets_penu))
             grid_penu.append(grid_sample(self.visual_grid, self.grid_identity_penu + offsets_penu))
 

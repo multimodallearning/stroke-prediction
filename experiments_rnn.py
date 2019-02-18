@@ -205,7 +205,8 @@ elif args.id == 99:
     loss = losses[3]
 elif args.id == 100:
     print(args.id, 'DEBUG / TESTING PURPOSES - simple BiNet')
-    loss = [15, 10, 20, 25, 10, 15, 0.02]
+    loss = [15, 10, 25, 25, 10, 15, 0.0]
+    BATCHSIZE = 4
     func = main_BiNet
     path = '/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp' + str(args.id)
 else:
