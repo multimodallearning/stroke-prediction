@@ -93,9 +93,10 @@ class Criterion_BiNet(nn.Module):
     def __init__(self, weights):
         super(Criterion_BiNet, self).__init__()
         self.dc = metrics.BatchDiceLoss([1.0])  # weighted inversely by each volume proportion
-        assert len(weights) == 4
+        assert len(weights) == 7
         self.weights = [i/100 for i in weights]
-        self.scales = [nn.AvgPool3d((1, 5, 5), (1, 1, 1), padding=(0, 2, 2)),
+        self.scales = [nn.AvgPool3d((1, 1, 1), (1, 1, 1), padding=(0, 0, 0)),
+                       nn.AvgPool3d((1, 5, 5), (1, 1, 1), padding=(0, 2, 2)),
                        nn.AvgPool3d((3, 13, 13), (1, 1, 1), padding=(1, 6, 6)),
                        nn.AvgPool3d((5, 23, 23), (1, 1, 1), padding=(2, 11, 11)),
                        nn.AvgPool3d((7, 31, 31), (1, 1, 1), padding=(3, 15, 15)),
@@ -105,17 +106,24 @@ class Criterion_BiNet(nn.Module):
         loss = 0.0
         for scale in self.scales:
             loss += self.dc(scale(scale(input)), scale(scale(target)))
-        return loss/4.0
+        return loss/len(self.scales)
 
-    def forward(self, pr_core, gt_core, pr_lesion, gt_lesion, pr_penu, gt_penu, output):
+    def forward(self, pr_core_c, pr_core_p, gt_core,
+                pr_lesion_c, pr_lesion_p, gt_lesion,
+                pr_penu_c, pr_penu_p, gt_penu, output):
 
-        loss = self.weights[0] * self.multi_scale_dc(pr_core, gt_core)
-        loss += self.weights[1] * self.multi_scale_dc(pr_lesion, gt_lesion)
-        loss += self.weights[2] * self.multi_scale_dc(pr_penu, gt_penu)
+        loss = self.weights[0] * self.multi_scale_dc(pr_core_c, gt_core)
+        loss += self.weights[1] * self.multi_scale_dc(pr_lesion_c, gt_lesion)
+        loss += self.weights[2] * self.multi_scale_dc(pr_penu_c, gt_penu)
+        loss = self.weights[3] * self.multi_scale_dc(pr_core_c, gt_core)
+        loss += self.weights[4] * self.multi_scale_dc(pr_lesion_c, gt_lesion)
+        loss += self.weights[5] * self.multi_scale_dc(pr_penu_c, gt_penu)
 
         for i in range(output.size()[1]-1):
             diff = output[:, i+1] - output[:, i]
-            loss += self.weights[3] * torch.mean(torch.abs(diff) - diff)  # monotone
+            loss += self.weights[6] * torch.mean(torch.abs(diff) - diff)  # monotone
+
+        loss += nn.L1Loss()
 
         return loss
 
@@ -193,19 +201,27 @@ def get_results(batch, batchsize, pr, out_c, out_p, lesion_pos, sequence_thresho
            idx_lesion, idx_middle
 
 
-def get_results_BiNet(batch, batchsize, pr, sequence_thresholds, t_core, idx_core):
-    pr_core = []
-    pr_lesion = []
-    pr_penu = []
+def get_results_BiNet(batch, batchsize, pred_core, pred_penu, sequence_thresholds, t_core, idx_core):
+    pr_core_c = []
+    pr_lesion_c = []
+    pr_penu_c = []
+    pr_core_p = []
+    pr_lesion_p = []
+    pr_penu_p = []
 
     idx_lesion = tensor2index(t_core + batch[data.KEY_GLOBAL][:, 1], sequence_thresholds)
     for b in range(batchsize):
-        pr_lesion.append(pr[b, int(idx_lesion[b])])
-        pr_core.append(pr[b, int(idx_core[b])])  # int(batch[data.KEY_GLOBAL][b, 0, :, :, :])
-        pr_penu.append(pr[b, -1])
+        pr_lesion_c.append(pred_core[b, int(idx_lesion[b])])
+        pr_core_c.append(pred_core[b, int(idx_core[b])])
+        pr_penu_c.append(pred_core[b, -1])
+        pr_lesion_p.append(pred_penu[b, int(idx_lesion[b])])
+        pr_core_p.append(pred_penu[b, int(idx_core[b])])
+        pr_penu_p.append(pred_penu[b, -1])
 
-    return torch.stack(pr_lesion, dim=0).unsqueeze(1),\
-           torch.stack(pr_core, dim=0).unsqueeze(1), torch.stack(pr_penu, dim=0).unsqueeze(1),\
+    return torch.stack(pr_lesion_c, dim=0).unsqueeze(1),\
+           torch.stack(pr_core_c, dim=0).unsqueeze(1), torch.stack(pr_penu_c, dim=0).unsqueeze(1),\
+           torch.stack(pr_lesion_p, dim=0).unsqueeze(1),\
+           torch.stack(pr_core_p, dim=0).unsqueeze(1), torch.stack(pr_penu_p, dim=0).unsqueeze(1),\
            idx_lesion
 
 
@@ -312,18 +328,25 @@ def process_batch_BiNet(batch, batchsize, bi_net, criterion, sequence_length, se
                                                            sequence_length,
                                                            sequence_thresholds)
 
-    prs, grid_c, grid_p = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
-                                 gt[:, -1, :, :, :].unsqueeze(1),
-                                 batch[data.KEY_GLOBAL].to(device))
+    pred_core, pred_penu, grid_c, grid_p = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
+                                                    gt[:, -1, :, :, :].unsqueeze(1),
+                                                    batch[data.KEY_GLOBAL].to(device))
 
-    pr_lesion, pr_core, pr_penu, idx_lesion = get_results_BiNet(batch, batchsize, prs, sequence_thresholds, t_core, idx_core)
+    pr_lesion_c, pr_core_c, pr_penu_c, pr_lesion_p, pr_core_p, pr_penu_p, idx_lesion = get_results_BiNet(batch,
+                                                                                                         batchsize,
+                                                                                                         pred_core,
+                                                                                                         pred_penu,
+                                                                                                    sequence_thresholds,
+                                                                                                    t_core, idx_core)
 
-    loss = criterion(pr_core,
-                     gt[:, 0, :, :, :].unsqueeze(1),  # torch.stack(gt_core, dim=0),
-                     pr_lesion,
-                     gt[:, 1, :, :, :].unsqueeze(1),  # torch.stack(gt_lesion, dim=0),
-                     pr_penu,
-                     gt[:, 2, :, :, :].unsqueeze(1),  # torch.stack(gt_penu, dim=0),
+    prs = pred_core * 0.5 + 0.5 * pred_penu
+
+    loss = criterion(pr_core_c, pr_core_p,
+                     gt[:, 0, :, :, :].unsqueeze(1),
+                     pr_lesion_c, pr_lesion_p,
+                     gt[:, 1, :, :, :].unsqueeze(1),
+                     pr_penu_c, pr_penu_p,
+                     gt[:, 2, :, :, :].unsqueeze(1),
                      prs)
 
     return gt, prs, grid_c, grid_p, idx_lesion, loss

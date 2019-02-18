@@ -845,19 +845,18 @@ class BiNet(nn.Module):
     def __init__(self, seq_len, batch_size=4):
         super().__init__()
 
-        n_clinical = 3
-
         self.len = seq_len
         assert seq_len > 0
 
-        self.grid_identity = self._grid_identity(batch_size, out_size=(batch_size, 3, 28, 128, 128))
+        self.grid_identity_core = self._grid_identity(batch_size, out_size=(batch_size, 3, 28, 128, 128))
+        self.grid_identity_penu = self._grid_identity(batch_size, out_size=(batch_size, 3, 28, 128, 128))
 
         self.visual_grid = self.visualise_grid(batch_size)
 
         # Feature part
         channels_feature = [2, 16, 24]
         channels_img2vec = [24, 32, 48, 64]
-        channels_vec2vec = [64 + n_clinical, 32]
+        channels_vec2vec = [64 + 2, 32]
 
         self.feature_core = self._feature(channels_feature)
         self.img2vec_core = self._img2vec(channels_img2vec)
@@ -868,57 +867,48 @@ class BiNet(nn.Module):
         self.vec2vec_penu = self._vec2vec(channels_vec2vec)
 
         # Recurrent part
-        self.vec2gru_core = nn.GRUCell(32, 22)
+        self.vec2gru_core = nn.GRUCell(32 + 1, 22)
         self.gru2gru_core = nn.GRUCell(22, 12)
 
-        self.vec2gru_penu = nn.GRUCell(32, 22)
+        self.vec2gru_penu = nn.GRUCell(32 + 1, 22)
         self.gru2gru_penu = nn.GRUCell(22, 12)
 
-        # Combine core RNN prediction with penu RNN prediction
-        self.combine = nn.GRUCell(n_clinical, 2)
-        self.alpha = nn.GRUCell(2, 1)
-
     def forward(self, core, penu, clinical):
-        pred = []
         pred_core = []
         pred_penu = []
         grid_core = []
         grid_penu = []
 
-        hidden_vec2gru_core = torch.zeros(self.grid_identity.size(0), self.vec2gru_core.hidden_size).cuda()
-        hidden_gru2gru_core = self._affine_identity().view(-1, 12).expand(self.grid_identity.size(0), 12).cuda()
-        hidden_vec2gru_penu = torch.zeros(self.grid_identity.size(0), self.vec2gru_penu.hidden_size).cuda()
-        hidden_gru2gru_penu = self._affine_identity().view(-1, 12).expand(self.grid_identity.size(0), 12).cuda()
-        hidden_combine = torch.zeros(self.grid_identity.size(0), self.combine.hidden_size).cuda()
-        hidden_alpha = 0.5 * torch.ones(self.grid_identity.size(0), self.alpha.hidden_size).cuda()
+        hidden_vec2gru_core = torch.zeros(self.grid_identity_core.size(0), self.vec2gru_core.hidden_size).cuda()
+        hidden_gru2gru_core = self._affine_identity().view(-1, 12).expand(self.grid_identity_core.size(0), 12).cuda()
+        hidden_vec2gru_penu = torch.zeros(self.grid_identity_penu.size(0), self.vec2gru_penu.hidden_size).cuda()
+        hidden_gru2gru_penu = self._affine_identity().view(-1, 12).expand(self.grid_identity_penu.size(0), 12).cuda()
 
         blob_core = self.feature_core(torch.cat((core, penu), dim=1))
         blob_core = self.img2vec_core(blob_core)
+        blob_core = torch.cat((blob_core, clinical), dim=1)
+        blob_core = self.vec2vec_core(blob_core.squeeze())
 
         blob_penu = self.feature_penu(torch.cat((core, penu), dim=1))
         blob_penu = self.img2vec_penu(blob_penu)
+        blob_penu = torch.cat((blob_penu, clinical), dim=1)
+        blob_penu = self.vec2vec_penu(blob_penu.squeeze())
 
         for i in range(self.len):
-            clinical_step = torch.cat((clinical, torch.ones(self.grid_identity.size(0), 1, 1, 1, 1).cuda() * i), dim=1)
+            vec_core = torch.cat((blob_core, torch.ones(self.grid_identity_core.size(0), 1).cuda() * i), dim=1)
+            vec_penu = torch.cat((blob_penu, torch.ones(self.grid_identity_penu.size(0), 1).cuda() * i), dim=1)
 
-            vec_core = self.vec2vec_core(torch.cat((blob_core, clinical_step), dim=1).squeeze())
             hidden_vec2gru_core = self.vec2gru_core(vec_core, hidden_vec2gru_core)
             hidden_gru2gru_core = self.gru2gru_core(hidden_vec2gru_core, hidden_gru2gru_core)
             offsets_core = affine_grid(hidden_gru2gru_core.view(-1, 3, 4), core.size())
-            pred_core.append(grid_sample(core, self.grid_identity + offsets_core))
-            grid_core.append(grid_sample(self.visual_grid, self.grid_identity + offsets_core))
+            pred_core.append(grid_sample(core, self.grid_identity_core + offsets_core))
+            grid_core.append(grid_sample(self.visual_grid, self.grid_identity_core + offsets_core))
 
-            vec_penu = self.vec2vec_penu(torch.cat((blob_penu, clinical_step), dim=1).squeeze())
             hidden_vec2gru_penu = self.vec2gru_penu(vec_penu, hidden_vec2gru_penu)
             hidden_gru2gru_penu = self.gru2gru_penu(hidden_vec2gru_penu, hidden_gru2gru_penu)
-            offsets_penu = affine_grid(hidden_gru2gru_core.view(-1, 3, 4), penu.size())
-            pred_penu.append(grid_sample(penu, self.grid_identity + offsets_penu))
-            grid_penu.append(grid_sample(self.visual_grid, self.grid_identity + offsets_penu))
+            offsets_penu = affine_grid(hidden_gru2gru_penu.view(-1, 3, 4), penu.size())
+            pred_penu.append(grid_sample(penu, self.grid_identity_penu + offsets_penu))
+            grid_penu.append(grid_sample(self.visual_grid, self.grid_identity_penu + offsets_penu))
 
-        for i in range(self.len):
-            hidden_combine = self.combine(clinical_step.squeeze(), hidden_combine)
-            hidden_alpha = self.alpha(hidden_combine, hidden_alpha)
-            alpha = torch.sigmoid(hidden_alpha.view(hidden_alpha.size(0), hidden_alpha.size(1), 1, 1, 1))
-            pred.append((1-alpha) * pred_core[i] + alpha * pred_penu[self.len - i - 1])
-
-        return torch.cat(pred, dim=1), torch.cat(grid_core, dim=1), torch.cat(grid_penu, dim=1)
+        return torch.cat(pred_core, dim=1), torch.cat(pred_penu[::-1], dim=1),\
+               torch.cat(grid_core, dim=1), torch.cat(grid_penu[::-1], dim=1)
