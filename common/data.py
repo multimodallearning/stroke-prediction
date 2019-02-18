@@ -352,8 +352,8 @@ class ToyDataset3DSequenceTopologyChange(Dataset):
 
 class StrokeLindaDataset2D(Dataset):
     """Ischemic stroke dataset with CBV, TTD, clinical data, and CBVmap, TTDmap, FUmap, and interpolations."""
-    PATH_ROOT = '/share/data_zoe1/lucas/Linda_Segmentations'
-    PATH_CSV = '/share/data_zoe1/lucas/Linda_Segmentations/clinical_cleaned.csv'
+    PATH_ROOT = '/share/data_zoe2/lucas/Linda_Segmentations'
+    PATH_CSV = '/share/data_zoe2/lucas/Linda_Segmentations/clinical_cleaned.csv'
     FN_PREFIX = 'train'
     FN_PATTERN = '{1}/{0}{1}{2}.nii.gz'
     ROW_OFFSET = 1

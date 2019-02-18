@@ -107,8 +107,7 @@ class Criterion_BiNet(nn.Module):
             loss += self.dc(scale(scale(input)), scale(scale(target)))
         return loss/4.0
 
-    def forward(self, pr_core, gt_core, pr_lesion, gt_lesion, pr_penu, gt_penu, output, out_c, out_p, mid_c, mid_p,
-                offsets_core, offsets_penu):
+    def forward(self, pr_core, gt_core, pr_lesion, gt_lesion, pr_penu, gt_penu, output):
 
         loss = self.weights[0] * self.multi_scale_dc(pr_core, gt_core)
         loss += self.weights[1] * self.multi_scale_dc(pr_lesion, gt_lesion)
@@ -317,10 +316,7 @@ def process_batch_BiNet(batch, batchsize, bi_net, criterion, sequence_length, se
                                  gt[:, -1, :, :, :].unsqueeze(1),
                                  batch[data.KEY_GLOBAL].to(device))
 
-    pr_lesion, pr_core, pr_penu, pr_out_c, pr_out_p, pr_mid_c, pr_mid_p, idx_lesion, _ = get_results(batch,
-                                                                                                     batchsize, prs,
-                                                                                                     sequence_thresholds,
-                                                                                                     t_core, idx_core)
+    pr_lesion, pr_core, pr_penu, idx_lesion = get_results_BiNet(batch, batchsize, prs, sequence_thresholds, t_core, idx_core)
 
     loss = criterion(pr_core,
                      gt[:, 0, :, :, :].unsqueeze(1),  # torch.stack(gt_core, dim=0),
@@ -328,13 +324,7 @@ def process_batch_BiNet(batch, batchsize, bi_net, criterion, sequence_length, se
                      gt[:, 1, :, :, :].unsqueeze(1),  # torch.stack(gt_lesion, dim=0),
                      pr_penu,
                      gt[:, 2, :, :, :].unsqueeze(1),  # torch.stack(gt_penu, dim=0),
-                     prs,
-                     pr_out_c,
-                     pr_out_p,
-                     pr_mid_c,
-                     pr_mid_p,
-                     offsets_core,
-                     offsets_penu)
+                     prs)
 
     return gt, prs, grid_c, grid_p, idx_lesion, loss
 
@@ -585,7 +575,6 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
               '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled',
               '_TTDmap_subset_reg1_downsampled']
 
-    '''
     train_trafo = [data.ResamplePlaneXY(0.5),
                    data.UseLabelsAsImages(),
                    data.HemisphericFlip(),
@@ -619,6 +608,7 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
                                                               batchsize=batchsize, normalize=int(sequence_thresholds[-1]),
                                                               growth='fast',
                                                               zsize=28)
+    '''
 
     bi_net = BiNet(seq_len=sequence_length, batch_size=batchsize).to(device)
 
@@ -693,9 +683,9 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
         with torch.set_grad_enabled(is_train):
 
             for batch in ds_valid:
-                gt, pr, grid_c, grid_p, idx_lesion, loss = process_batch(batch, batchsize, bi_net, criterion,
-                                                                         arg_combine, sequence_length,
-                                                                         sequence_thresholds, device)
+                gt, pr, grid_c, grid_p, idx_lesion, loss = process_batch_BiNet(batch, batchsize, bi_net, criterion,
+                                                                               sequence_length, sequence_thresholds,
+                                                                               device)
 
                 loss_mean += loss.item()
 
