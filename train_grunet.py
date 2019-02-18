@@ -305,7 +305,7 @@ def process_batch(batch, batchsize, bi_net, criterion, arg_combine, sequence_len
     return gt, prs, grid_c, grid_p, idx_lesion, loss
 
 
-def process_batch_BiNet(batch, batchsize, bi_net, criterion, arg_combine, sequence_length, sequence_thresholds, device):
+def process_batch_BiNet(batch, batchsize, bi_net, criterion, sequence_length, sequence_thresholds, device):
     gt = batch[data.KEY_LABELS].to(device)
 
     t_core, idx_core, factor, output_factors = get_factors(batch,
@@ -313,7 +313,7 @@ def process_batch_BiNet(batch, batchsize, bi_net, criterion, arg_combine, sequen
                                                            sequence_length,
                                                            sequence_thresholds)
 
-    grid_c, grid_p, prs = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
+    prs, grid_c, grid_p = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
                                  gt[:, -1, :, :, :].unsqueeze(1),
                                  batch[data.KEY_GLOBAL].to(device))
 
@@ -585,6 +585,7 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
               '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled',
               '_TTDmap_subset_reg1_downsampled']
 
+    '''
     train_trafo = [data.ResamplePlaneXY(0.5),
                    data.UseLabelsAsImages(),
                    data.HemisphericFlip(),
@@ -600,6 +601,24 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
     ds_train, ds_valid = data.get_stroke_prediction_training_data(modalities, labels, train_trafo, valid_trafo,
                                                                   arg_fold, arg_validsize, batchsize=arg_batchsize,
                                                                   seed=arg_seed, split=True)
+    '''
+
+    train_trafo = [data.UseLabelsAsImages(),
+                   # data.PadImages(0,0,4,0),  TODO for 28 slices
+                   data.HemisphericFlip(),
+                   data.ElasticDeform2D(apply_to_images=True, random=0.95),
+                   data.ToTensor()]
+    valid_trafo = [data.UseLabelsAsImages(),
+                   # data.PadImages(0,0,4,0),  TODO for 28 slices
+                   data.ElasticDeform2D(apply_to_images=True, random=0.67, seed=0),
+                   data.ToTensor()]
+
+    ds_train, ds_valid = data.get_toy_seq_shape_training_data(train_trafo, valid_trafo,
+                                                              [0, 1, 2, 3],  # [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31],  #
+                                                              [4, 5, 6, 7],  # [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43],  #
+                                                              batchsize=batchsize, normalize=int(sequence_thresholds[-1]),
+                                                              growth='fast',
+                                                              zsize=28)
 
     bi_net = BiNet(seq_len=sequence_length, batch_size=batchsize).to(device)
 
@@ -607,7 +626,7 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
     print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
           '/ total: Bi-Net', sum([p.nelement() for p in bi_net.parameters()]))
 
-    criterion = Criterion(arg_loss)
+    criterion = Criterion_BiNet(arg_loss)
     optimizer = torch.optim.Adam(params, lr=0.001)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=75, gamma=0.1)
 
@@ -628,8 +647,8 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
 
             for batch in ds_train:
                 gt, pr, grid_c, grid_p, idx_lesion, loss = process_batch_BiNet(batch, batchsize, bi_net, criterion,
-                                                                               arg_combine, sequence_length,
-                                                                               sequence_thresholds, device)
+                                                                               sequence_length, sequence_thresholds,
+                                                                               device)
 
                 loss_mean += loss.item()
 

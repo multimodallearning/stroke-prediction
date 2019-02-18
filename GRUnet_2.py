@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 
-from torch.nn.functional import affine_grid, grid_sample
+from torch.nn.functional import affine_grid, grid_sample, sigmoid
 
 
 def affine_identity(n=1):
@@ -823,7 +823,7 @@ class BiNet(nn.Module):
     def _affine_identity(self):
         return torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float)
 
-    def _grid_identity(batch_size=4, out_size=(4, 1, 28, 128, 128)):
+    def _grid_identity(self, batch_size=4, out_size=(4, 1, 28, 128, 128)):
         assert batch_size == out_size[0]
         result = self._affine_identity()
         result = result.view(-1, 3, 4).expand(batch_size, 3, 4).cuda()
@@ -882,6 +882,8 @@ class BiNet(nn.Module):
         pred = []
         pred_core = []
         pred_penu = []
+        grid_core = []
+        grid_penu = []
 
         hidden_vec2gru_core = torch.zeros(self.grid_identity.size(0), self.vec2gru_core.hidden_size).cuda()
         hidden_gru2gru_core = self.grid_identity
@@ -897,23 +899,26 @@ class BiNet(nn.Module):
         blob_penu = self.img2vec_penu(blob_penu)
 
         for i in range(self.len):
-            clinical_step = torch.cat((clinical, torch.ones(self.grid_identity.size(0), 1) * i), dim=1)
+            clinical_step = torch.cat((clinical, torch.ones(self.grid_identity.size(0), 1, 1, 1, 1).cuda() * i), dim=1)
 
-            blob_core = self.vec2vec(torch.cat((blob_core, clinical_step), dim=1))
+            blob_core = self.vec2vec_core(torch.cat((blob_core, clinical_step), dim=1))
             hidden_vec2gru_core = self.vec2gru_core(blob_core, hidden_vec2gru_core)
             hidden_gru2gru_core = self.gru2gru_core(hidden_vec2gru_core, hidden_gru2gru_core)
             offsets_core = affine_grid(hidden_gru2gru_core.view(-1, 3, 4), core.size())
             pred_core.append(grid_sample(core, self.grid_identity + offsets_core))
+            grid_core.append(grid_sample(self.visual_grid, self.grid_identity + offsets_core))
 
-            blob_penu = self.vec2vec(torch.cat((blob_penu, clinical_step), dim=1))
+            blob_penu = self.vec2vec_penu(torch.cat((blob_penu, clinical_step), dim=1))
             hidden_vec2gru_penu = self.vec2gru_penu(blob_penu, hidden_vec2gru_penu)
             hidden_gru2gru_penu = self.gru2gru_penu(hidden_vec2gru_penu, hidden_gru2gru_penu)
             offsets_penu = affine_grid(hidden_gru2gru_core.view(-1, 3, 4), penu.size())
-            pred_penu.append(grid_sample(penu, self.grid_identity + offsets_penu))  # TODO
+            pred_penu.append(grid_sample(penu, self.grid_identity + offsets_penu))
+            grid_penu.append(grid_sample(self.visual_grid, self.grid_identity + offsets_penu))
 
         for i in range(self.len):
             hidden_combine = self.combine(clinical_step, hidden_combine)
             hidden_alpha = self.alpha(hidden_combine, hidden_alpha)
-            pred.append((1-hidden_alpha) * pred_core[i] + hidden_alpha * pred_penu[self.len - i - 1])
+            alpha = sigmoid(hidden_alpha)
+            pred.append((1-alpha) * pred_core[i] + alpha * pred_penu[self.len - i - 1])
 
-        return torch.cat(pred, dim=1)
+        return torch.cat(pred, dim=1), torch.cat(grid_core, dim=1), torch.cat(grid_penu, dim=1)
