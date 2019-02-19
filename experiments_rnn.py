@@ -205,11 +205,11 @@ elif args.id == 99:
     loss = losses[3]
 elif args.id == 100:
     print(args.id, 'DEBUG / TESTING PURPOSES - simple BiNet')
-    loss = [15, 10, 25, 25, 10, 15, 0.0, 10]
+    loss = [15, 10, 25, 25, 10, 15, 0.0, 1]
     BATCHSIZE = 4
     func = main_BiNet
     path = '/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp' + str(args.id)
-    seq_thr = [.0, .522, 0.93, 1.25, 1.5, 1.75, 2., 2.25, 2.5, 2.75, 3., 3.25, 3.5, 3.75, 4., 4.25, 4.5, 4.75, 5., 5.376, 5.942, 6.793, 8.074, 10.]
+    seq_thr = [.0, .522, 0.93, 1.25, 1.5, 1.75, 2., 2.25, 2.5, 2.75, 3., 3.25, 3.5, 3.75, 4., 4.25, 4.5, 4.75, 5., 5.376, 5.942, 6.793, 8.074, 10., 12.897]
 else:
     raise Exception('No valid experiment id given')
 

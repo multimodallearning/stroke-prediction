@@ -605,12 +605,12 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
                    data.UseLabelsAsImages(),
                    data.HemisphericFlip(),
                    data.ElasticDeform(apply_to_images=True),
-                   data.ClinicalTimeOnly(),
+                   data.ClinicalFirstNOnly(3),
                    data.ToTensor()]
     valid_trafo = [data.ResamplePlaneXY(0.5),
                    data.UseLabelsAsImages(),
                    data.HemisphericFlipFixedToCaseId(14),
-                   data.ClinicalTimeOnly(),
+                   data.ClinicalFirstNOnly(3),
                    data.ToTensor()]
 
     ds_train, ds_valid = data.get_stroke_prediction_training_data(modalities, labels, train_trafo, valid_trafo,

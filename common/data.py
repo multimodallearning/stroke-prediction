@@ -997,8 +997,11 @@ class ResamplePlaneXY(object):
         return result
 
 
-class ClinicalTimeOnly(object):
+class ClinicalFirstNOnly(object):
+    def __init__(self, n):
+        self.n = n
+
     def __call__(self, sample):
         result = sample
-        result[KEY_GLOBAL] = result[KEY_GLOBAL][:, :, :, :2]
+        result[KEY_GLOBAL] = result[KEY_GLOBAL][:, :, :, :self.n]
         return result

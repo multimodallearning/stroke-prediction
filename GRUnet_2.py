@@ -854,13 +854,13 @@ class BiNet(nn.Module):
 
         self.visual_grid = self.visualise_grid(batch_size)
 
-        channels_img_low = 44
-        channels_gru = 48  # ideally > channels_img_low + 4
+        channels_img_low = 42
+        channels_gru = 48  # ideally >= channels_img_low + 5
         channels_feature = [2, 16, 32]
         channels_img2vec = [32, 48, 64, 72]
-        channels_vec2low = [72, channels_img_low]
-        channels_low2gru = [channels_img_low + 3, channels_gru]  # +4 if add time_step
-        channels_gru2aff = [channels_gru + channels_img_low, (channels_gru + channels_img_low - 12)//2, 12]
+        channels_vec2low = [72, (72 + channels_img_low)//2, channels_img_low]
+        channels_low2gru = [channels_img_low + 4, channels_gru]  # +5 if add time_step
+        channels_gru2aff = [channels_gru + channels_img_low, (channels_gru + channels_img_low + 12)//2, 12]
 
         self.feature_core = self._feature(channels_feature)      # spatial image features
         self.img2vec_core = self._img2vec(channels_img2vec)      # vector  representation of image features
