@@ -577,15 +577,15 @@ def main(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additiona
 
 def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
          arg_vec2vec1, arg_grunet, arg_img2vec2, arg_vec2vec2, arg_addfactor, arg_softener, arg_loss,
-         arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet):
+         arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet, arg_seq_thr):
 
     print(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
           arg_vec2vec1, arg_grunet, arg_img2vec2, arg_vec2vec2, arg_addfactor, arg_softener, arg_loss,
-          arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet)
+          arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet, arg_seq_thr)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     batchsize = arg_batchsize
-    sequence_thresholds = [.0, .2, .4, .6, .8, 1., 1.2, 1.4, 1.6, 1.8, 2., 2.2, 2.4, 2.6, 2.8, 3., 3.2, 3.4, 3.6, 3.8, 4., 4.2, 4.4, 4.6, 4.8, 5., 5.3, 5.6, 5.9, 6.2, 6.5, 7., 8., 10.]
+    sequence_thresholds = arg_seq_thr
     sequence_length = len(sequence_thresholds)
     n_visual_samples = 2
 
@@ -630,7 +630,7 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
                                                               zsize=28)
     '''
 
-    bi_net = BiNet(seq_len=sequence_length, batch_size=batchsize).to(device)
+    bi_net = BiNet(seq_thr=sequence_thresholds, batch_size=batchsize).to(device)
 
     params = [p for p in bi_net.parameters() if p.requires_grad]
     print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),

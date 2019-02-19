@@ -209,6 +209,7 @@ elif args.id == 100:
     BATCHSIZE = 4
     func = main_BiNet
     path = '/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp' + str(args.id)
+    seq_thr = [.0, .25, .5, .75, 1., 1.25, 1.5, 1.75, 2., 2.25, 2.5, 2.75, 3., 3.25, 3.5, 3.75, 4., 4.25, 4.5, 4.75, 5., 5.3, 5.7, 6.2, 6.9, 7.8, 8.9, 10.]
 else:
     raise Exception('No valid experiment id given')
 
@@ -218,5 +219,5 @@ FILENAME = '/f' + str(args.fold + 1) + '_epoch_{}.{}'
 
 print(datetime.datetime.now())
 func(path+FILENAME, BATCHSIZE, CLINICAL, commonfeature, additional, img2vec1, vec2vec1, grunet, img2vec2, vec2vec2,
-     addfactor, softener, loss, EPOCHS, fold, VALIDSIZE, SEED, combine, upsampledclinical)
+     addfactor, softener, loss, EPOCHS, fold, VALIDSIZE, SEED, combine, upsampledclinical, seq_thr)
 print(datetime.datetime.now())

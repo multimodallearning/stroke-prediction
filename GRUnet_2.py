@@ -842,11 +842,12 @@ class BiNet(nn.Module):
         visual_grid[:, :, :, :, 5::24] = 0
         return visual_grid
 
-    def __init__(self, seq_len, batch_size=4):
+    def __init__(self, seq_thr, batch_size=4):
         super().__init__()
 
-        self.len = seq_len
-        assert seq_len > 0
+        self.seq_thr = seq_thr
+        self.len = len(seq_thr)
+        assert self.len > 0
 
         self.grid_identity_core = self._grid_identity(batch_size, out_size=(batch_size, 3, 28, 128, 128))
         self.grid_identity_penu = self._grid_identity(batch_size, out_size=(batch_size, 3, 28, 128, 128))
@@ -866,12 +867,18 @@ class BiNet(nn.Module):
         self.img2vec_penu = self._img2vec(channels_img2vec)
         self.vec2vec_penu = self._vec2vec(channels_vec2vec)
 
+        # Different approach low dim rep for time, after combine with more image input
+        # TODO saves memory and computations?
+        # nn.GRUCell(low_dim_img + 2 times + 2 steps)
+        # low_dim_rep = nn.GRUCell(low_dim_img + 2 times + 2 steps)
+        # vec2vec(cat(low_dim_rep, higher_dim_img))
+
         # Recurrent part
-        self.vec2gru_core = nn.GRUCell(61 + 3, 64)
+        self.vec2gru_core = nn.GRUCell(61 + 4, 64)
         self.gru2gru_core = nn.GRUCell(64, 48)
         self.gru2aff_core = nn.GRUCell(48, 12)
 
-        self.vec2gru_penu = nn.GRUCell(61 + 3, 64)
+        self.vec2gru_penu = nn.GRUCell(61 + 4, 64)
         self.gru2gru_penu = nn.GRUCell(64, 48)
         self.gru2aff_penu = nn.GRUCell(48, 12)
 
@@ -899,9 +906,14 @@ class BiNet(nn.Module):
         blob_penu = torch.cat((blob_penu, clinical), dim=1)
         blob_penu = self.vec2vec_penu(blob_penu.squeeze())
 
+        prev_step = 0.
         for i in range(self.len):
-            vec_core = torch.cat((blob_core, clinical.squeeze(), torch.ones(self.grid_identity_core.size(0), 1).cuda() * i), dim=1)
-            vec_penu = torch.cat((blob_penu, clinical.squeeze(), torch.ones(self.grid_identity_penu.size(0), 1).cuda() * i), dim=1)
+            time_step = torch.cat((torch.ones(self.grid_identity_core.size(0), 1).cuda() * self.seq_thr[i],
+                                   torch.ones(self.grid_identity_core.size(0), 1).cuda() * prev_step), dim=1)
+            prev_step = self.seq_thr[i]
+
+            vec_core = torch.cat((blob_core, clinical.squeeze(), time_step), dim=1)
+            vec_penu = torch.cat((blob_penu, clinical.squeeze(), time_step), dim=1)
 
             hidden_vec2gru_core = self.vec2gru_core(vec_core, hidden_vec2gru_core)
             hidden_gru2gru_core = self.gru2gru_core(hidden_vec2gru_core, hidden_gru2gru_core)
