@@ -854,80 +854,76 @@ class BiNet(nn.Module):
 
         self.visual_grid = self.visualise_grid(batch_size)
 
-        # Feature part
+        channels_img_low = 44
+        channels_gru = 48  # ideally > channels_img_low + 4
         channels_feature = [2, 16, 32]
         channels_img2vec = [32, 48, 64, 72]
-        channels_vec2vec = [72 + 2, 61]
+        channels_vec2low = [72, channels_img_low]
+        channels_low2gru = [channels_img_low + 4, channels_gru]
+        channels_gru2aff = [channels_gru + channels_img_low, (channels_gru + channels_img_low - 12)//2, 12]
 
-        self.feature_core = self._feature(channels_feature)
-        self.img2vec_core = self._img2vec(channels_img2vec)
-        self.vec2vec_core = self._vec2vec(channels_vec2vec)
+        self.feature_core = self._feature(channels_feature)      # spatial image features
+        self.img2vec_core = self._img2vec(channels_img2vec)      # vector  representation of image features
+        self.vec2low_core = self._vec2vec(channels_vec2low)      # low-dim representation of image features
+        self.low2gru_core = self._vec2vec(channels_low2gru)      # low-dim representation of image features + clinical
+        self.gru0_core = nn.GRUCell(channels_gru, channels_gru)  # recurrent abstraction
+        self.gru1_core = nn.GRUCell(channels_gru, channels_gru)  # recurrent abstraction
+        self.gru2aff_core = self._vec2vec(channels_gru2aff)      # recurrent abstraction + image vector to affine params
 
-        self.feature_penu = self._feature(channels_feature)
-        self.img2vec_penu = self._img2vec(channels_img2vec)
-        self.vec2vec_penu = self._vec2vec(channels_vec2vec)
-
-        # Different approach low dim rep for time, after combine with more image input
-        # TODO saves memory and computations?
-        # nn.GRUCell(low_dim_img + 2 times + 2 steps)
-        # low_dim_rep = nn.GRUCell(low_dim_img + 2 times + 2 steps)
-        # vec2vec(cat(low_dim_rep, higher_dim_img))
-
-        # Recurrent part
-        self.vec2gru_core = nn.GRUCell(61 + 4, 64)
-        self.gru2gru_core = nn.GRUCell(64, 48)
-        self.gru2aff_core = nn.GRUCell(48, 12)
-
-        self.vec2gru_penu = nn.GRUCell(61 + 4, 64)
-        self.gru2gru_penu = nn.GRUCell(64, 48)
-        self.gru2aff_penu = nn.GRUCell(48, 12)
+        self.feature_penu = self._feature(channels_feature)      # spatial image features
+        self.img2vec_penu = self._img2vec(channels_img2vec)      # vector  representation of image features
+        self.vec2low_penu = self._vec2vec(channels_vec2low)      # low-dim representation of image features
+        self.low2gru_penu = self._vec2vec(channels_low2gru)      # low-dim representation of image features + clinical
+        self.gru0_penu = nn.GRUCell(channels_gru, channels_gru)  # recurrent abstraction
+        self.gru1_penu = nn.GRUCell(channels_gru, channels_gru)  # recurrent abstraction
+        self.gru2aff_penu = self._vec2vec(channels_gru2aff)      # recurrent abstraction + image vector to affine params
 
     def forward(self, core, penu, clinical):
         pred_core = []
         pred_penu = []
         grid_core = []
         grid_penu = []
+        offs_core = []
+        offs_penu = []
 
-        hidden_vec2gru_core = torch.zeros(self.grid_identity_core.size(0), self.vec2gru_core.hidden_size).cuda()
-        hidden_gru2gru_core = torch.zeros(self.grid_identity_core.size(0), self.gru2gru_core.hidden_size).cuda()
-        hidden_gru2aff_core = self._affine_identity().view(-1, 12).expand(self.grid_identity_core.size(0), 12).cuda()
+        hidden_vec0_core = torch.zeros(self.grid_identity_core.size(0), self.gru0_core.hidden_size).cuda()
+        hidden_vec1_core = torch.zeros(self.grid_identity_core.size(0), self.gru1_core.hidden_size).cuda()
 
-        hidden_vec2gru_penu = torch.zeros(self.grid_identity_penu.size(0), self.vec2gru_penu.hidden_size).cuda()
-        hidden_gru2gru_penu = torch.zeros(self.grid_identity_penu.size(0), self.gru2gru_penu.hidden_size).cuda()
-        hidden_gru2aff_penu = self._affine_identity().view(-1, 12).expand(self.grid_identity_penu.size(0), 12).cuda()
+        hidden_vec0_penu = torch.zeros(self.grid_identity_penu.size(0), self.gru0_penu.hidden_size).cuda()
+        hidden_vec1_penu = torch.zeros(self.grid_identity_penu.size(0), self.gru1_penu.hidden_size).cuda()
 
         blob_core = self.feature_core(torch.cat((core, penu), dim=1))
         blob_core = self.img2vec_core(blob_core)
-        blob_core = torch.cat((blob_core, clinical), dim=1)
-        blob_core = self.vec2vec_core(blob_core.squeeze())
+        ldim_core = self.vec2low_core(blob_core.squeeze())
 
         blob_penu = self.feature_penu(torch.cat((core, penu), dim=1))
         blob_penu = self.img2vec_penu(blob_penu)
-        blob_penu = torch.cat((blob_penu, clinical), dim=1)
-        blob_penu = self.vec2vec_penu(blob_penu.squeeze())
+        ldim_penu = self.vec2low_penu(blob_penu.squeeze())
 
-        prev_step = 0.
+        prev_step = torch.zeros(self.grid_identity_core.size(0), 1).cuda()
         for i in range(self.len):
-            time_step = torch.cat((torch.ones(self.grid_identity_core.size(0), 1).cuda() * self.seq_thr[i],
-                                   torch.ones(self.grid_identity_core.size(0), 1).cuda() * prev_step), dim=1)
-            prev_step = self.seq_thr[i]
+            time_step = torch.ones(self.grid_identity_core.size(0), 1).cuda() * self.seq_thr[i]
 
-            vec_core = torch.cat((blob_core, clinical.squeeze(), time_step), dim=1)
-            vec_penu = torch.cat((blob_penu, clinical.squeeze(), time_step), dim=1)
+            vec_core = torch.cat((ldim_core, clinical.squeeze(), time_step, time_step - prev_step), dim=1)
+            vec_core = self.low2gru_core(vec_core)
+            hidden_vec0_core = self.gru0_core(vec_core, hidden_vec0_core)
+            hidden_vec1_core = self.gru1_core(hidden_vec0_core, hidden_vec1_core)
+            vec_core = self.gru2aff_core(torch.cat((hidden_vec1_core, ldim_core), dim=1))
+            offs_core.append(affine_grid(vec_core.view(-1, 3, 4), core.size()))
+            pred_core.append(grid_sample(core, self.grid_identity_core + offs_core[-1]))
+            grid_core.append(grid_sample(self.visual_grid, self.grid_identity_core + offs_core[-1]))
 
-            hidden_vec2gru_core = self.vec2gru_core(vec_core, hidden_vec2gru_core)
-            hidden_gru2gru_core = self.gru2gru_core(hidden_vec2gru_core, hidden_gru2gru_core)
-            hidden_gru2aff_core = self.gru2aff_core(hidden_gru2gru_core, hidden_gru2aff_core)
-            offsets_core = affine_grid(hidden_gru2aff_core.view(-1, 3, 4), core.size())
-            pred_core.append(grid_sample(core, self.grid_identity_core + offsets_core))
-            grid_core.append(grid_sample(self.visual_grid, self.grid_identity_core + offsets_core))
+            vec_penu = torch.cat((ldim_penu, clinical.squeeze(), time_step, prev_step), dim=1)
+            vec_penu = self.low2gru_penu(vec_penu)
+            hidden_vec0_penu = self.gru0_penu(vec_penu, hidden_vec0_penu)
+            hidden_vec1_penu = self.gru1_penu(hidden_vec0_penu, hidden_vec1_penu)
+            vec_penu = self.gru2aff_penu(torch.cat((hidden_vec1_penu, ldim_penu), dim=1))
+            offs_penu.append(affine_grid(vec_penu.view(-1, 3, 4), penu.size()))
+            pred_penu.append(grid_sample(penu, self.grid_identity_penu + offs_penu[-1]))
+            grid_penu.append(grid_sample(self.visual_grid, self.grid_identity_penu + offs_penu[-1]))
 
-            hidden_vec2gru_penu = self.vec2gru_penu(vec_penu, hidden_vec2gru_penu)
-            hidden_gru2gru_penu = self.gru2gru_penu(hidden_vec2gru_penu, hidden_gru2gru_penu)
-            hidden_gru2aff_penu = self.gru2aff_penu(hidden_gru2gru_penu, hidden_gru2aff_penu)
-            offsets_penu = affine_grid(hidden_gru2aff_penu.view(-1, 3, 4), penu.size())
-            pred_penu.append(grid_sample(penu, self.grid_identity_penu + offsets_penu))
-            grid_penu.append(grid_sample(self.visual_grid, self.grid_identity_penu + offsets_penu))
+            prev_step = time_step
 
         return torch.cat(pred_core, dim=1), torch.cat(pred_penu[::-1], dim=1),\
-               torch.cat(grid_core, dim=1), torch.cat(grid_penu[::-1], dim=1)
+               torch.cat(grid_core, dim=1), torch.cat(grid_penu[::-1], dim=1), \
+               torch.cat(offs_core, dim=1), torch.cat(offs_penu[::-1], dim=1)

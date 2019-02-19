@@ -93,7 +93,8 @@ class Criterion_BiNet(nn.Module):
     def __init__(self, weights):
         super(Criterion_BiNet, self).__init__()
         self.dc = metrics.BatchDiceLoss([1.0])  # weighted inversely by each volume proportion
-        assert len(weights) == 7
+        self.l1 = nn.L1Loss()
+        assert len(weights) == 8
         self.weights = [i/100 for i in weights]
         self.scales = [nn.AvgPool3d((1, 1, 1), (1, 1, 1), padding=(0, 0, 0)),
                        nn.AvgPool3d((1, 5, 5), (1, 1, 1), padding=(0, 2, 2)),
@@ -110,7 +111,8 @@ class Criterion_BiNet(nn.Module):
 
     def forward(self, pr_core_c, pr_core_p, gt_core,
                 pr_lesion_c, pr_lesion_p, gt_lesion,
-                pr_penu_c, pr_penu_p, gt_penu, output):
+                pr_penu_c, pr_penu_p, gt_penu, output,
+                off_core_c, off_penu_p, off_target_c, off_target_p):
 
         loss = self.weights[0] * self.multi_scale_dc(pr_core_c, gt_core)
         loss += self.weights[1] * self.multi_scale_dc(pr_core_p, gt_core)
@@ -122,6 +124,9 @@ class Criterion_BiNet(nn.Module):
         for i in range(output.size()[1]-1):
             diff = output[:, i+1] - output[:, i]
             loss += self.weights[6] * torch.mean(torch.abs(diff) - diff)  # monotone
+
+        loss += self.weights[7] * self.l1(off_core_c, off_target_c)
+        loss += self.weights[7] * self.l1(off_penu_p, off_target_p)
 
         return loss
 
@@ -199,13 +204,15 @@ def get_results(batch, batchsize, pr, out_c, out_p, lesion_pos, sequence_thresho
            idx_lesion, idx_middle
 
 
-def get_results_BiNet(batch, batchsize, pred_core, pred_penu, sequence_thresholds, t_core, idx_core):
+def get_results_BiNet(batch, batchsize, pred_core, pred_penu, offs_core, offs_penu, sequence_thresholds, t_core, idx_core):
     pr_core_c = []
     pr_lesion_c = []
     pr_penu_c = []
     pr_core_p = []
     pr_lesion_p = []
     pr_penu_p = []
+    off_core_c = []
+    off_penu_p = []
 
     idx_lesion = tensor2index(t_core + batch[data.KEY_GLOBAL][:, 1], sequence_thresholds)
     for b in range(batchsize):
@@ -215,25 +222,24 @@ def get_results_BiNet(batch, batchsize, pred_core, pred_penu, sequence_threshold
         pr_lesion_p.append(pred_penu[b, int(idx_lesion[b])])
         pr_core_p.append(pred_penu[b, int(idx_core[b])])
         pr_penu_p.append(pred_penu[b, -1])
+        off_core_c.append(offs_core[b, int(idx_core[b])])
+        off_penu_p.append(offs_penu[b, -1])
 
     return torch.stack(pr_lesion_c, dim=0).unsqueeze(1),\
            torch.stack(pr_core_c, dim=0).unsqueeze(1), torch.stack(pr_penu_c, dim=0).unsqueeze(1),\
            torch.stack(pr_lesion_p, dim=0).unsqueeze(1),\
-           torch.stack(pr_core_p, dim=0).unsqueeze(1), torch.stack(pr_penu_p, dim=0).unsqueeze(1),\
+           torch.stack(pr_core_p, dim=0).unsqueeze(1), torch.stack(pr_penu_p, dim=0).unsqueeze(1), \
+           torch.stack(off_core_c, dim=0).unsqueeze(1), torch.stack(off_penu_p, dim=0).unsqueeze(1), \
            idx_lesion
 
 
 
 
 def get_title(prefix, row, idx, batch, seq_thr, lesion_pos=None):
-    if lesion_pos is not None:
-        lesion_pos = int(lesion_pos[row])
-    else:
-        lesion_pos = 0
     suffix = ''
-    if idx == int(batch[data.KEY_GLOBAL][row, 0, :, :, :]):
+    if idx == tensor2index(batch[data.KEY_GLOBAL][row, 0, :, :, :], seq_thr):
         suffix += ' [C]'
-    if idx == int(batch[data.KEY_GLOBAL][row, 0, :, :, :]) + int(batch[data.KEY_GLOBAL][row, 1, :, :, :]):
+    if idx == tensor2index(batch[data.KEY_GLOBAL][row, 0, :, :, :] + batch[data.KEY_GLOBAL][row, 1, :, :, :], seq_thr):
         suffix += ' [L]'
     if idx == len(seq_thr)-1:
         suffix += ' [P]'
@@ -326,16 +332,12 @@ def process_batch_BiNet(batch, batchsize, bi_net, criterion, sequence_length, se
                                                            sequence_length,
                                                            sequence_thresholds)
 
-    pred_core, pred_penu, grid_c, grid_p = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
-                                                    gt[:, -1, :, :, :].unsqueeze(1),
-                                                    batch[data.KEY_GLOBAL].to(device))
+    pred_core, pred_penu, grid_c, grid_p, offs_core, offs_penu = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
+                                                                        gt[:, -1, :, :, :].unsqueeze(1),
+                                                                        batch[data.KEY_GLOBAL].to(device))
 
-    pr_lesion_c, pr_core_c, pr_penu_c, pr_lesion_p, pr_core_p, pr_penu_p, idx_lesion = get_results_BiNet(batch,
-                                                                                                         batchsize,
-                                                                                                         pred_core,
-                                                                                                         pred_penu,
-                                                                                                    sequence_thresholds,
-                                                                                                    t_core, idx_core)
+    pr_lesion_c, pr_core_c, pr_penu_c, pr_lesion_p, pr_core_p, pr_penu_p, off_core_c, off_penu_p, idx_lesion = \
+        get_results_BiNet(batch, batchsize, pred_core, pred_penu, offs_core, offs_penu, sequence_thresholds, t_core, idx_core)
 
     prs = pred_core * factor.unsqueeze(2).unsqueeze(3).unsqueeze(4) + (1-factor).unsqueeze(2).unsqueeze(3).unsqueeze(4) * pred_penu
 
@@ -345,7 +347,11 @@ def process_batch_BiNet(batch, batchsize, bi_net, criterion, sequence_length, se
                      gt[:, 1, :, :, :].unsqueeze(1),
                      pr_penu_c, pr_penu_p,
                      gt[:, 2, :, :, :].unsqueeze(1),
-                     prs)
+                     prs,
+                     off_core_c,
+                     off_penu_p,
+                     bi_net.grid_identity_core,
+                     bi_net.grid_identity_penu)
 
     return gt, prs, grid_c, grid_p, idx_lesion, loss
 
