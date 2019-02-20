@@ -783,6 +783,21 @@ class BiNet(nn.Module):
             nn.MaxPool3d(kernel_size=(2, 2, 2), stride=(2, 2, 2))  # 12x52x52
         )
 
+    def _refine(self, channels, batch_size):
+        assert len(channels) == 4
+        assert channels[-1] == 3
+        return nn.Sequential(
+            nn.LayerNorm([channels[0], 12, 52, 52]),
+            nn.Conv3d(channels[0], channels[1], kernel_size=(3, 3, 3), dilation=(1, 4, 4), padding=(1, 4, 4)),  # 12x52x52
+            nn.ReLU(),
+            nn.LayerNorm([channels[1], 12, 52, 52]),
+            nn.Conv3d(channels[1], channels[2], kernel_size=(3, 3, 3), dilation=(1, 2, 2), padding=(1, 2, 2)),  # 12x52x52
+            nn.ReLU(),
+            nn.LayerNorm([channels[2], 12, 52, 52]),
+            nn.Conv3d(channels[2], channels[3], kernel_size=(3, 3, 3), padding=(1, 1, 1)),  # 12x52x52
+            nn.AdaptiveAvgPool3d(output_size=(batch_size, channels[3], 28, 128, 128))
+        )
+
     def _img2vec(self, channels):
         assert len(channels) == 4
         return nn.Sequential(
@@ -842,6 +857,12 @@ class BiNet(nn.Module):
         visual_grid[:, :, :, :, 5::24] = 0
         return visual_grid
 
+    def freeze_refinement(self, freeze=True):
+        for param in self.refine_core.parameters():
+            param.requires_grad = not freeze
+        for param in self.refine_penu.parameters():
+            param.requires_grad = not freeze
+
     def __init__(self, seq_thr, batch_size=4):
         super().__init__()
 
@@ -881,6 +902,13 @@ class BiNet(nn.Module):
         self.gru2aff_penu = self._vec2vec(channels_gru2aff)      # recurrent abstraction + image vector to affine params
         self.gru2aff_penu[-1].weight.data.zero_()
         self.gru2aff_penu[-1].bias.data.copy_(self._affine_identity())
+
+        # Refinement
+        channels_grid = 3
+        channels_refine = [2 + channels_grid + channels_feature[-1], 32, 32, channels_grid]
+
+        self.refine_core = self._refine(channels_refine, batch_size)
+        self.refine_penu = self._refine(channels_refine, batch_size)
 
     def forward(self, core, penu, clinical):
         pred_core = []
