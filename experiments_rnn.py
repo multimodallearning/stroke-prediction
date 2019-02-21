@@ -4,7 +4,6 @@ import datetime
 from train_grunet import main, main_BiNet
 
 
-BATCHSIZE = 2
 CLINICAL = 2  # only clinical time values
 EPOCHS = 200
 VALIDSIZE = 0.275
@@ -13,6 +12,8 @@ SEED = 4
 DEFAULT_IDX = 0
 
 
+batch_size = 2
+refine = None
 commonfeatures = [5,
                   4,  # less parameters
                   2]  # less parameters #2
@@ -206,9 +207,10 @@ elif args.id == 99:
 elif args.id == 100:
     print(args.id, 'DEBUG / TESTING PURPOSES - simple BiNet')
     loss = [15, 10, 25, 25, 10, 15, 0.0, 0.2]
-    BATCHSIZE = 4
+    batch_size = 2
     func = main_BiNet
     path = '/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp' + str(args.id)
+    refine = '/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp100_f7a6881/f1_epoch_latest.model'
     seq_thr = [.0, .522, 0.93, 1.25, 1.5, 1.75, 2., 2.25, 2.5, 2.75, 3., 3.25, 3.5, 3.75, 4., 4.25, 4.5, 4.75, 5., 5.376, 5.942, 6.793, 8.074, 10., 12.897]
 else:
     raise Exception('No valid experiment id given')
@@ -218,6 +220,6 @@ if not os.path.isdir(path):
 FILENAME = '/f' + str(args.fold + 1) + '_epoch_{}.{}'
 
 print(datetime.datetime.now())
-func(path+FILENAME, BATCHSIZE, CLINICAL, commonfeature, additional, img2vec1, vec2vec1, grunet, img2vec2, vec2vec2,
-     addfactor, softener, loss, EPOCHS, fold, VALIDSIZE, SEED, combine, upsampledclinical, seq_thr)
+func(path+FILENAME, batch_size, CLINICAL, commonfeature, additional, img2vec1, vec2vec1, grunet, img2vec2, vec2vec2,
+     addfactor, softener, loss, EPOCHS, fold, VALIDSIZE, SEED, combine, upsampledclinical, seq_thr, refine)
 print(datetime.datetime.now())

@@ -581,13 +581,13 @@ def main(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additiona
             del fig
 
 
-def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
+def common_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
          arg_vec2vec1, arg_grunet, arg_img2vec2, arg_vec2vec2, arg_addfactor, arg_softener, arg_loss,
-         arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet, arg_seq_thr):
+         arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet, arg_seq_thr, refine):
 
     print(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
           arg_vec2vec1, arg_grunet, arg_img2vec2, arg_vec2vec2, arg_addfactor, arg_softener, arg_loss,
-          arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet, arg_seq_thr)
+          arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet, arg_seq_thr, refine)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     batchsize = arg_batchsize
@@ -600,6 +600,39 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
     labels = ['_CBVmap_subset_reg1_downsampled',
               '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled',
               '_TTDmap_subset_reg1_downsampled']
+
+    return device, batchsize, sequence_thresholds, sequence_length, n_visual_samples, modalities, labels
+
+
+def test_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
+         arg_vec2vec1, arg_grunet, arg_img2vec2, arg_vec2vec2, arg_addfactor, arg_softener, arg_loss,
+         arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet, arg_seq_thr, refine):
+
+    device, batchsize, sequence_thresholds, sequence_length, n_visual_samples, modalities, labels = \
+        common_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
+                     arg_vec2vec1, arg_grunet, arg_img2vec2, arg_vec2vec2, arg_addfactor, arg_softener, arg_loss,
+                     arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet, arg_seq_thr,
+                     refine)
+
+    test_trafo = [data.ResamplePlaneXY(0.5),
+                   data.UseLabelsAsImages(),
+                   data.ClinicalFirstNOnly(3),
+                   data.ToTensor()]
+
+    bi_net = torch.load()
+
+
+
+
+def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
+         arg_vec2vec1, arg_grunet, arg_img2vec2, arg_vec2vec2, arg_addfactor, arg_softener, arg_loss,
+         arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet, arg_seq_thr, refine):
+
+    device, batchsize, sequence_thresholds, sequence_length, n_visual_samples, modalities, labels = \
+        common_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
+                     arg_vec2vec1, arg_grunet, arg_img2vec2, arg_vec2vec2, arg_addfactor, arg_softener, arg_loss,
+                     arg_epochs, arg_fold, arg_validsize, arg_seed, arg_combine, arg_clinical_grunet, arg_seq_thr,
+                     refine)
 
     train_trafo = [data.ResamplePlaneXY(0.5),
                    data.UseLabelsAsImages(),
@@ -636,7 +669,7 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
                                                               zsize=28)
     '''
 
-    bi_net = BiNet(seq_thr=sequence_thresholds, batch_size=batchsize).to(device)
+    bi_net = BiNet(seq_thr=sequence_thresholds, batch_size=batchsize, refine_path=refine).to(device)
 
     params = [p for p in bi_net.parameters() if p.requires_grad]
     print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
