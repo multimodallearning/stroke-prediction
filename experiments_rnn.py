@@ -1,7 +1,7 @@
 import os
 import argparse
 import datetime
-from train_grunet import main, main_BiNet
+from train_grunet import main, main_BiNet, test_BiNet
 
 
 CLINICAL = 2  # only clinical time values

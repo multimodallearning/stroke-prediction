@@ -795,7 +795,7 @@ class BiNet(nn.Module):
             nn.ReLU(),
             nn.LayerNorm([channels[2], 12, 52, 52]),
             nn.Conv3d(channels[2], channels[3], kernel_size=(3, 3, 3), padding=(1, 1, 1)),  # 12x52x52
-            nn.Sigmoid()
+            nn.Tanh()
         )
 
     def _img2vec(self, channels):
@@ -838,6 +838,12 @@ class BiNet(nn.Module):
     def _affine_identity(self):
         return torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float)
 
+    def _affine_inverse(self, m):
+        assert m.size(1) == 3 and m.size(2) == 4
+        homogeneous = torch.cat((m, torch.tensor([0, 0, 0, 1] * 2).view(-1, 1, 4).float()), dim=1)
+        homogeneous_inverse = torch.inverse(homogeneous)
+        return homogeneous_inverse[:, :3, :]
+
     def _grid_identity(self, batch_size=4, out_size=(4, 1, 28, 128, 128)):
         assert batch_size == out_size[0]
         result = self._affine_identity()
@@ -863,9 +869,7 @@ class BiNet(nn.Module):
             torch.nn.init.xavier_normal(m.bias)
 
     def _init_normal(self, m):
-        if type(m) == nn.Linear:
-            #m.weight.data.zero_()
-            #m.bias.data.zero_()
+        if type(m) == nn.Conv3d:
             m.weight.data.normal_(0, 0.000001)
             m.bias.data.normal_(0, 0.000001)
 
