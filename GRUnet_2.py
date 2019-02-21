@@ -873,16 +873,7 @@ class BiNet(nn.Module):
             m.weight.data.normal_(0, 0.000001)
             m.bias.data.normal_(0, 0.000001)
 
-    # TODO need this?
-    '''
-    def freeze_refinement(self, freeze=True):
-        for param in self.refine_core.parameters():
-            param.requires_grad = not freeze
-        for param in self.refine_penu.parameters():
-            param.requires_grad = not freeze
-    '''
-
-    def __init__(self, seq_thr, batch_size, refine_path=None):
+    def __init__(self, seq_thr, batch_size):
         super().__init__()
 
         self.seq_thr = seq_thr
@@ -900,18 +891,20 @@ class BiNet(nn.Module):
         channels_img2vec = [32, 48, 64, 72]
         channels_vec2low = [72, (72 + channels_img_low)//2, channels_img_low]
         channels_low2gru = [channels_img_low + 4, channels_gru]  # +5 if add time_step
-        channels_gru2aff = [channels_gru + channels_img_low, (channels_gru + channels_img_low + 12)//2, 12]
-
-        channels_grid = 3
-        channels_refine = [2 + channels_grid + channels_feature[-1], 32, 32, channels_grid]
+        channels_gru2phi = [channels_gru + channels_img_low, (channels_gru + channels_img_low + 12)//2, 12]
 
         self.feature_core = self._feature(channels_feature)      # spatial image features
         self.img2vec_core = self._img2vec(channels_img2vec)      # vector  representation of image features
         self.vec2low_core = self._vec2vec(channels_vec2low)      # low-dim representation of image features
         self.low2gru_core = self._vec2vec(channels_low2gru)      # low-dim representation of image features + clinical
-        self.gru0_core = nn.GRUCell(channels_gru, channels_gru)  # recurrent abstraction
-        self.gru1_core = nn.GRUCell(channels_gru, channels_gru)  # recurrent abstraction
-        self.gru2aff_core = self._vec2vec(channels_gru2aff)      # recurrent abstraction + image vector to affine params
+        self.gru_cl = nn.GRUCell(channels_gru, channels_gru)     # recurrent abstraction
+        self.gru_lp = nn.GRUCell(channels_gru, channels_gru)     # recurrent abstraction
+        self.gru2phi_cl = self._vec2vec(channels_gru2phi)        # self.gru2aff_core / recurrent abstraction + image vector to affine params
+        self.gru2phi_lp = self._vec2vec(channels_gru2phi)        #
+        self.gru2phi_cl[-1].weight.data.normal_(0, 0.0001)
+        self.gru2phi_cl[-1].bias.data.copy_(self._affine_identity())
+        self.gru2phi_lp[-1].weight.data.normal_(0, 0.0001)
+        self.gru2phi_lp[-1].bias.data.copy_(self._affine_identity())
 
         self.feature_penu = self._feature(channels_feature)      # spatial image features
         self.img2vec_penu = self._img2vec(channels_img2vec)      # vector  representation of image features
@@ -919,29 +912,12 @@ class BiNet(nn.Module):
         self.low2gru_penu = self._vec2vec(channels_low2gru)      # low-dim representation of image features + clinical
         self.gru0_penu = nn.GRUCell(channels_gru, channels_gru)  # recurrent abstraction
         self.gru1_penu = nn.GRUCell(channels_gru, channels_gru)  # recurrent abstraction
-        self.gru2aff_penu = self._vec2vec(channels_gru2aff)      # recurrent abstraction + image vector to affine params
-
-        # Grid Refinement
-        if refine_path:
-            self.refine_core = self._refine(channels_refine)
-            self.refine_penu = self._refine(channels_refine)
-        else:
-            self.refine_core = None
-            self.refine_penu = None
-
-        self.up_pool = nn.AdaptiveAvgPool3d(output_size=(28, 128, 128))
-
-        # Init weights TODO more from above
-        self.gru2aff_core[-1].weight.data.normal_(0, 0.0001)
-        self.gru2aff_core[-1].bias.data.copy_(self._affine_identity())
+        self.gru2aff_penu = self._vec2vec(channels_gru2phi)      # recurrent abstraction + image vector to affine params
         self.gru2aff_penu[-1].weight.data.normal_(0, 0.0001)
         self.gru2aff_penu[-1].bias.data.copy_(self._affine_identity())
 
-        self.load_state_dict(torch.load(refine_path).state_dict(), strict=False)
-
-        if self.refine_core and self.refine_penu:
-            self.refine_core.apply(self._init_normal)
-            self.refine_penu.apply(self._init_normal)
+        # Final up-pooling grid to full resolution
+        self.up_pool = nn.AdaptiveAvgPool3d(output_size=(28, 128, 128))
 
     def forward(self, core, penu, clinical):
         pred_core = []
@@ -951,11 +927,11 @@ class BiNet(nn.Module):
         offs_core = []
         offs_penu = []
 
-        hidden_vec0_core = torch.zeros(self.grid_identity_core.size(0), self.gru0_core.hidden_size).cuda()
-        hidden_vec1_core = torch.zeros(self.grid_identity_core.size(0), self.gru1_core.hidden_size).cuda()
+        h_vec0_core = torch.zeros(self.grid_identity_core.size(0), self.gru0_core.hidden_size).cuda()
+        h_vec1_core = torch.zeros(self.grid_identity_core.size(0), self.gru1_core.hidden_size).cuda()
 
-        hidden_vec0_penu = torch.zeros(self.grid_identity_penu.size(0), self.gru0_penu.hidden_size).cuda()
-        hidden_vec1_penu = torch.zeros(self.grid_identity_penu.size(0), self.gru1_penu.hidden_size).cuda()
+        h_vec0_penu = torch.zeros(self.grid_identity_penu.size(0), self.gru0_penu.hidden_size).cuda()
+        h_vec1_penu = torch.zeros(self.grid_identity_penu.size(0), self.gru1_penu.hidden_size).cuda()
 
         input = torch.cat((core, penu), dim=1)
 
@@ -980,33 +956,23 @@ class BiNet(nn.Module):
 
             vec_core = torch.cat((ldim_core, clinical_plus), dim=1)
             vec_core = self.low2gru_core(vec_core)
-            hidden_vec0_core = self.gru0_core(vec_core, hidden_vec0_core)
-            hidden_vec1_core = self.gru1_core(hidden_vec0_core, hidden_vec1_core)
-            vec_core = self.gru2aff_core(torch.cat((hidden_vec1_core, ldim_core), dim=1))
+            h_vec0_core = self.gru0_core(vec_core, h_vec0_core)
+            h_vec1_core = self.gru1_core(h_vec0_core, h_vec1_core)
+            vec_core = self.gru2aff_core(torch.cat((h_vec1_core, ldim_core), dim=1))
             affine_core = affine_grid(vec_core.view(-1, 3, 4), feat_core.size()).permute(0, 4, 1, 2, 3)
-            if self.refine_core:
-                refine_core = self.refine_core(torch.cat((input_downsampled, feat_core, affine_core), dim=1))
-                refined_grid_core = affine_core * refine_core
-            else:
-                refined_grid_core = affine_core
-            offs_core.append(self.up_pool(refined_grid_core).permute(0, 2, 3, 4, 1))
-            pred_core.append(grid_sample(core, offs_core[-1]))
-            grid_core.append(grid_sample(self.visual_grid, offs_core[-1]))
+            offs_core.append(affine_core.permute(0, 2, 3, 4, 1))
+            pred_core.append(self.up_pool(grid_sample(core, offs_core[-1])))
+            grid_core.append(self.up_pool(grid_sample(self.visual_grid, offs_core[-1])))
 
             vec_penu = torch.cat((ldim_penu, clinical_plus), dim=1)
             vec_penu = self.low2gru_penu(vec_penu)
-            hidden_vec0_penu = self.gru0_penu(vec_penu, hidden_vec0_penu)
-            hidden_vec1_penu = self.gru1_penu(hidden_vec0_penu, hidden_vec1_penu)
-            vec_penu = self.gru2aff_penu(torch.cat((hidden_vec1_penu, ldim_penu), dim=1))
+            h_vec0_penu = self.gru0_penu(vec_penu, h_vec0_penu)
+            h_vec1_penu = self.gru1_penu(h_vec0_penu, h_vec1_penu)
+            vec_penu = self.gru2aff_penu(torch.cat((h_vec1_penu, ldim_penu), dim=1))
             affine_penu = affine_grid(vec_penu.view(-1, 3, 4), feat_penu.size()).permute(0, 4, 1, 2, 3)
-            if self.refine_penu:
-                refine_penu = self.refine_penu(torch.cat((input_downsampled, feat_penu, affine_penu), dim=1))
-                refined_grid_penu = affine_penu * refine_penu
-            else:
-                refined_grid_penu = affine_penu
-            offs_penu.append(self.up_pool(refined_grid_penu).permute(0, 2, 3, 4, 1))
-            pred_penu.append(grid_sample(penu, offs_penu[-1]))
-            grid_penu.append(grid_sample(self.visual_grid, offs_penu[-1]))
+            offs_penu.append(affine_penu.permute(0, 2, 3, 4, 1))
+            pred_penu.append(self.up_pool(grid_sample(penu, offs_penu[-1])))
+            grid_penu.append(self.up_pool(grid_sample(self.visual_grid, offs_penu[-1])))
 
             prev_step = time_step
 

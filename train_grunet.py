@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from common import data, metrics
 from GRUnet_2 import BidirectionalSequence, tensor2index, BiNet
+import torch.nn.functional as F
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -125,8 +126,8 @@ class Criterion_BiNet(nn.Module):
             diff = output[:, i+1] - output[:, i]
             loss += self.weights[6] * torch.mean(torch.abs(diff) - diff)  # monotone
 
-        loss += self.weights[7] * self.l1(off_core_c, off_target_c)
-        loss += self.weights[7] * self.l1(off_penu_p, off_target_p)
+        loss += self.weights[7] * self.l1(F.interpolate(off_core_c.permute(0, 4, 1, 2, 3), size=(28,128,128)).permute(0, 2, 3, 4, 1), off_target_c)
+        loss += self.weights[7] * self.l1(F.interpolate(off_penu_p.permute(0, 4, 1, 2, 3), size=(28,128,128)).permute(0, 2, 3, 4, 1), off_target_p)
 
         return loss
 
@@ -720,7 +721,7 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
                                                               zsize=28)
     '''
 
-    bi_net = BiNet(seq_thr=sequence_thresholds, batch_size=batchsize, refine_path=refine).to(device)
+    bi_net = BiNet(seq_thr=sequence_thresholds, batch_size=batchsize).to(device)
 
     params = [p for p in bi_net.parameters() if p.requires_grad]
     print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
