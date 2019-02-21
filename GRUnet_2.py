@@ -892,6 +892,7 @@ class BiNet(nn.Module):
         channels_vec2low = [72, (72 + channels_img_low)//2, channels_img_low]
         channels_low2gru = [channels_img_low + 4, channels_gru]  # +5 if add time_step
         channels_gru2phi = [channels_gru + channels_img_low, (channels_gru + channels_img_low + 12)//2, 12]
+        channels_prl2vec = [1, channels_img_low//3, 2*(channels_img_low//3), channels_img_low]
 
         self.feature_core = self._feature(channels_feature)      # spatial image features
         self.img2vec_core = self._img2vec(channels_img2vec)      # vector  representation of image features
@@ -905,33 +906,42 @@ class BiNet(nn.Module):
         self.gru2phi_cl[-1].bias.data.copy_(self._affine_identity())
         self.gru2phi_lp[-1].weight.data.normal_(0, 0.0001)
         self.gru2phi_lp[-1].bias.data.copy_(self._affine_identity())
+        self.prl2vec_core = self.img2vec(channels_prl2vec)
 
         self.feature_penu = self._feature(channels_feature)      # spatial image features
         self.img2vec_penu = self._img2vec(channels_img2vec)      # vector  representation of image features
         self.vec2low_penu = self._vec2vec(channels_vec2low)      # low-dim representation of image features
         self.low2gru_penu = self._vec2vec(channels_low2gru)      # low-dim representation of image features + clinical
-        self.gru0_penu = nn.GRUCell(channels_gru, channels_gru)  # recurrent abstraction
-        self.gru1_penu = nn.GRUCell(channels_gru, channels_gru)  # recurrent abstraction
-        self.gru2aff_penu = self._vec2vec(channels_gru2phi)      # recurrent abstraction + image vector to affine params
-        self.gru2aff_penu[-1].weight.data.normal_(0, 0.0001)
-        self.gru2aff_penu[-1].bias.data.copy_(self._affine_identity())
+        self.gru_pl = nn.GRUCell(channels_gru, channels_gru)  # recurrent abstraction
+        self.gru_lc = nn.GRUCell(channels_gru, channels_gru)  # recurrent abstraction
+        self.gru2phi_pl = self._vec2vec(channels_gru2phi)  # self.gru2aff_penu / recurrent abstraction + image vector to affine params
+        self.gru2phi_lc = self._vec2vec(channels_gru2phi)  #
+        self.gru2phi_pl[-1].weight.data.normal_(0, 0.0001)
+        self.gru2phi_pl[-1].bias.data.copy_(self._affine_identity())
+        self.gru2phi_lc[-1].weight.data.normal_(0, 0.0001)
+        self.gru2phi_lc[-1].bias.data.copy_(self._affine_identity())
+        self.prl2vec_penu = self.img2vec(channels_prl2vec)
 
         # Final up-pooling grid to full resolution
         self.up_pool = nn.AdaptiveAvgPool3d(output_size=(28, 128, 128))
 
     def forward(self, core, penu, clinical):
-        pred_core = []
-        pred_penu = []
-        grid_core = []
-        grid_penu = []
-        offs_core = []
-        offs_penu = []
+        pr_l_core = []
+        pr_l_penu = []
+        pr_p_core = []
+        pr_c_penu = []
+        gr_l_core = []
+        gr_l_penu = []
+        phis_cl = []
+        phis_lp = []
+        phis_pl = []
+        phis_lc = []
 
-        h_vec0_core = torch.zeros(self.grid_identity_core.size(0), self.gru0_core.hidden_size).cuda()
-        h_vec1_core = torch.zeros(self.grid_identity_core.size(0), self.gru1_core.hidden_size).cuda()
+        h_gru_cl = torch.zeros(self.grid_identity_core.size(0), self.gru2phi_cl.hidden_size).cuda()
+        h_gru_lp = torch.zeros(self.grid_identity_core.size(0), self.gru2phi_lp.hidden_size).cuda()
 
-        h_vec0_penu = torch.zeros(self.grid_identity_penu.size(0), self.gru0_penu.hidden_size).cuda()
-        h_vec1_penu = torch.zeros(self.grid_identity_penu.size(0), self.gru1_penu.hidden_size).cuda()
+        h_gru_pl = torch.zeros(self.grid_identity_penu.size(0), self.gru2phi_pl.hidden_size).cuda()
+        h_gru_lc = torch.zeros(self.grid_identity_penu.size(0), self.gru2phi_lc.hidden_size).cuda()
 
         input = torch.cat((core, penu), dim=1)
 
@@ -956,26 +966,64 @@ class BiNet(nn.Module):
 
             vec_core = torch.cat((ldim_core, clinical_plus), dim=1)
             vec_core = self.low2gru_core(vec_core)
-            h_vec0_core = self.gru0_core(vec_core, h_vec0_core)
-            h_vec1_core = self.gru1_core(h_vec0_core, h_vec1_core)
-            vec_core = self.gru2aff_core(torch.cat((h_vec1_core, ldim_core), dim=1))
-            affine_core = affine_grid(vec_core.view(-1, 3, 4), feat_core.size()).permute(0, 4, 1, 2, 3)
-            offs_core.append(affine_core.permute(0, 2, 3, 4, 1))
-            pred_core.append(self.up_pool(grid_sample(core, offs_core[-1])))
-            grid_core.append(self.up_pool(grid_sample(self.visual_grid, offs_core[-1])))
+            h_gru_cl = self.gru_cl(vec_core, h_gru_cl)
+            phi_cl = self.gru2phi_cl(torch.cat((h_gru_cl, ldim_core), dim=1))
+            aff_cl = affine_grid(phi_cl.view(-1, 3, 4), feat_core.size())
+            prl_core = grid_sample(core, aff_cl)
+
+            vec_core = self.prl2vec_core(prl_core)
+            vec_core = torch.cat((vec_core, clinical_plus), dim=1)
+            h_gru_lp = self.gru_lp(vec_core, h_gru_lp)
+            phi_lp = self.gru2phi_lp(torch.cat((h_gru_lp, vec_core), dim=1))
+            aff_lp = affine_grid(phi_lp.view(-1, 3, 4), feat_core.size())
+            prp_core = grid_sample(prl_core, aff_lp)
+
+            pr_l_core.append(self.up_pool(prl_core))
+            pr_p_core.append(self.up_pool(prp_core))
+            gr_l_core.append(self.up_pool(grid_sample(self.visual_grid, aff_cl)))
+            phis_cl.append(phi_cl)
+            phis_lp.append(phi_lp)
+
+            del vec_core
+            del aff_cl
+            del aff_lp
+            del phi_cl
+            del phi_lp
+            del prl_core
+            del prp_core
 
             vec_penu = torch.cat((ldim_penu, clinical_plus), dim=1)
             vec_penu = self.low2gru_penu(vec_penu)
-            h_vec0_penu = self.gru0_penu(vec_penu, h_vec0_penu)
-            h_vec1_penu = self.gru1_penu(h_vec0_penu, h_vec1_penu)
-            vec_penu = self.gru2aff_penu(torch.cat((h_vec1_penu, ldim_penu), dim=1))
-            affine_penu = affine_grid(vec_penu.view(-1, 3, 4), feat_penu.size()).permute(0, 4, 1, 2, 3)
-            offs_penu.append(affine_penu.permute(0, 2, 3, 4, 1))
-            pred_penu.append(self.up_pool(grid_sample(penu, offs_penu[-1])))
-            grid_penu.append(self.up_pool(grid_sample(self.visual_grid, offs_penu[-1])))
+            h_gru_pl = self.gru_pl(vec_penu, h_gru_pl)
+            phi_pl = self.gru2phi_pl(torch.cat((h_gru_pl, ldim_penu), dim=1))
+            aff_pl = affine_grid(phi_pl.view(-1, 3, 4), feat_penu.size())
+            prl_penu = grid_sample(penu, aff_pl)
+
+            vec_penu = self.prl2vec_penu(prl_penu)
+            vec_penu = torch.cat((vec_penu, clinical_plus), dim=1)
+            h_gru_lc = self.gru_lc(vec_penu, h_gru_lc)
+            phi_lc = self.gru2phi_lc(torch.cat((h_gru_lc, vec_penu), dim=1))
+            aff_lc = affine_grid(phi_lc.view(-1, 3, 4), feat_penu.size())
+            prc_penu = grid_sample(prl_penu, aff_lc)
+
+            pr_l_penu.append(self.up_pool(prl_penu))
+            pr_c_penu.append(self.up_pool(prc_penu))
+            gr_l_penu.append(self.up_pool(grid_sample(self.visual_grid, aff_pl)))
+            phis_pl.append(phi_pl)
+            phis_lc.append(phi_lc)
+
+            del vec_penu
+            del aff_pl
+            del aff_lc
+            del phi_pl
+            del phi_lc
+            del prl_penu
+            del prc_penu
 
             prev_step = time_step
 
-        return torch.cat(pred_core, dim=1), torch.cat(pred_penu[::-1], dim=1),\
-               torch.cat(grid_core, dim=1), torch.cat(grid_penu[::-1], dim=1), \
-               torch.cat(offs_core, dim=1), torch.cat(offs_penu[::-1], dim=1)
+        return torch.cat(pr_l_core, dim=1), torch.cat(pr_l_penu[::-1], dim=1), \
+               torch.cat(pr_p_core, dim=1), torch.cat(pr_c_penu[::-1], dim=1), \
+               torch.cat(gr_l_core, dim=1), torch.cat(gr_l_penu[::-1], dim=1), \
+               torch.cat(phis_cl, dim=1), torch.cat(phis_pl[::-1], dim=1), \
+               torch.cat(phis_lp, dim=1), torch.cat(phis_lc[::-1], dim=1)
