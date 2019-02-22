@@ -885,14 +885,16 @@ class BiNet(nn.Module):
 
         self.visual_grid = self.visualise_grid(batch_size)
 
+        channels_clinical = 4  # 5 if add time_step
         channels_img_low = 42
-        channels_gru = 48  # ideally >= channels_img_low + 5
+        channels_gru = 48  # ideally >= channels_img_low + 5 ?
         channels_feature = [2, 16, 32]
         channels_img2vec = [32, 48, 64, 72]
         channels_vec2low = [72, (72 + channels_img_low)//2, channels_img_low]
-        channels_low2gru = [channels_img_low + 4, channels_gru]  # +5 if add time_step
+        channels_low2gru = [channels_img_low + channels_clinical, channels_gru]
         channels_gru2phi = [channels_gru + channels_img_low, (channels_gru + channels_img_low + 12)//2, 12]
         channels_prl2vec = [1, channels_img_low//3, 2*(channels_img_low//3), channels_img_low]
+        channels_vec2gru = [2 * channels_img_low + channels_clinical, channels_gru]  # +5 if add time_step
 
         self.feature_core = self._feature(channels_feature)      # spatial image features
         self.img2vec_core = self._img2vec(channels_img2vec)      # vector  representation of image features
@@ -906,7 +908,8 @@ class BiNet(nn.Module):
         self.gru2phi_cl[-1].bias.data.copy_(self._affine_identity())
         self.gru2phi_lp[-1].weight.data.normal_(0, 0.0001)
         self.gru2phi_lp[-1].bias.data.copy_(self._affine_identity())
-        self.prl2vec_core = self.img2vec(channels_prl2vec)
+        self.prl2vec_core = self._img2vec(channels_prl2vec)
+        self.vec2gru_core = self._vec2vec(channels_vec2gru)
 
         self.feature_penu = self._feature(channels_feature)      # spatial image features
         self.img2vec_penu = self._img2vec(channels_img2vec)      # vector  representation of image features
@@ -920,7 +923,8 @@ class BiNet(nn.Module):
         self.gru2phi_pl[-1].bias.data.copy_(self._affine_identity())
         self.gru2phi_lc[-1].weight.data.normal_(0, 0.0001)
         self.gru2phi_lc[-1].bias.data.copy_(self._affine_identity())
-        self.prl2vec_penu = self.img2vec(channels_prl2vec)
+        self.prl2vec_penu = self._img2vec(channels_prl2vec)
+        self.vec2gru_penu = self._vec2vec(channels_vec2gru)
 
         # Final up-pooling grid to full resolution
         self.up_pool = nn.AdaptiveAvgPool3d(output_size=(28, 128, 128))
@@ -937,11 +941,11 @@ class BiNet(nn.Module):
         phis_pl = []
         phis_lc = []
 
-        h_gru_cl = torch.zeros(self.grid_identity_core.size(0), self.gru2phi_cl.hidden_size).cuda()
-        h_gru_lp = torch.zeros(self.grid_identity_core.size(0), self.gru2phi_lp.hidden_size).cuda()
+        h_gru_cl = torch.zeros(self.grid_identity_core.size(0), self.gru_cl.hidden_size).cuda()
+        h_gru_lp = torch.zeros(self.grid_identity_core.size(0), self.gru_lp.hidden_size).cuda()
 
-        h_gru_pl = torch.zeros(self.grid_identity_penu.size(0), self.gru2phi_pl.hidden_size).cuda()
-        h_gru_lc = torch.zeros(self.grid_identity_penu.size(0), self.gru2phi_lc.hidden_size).cuda()
+        h_gru_pl = torch.zeros(self.grid_identity_penu.size(0), self.gru_pl.hidden_size).cuda()
+        h_gru_lc = torch.zeros(self.grid_identity_penu.size(0), self.gru_lc.hidden_size).cuda()
 
         input = torch.cat((core, penu), dim=1)
 
@@ -953,8 +957,6 @@ class BiNet(nn.Module):
         fvec_penu = self.img2vec_penu(feat_penu)
         ldim_penu = self.vec2low_penu(fvec_penu.squeeze())
 
-        input_downsampled = F.interpolate(input, size=feat_core.size()[2:])
-
         del input
         del fvec_core
         del fvec_penu
@@ -964,6 +966,7 @@ class BiNet(nn.Module):
             time_step = torch.ones(self.grid_identity_core.size(0), 1).cuda() * self.seq_thr[i]
             clinical_plus = torch.cat((clinical.squeeze(), time_step - prev_step), dim=1)  # TODO add time_step?
 
+            # Deform core to lesion
             vec_core = torch.cat((ldim_core, clinical_plus), dim=1)
             vec_core = self.low2gru_core(vec_core)
             h_gru_cl = self.gru_cl(vec_core, h_gru_cl)
@@ -971,10 +974,12 @@ class BiNet(nn.Module):
             aff_cl = affine_grid(phi_cl.view(-1, 3, 4), feat_core.size())
             prl_core = grid_sample(core, aff_cl)
 
-            vec_core = self.prl2vec_core(prl_core)
-            vec_core = torch.cat((vec_core, clinical_plus), dim=1)
+            # Register deformed core onto penumbra
+            prl2vec_core = self.prl2vec_core(prl_core).squeeze()
+            vec_core = torch.cat((prl2vec_core, ldim_core, clinical_plus), dim=1)
+            vec_core = self.vec2gru_core(vec_core)
             h_gru_lp = self.gru_lp(vec_core, h_gru_lp)
-            phi_lp = self.gru2phi_lp(torch.cat((h_gru_lp, vec_core), dim=1))
+            phi_lp = self.gru2phi_lp(torch.cat((h_gru_lp, prl2vec_core), dim=1))
             aff_lp = affine_grid(phi_lp.view(-1, 3, 4), feat_core.size())
             prp_core = grid_sample(prl_core, aff_lp)
 
@@ -992,6 +997,7 @@ class BiNet(nn.Module):
             del prl_core
             del prp_core
 
+            # Deform penumbra to lesion
             vec_penu = torch.cat((ldim_penu, clinical_plus), dim=1)
             vec_penu = self.low2gru_penu(vec_penu)
             h_gru_pl = self.gru_pl(vec_penu, h_gru_pl)
@@ -999,10 +1005,12 @@ class BiNet(nn.Module):
             aff_pl = affine_grid(phi_pl.view(-1, 3, 4), feat_penu.size())
             prl_penu = grid_sample(penu, aff_pl)
 
-            vec_penu = self.prl2vec_penu(prl_penu)
-            vec_penu = torch.cat((vec_penu, clinical_plus), dim=1)
+            # Register deformed penumbra onto core
+            prl2vec_penu = self.prl2vec_penu(prl_penu).squeeze()
+            vec_penu = torch.cat((prl2vec_penu, ldim_penu, clinical_plus), dim=1)
+            vec_penu = self.vec2gru_penu(vec_penu)
             h_gru_lc = self.gru_lc(vec_penu, h_gru_lc)
-            phi_lc = self.gru2phi_lc(torch.cat((h_gru_lc, vec_penu), dim=1))
+            phi_lc = self.gru2phi_lc(torch.cat((h_gru_lc, prl2vec_penu), dim=1))
             aff_lc = affine_grid(phi_lc.view(-1, 3, 4), feat_penu.size())
             prc_penu = grid_sample(prl_penu, aff_lc)
 

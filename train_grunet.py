@@ -94,8 +94,9 @@ class Criterion_BiNet(nn.Module):
     def __init__(self, weights):
         super(Criterion_BiNet, self).__init__()
         self.dc = metrics.BatchDiceLoss([1.0])  # weighted inversely by each volume proportion
+        self.dc2 = metrics.BatchDiceLoss([1.0/25.0] * 25)  # weighted inversely by each volume proportion
         self.l1 = nn.L1Loss()
-        assert len(weights) == 8
+        assert len(weights) == 10
         self.weights = [i/100 for i in weights]
         self.scales = [nn.AvgPool3d((1, 1, 1), (1, 1, 1), padding=(0, 0, 0)),
                        nn.AvgPool3d((1, 5, 5), (1, 1, 1), padding=(0, 2, 2)),
@@ -104,30 +105,42 @@ class Criterion_BiNet(nn.Module):
                        nn.AvgPool3d((7, 31, 31), (1, 1, 1), padding=(3, 15, 15)),
                        nn.AvgPool3d((9, 41, 41), (1, 1, 1), padding=(4, 20, 20))]
 
-    def multi_scale_dc(self, input, target):
+    def multi_scale(self, input, target, criterion):
         loss = 0.0
         for scale in self.scales:
-            loss += self.dc(scale(scale(input)), scale(scale(target)))
+            loss += criterion(scale(scale(input)), scale(scale(target)))
         return loss/len(self.scales)
+
+    def matrix_inverse(self, input, target):
+        target = torch.cat((target.view(-1, 25, 3, 4), torch.tensor([0.,0.,0.,1.]).unsqueeze(0).unsqueeze(0).unsqueeze(0).expand(target.size(0), 25, -1, -1).cuda()), dim=2)
+        return self.l1(input.view(-1, 25, 3, 4), torch.inverse(target)[:, :, :3, :])
 
     def forward(self, pr_core_c, pr_core_p, gt_core,
                 pr_lesion_c, pr_lesion_p, gt_lesion,
                 pr_penu_c, pr_penu_p, gt_penu, output,
-                off_core_c, off_penu_p, off_target_c, off_target_p):
+                off_core_c, off_penu_p, off_target_c, off_target_p,
+                pr_p_core, pr_c_penu,
+                phis_cl, phis_pl, phis_lp, phis_lc):
 
-        loss = self.weights[0] * self.multi_scale_dc(pr_core_c, gt_core)
-        loss += self.weights[1] * self.multi_scale_dc(pr_core_p, gt_core)
-        loss += self.weights[2] * self.multi_scale_dc(pr_lesion_c, gt_lesion)
-        loss += self.weights[3] * self.multi_scale_dc(pr_lesion_p, gt_lesion)
-        loss += self.weights[4] * self.multi_scale_dc(pr_penu_c, gt_penu)
-        loss += self.weights[5] * self.multi_scale_dc(pr_penu_p, gt_penu)
+        loss = self.weights[0] * self.multi_scale(pr_core_c, gt_core, self.dc)
+        loss += self.weights[1] * self.multi_scale(pr_core_p, gt_core, self.dc)
+        loss += self.weights[2] * self.multi_scale(pr_lesion_c, gt_lesion, self.dc)
+        loss += self.weights[3] * self.multi_scale(pr_lesion_p, gt_lesion, self.dc)
+        loss += self.weights[4] * self.multi_scale(pr_penu_c, gt_penu, self.dc)
+        loss += self.weights[5] * self.multi_scale(pr_penu_p, gt_penu, self.dc)
 
         for i in range(output.size()[1]-1):
             diff = output[:, i+1] - output[:, i]
             loss += self.weights[6] * torch.mean(torch.abs(diff) - diff)  # monotone
 
-        loss += self.weights[7] * self.l1(F.interpolate(off_core_c.permute(0, 4, 1, 2, 3), size=(28,128,128)).permute(0, 2, 3, 4, 1), off_target_c)
-        loss += self.weights[7] * self.l1(F.interpolate(off_penu_p.permute(0, 4, 1, 2, 3), size=(28,128,128)).permute(0, 2, 3, 4, 1), off_target_p)
+        loss += self.weights[7] * self.multi_scale(pr_p_core, torch.cat([gt_penu] * pr_p_core.size(1), dim=1), self.dc2)
+        loss += self.weights[8] * self.multi_scale(pr_c_penu, torch.cat([gt_core] * pr_c_penu.size(1), dim=1), self.dc2)
+
+        loss += self.weights[9] * self.matrix_inverse(phis_cl, phis_lc)
+        loss += self.weights[9] * self.matrix_inverse(phis_pl, phis_lp)
+
+        #loss += self.weights[x] * self.l1(F.interpolate(off_core_c.permute(0, 4, 1, 2, 3), size=(28,128,128)).permute(0, 2, 3, 4, 1), off_target_c)
+        #loss += self.weights[x] * self.l1(F.interpolate(off_penu_p.permute(0, 4, 1, 2, 3), size=(28,128,128)).permute(0, 2, 3, 4, 1), off_target_p)
 
         return loss
 
@@ -205,7 +218,8 @@ def get_results(batch, batchsize, pr, out_c, out_p, lesion_pos, sequence_thresho
            idx_lesion, idx_middle
 
 
-def get_results_BiNet(batch, batchsize, pred_core, pred_penu, offs_core, offs_penu, sequence_thresholds, t_core, idx_core):
+def get_results_BiNet(batch, batchsize, pr_l_core, pr_l_penu, gr_l_core, gr_l_penu,
+                      sequence_thresholds, t_core, idx_core):
     pr_core_c = []
     pr_lesion_c = []
     pr_penu_c = []
@@ -217,14 +231,14 @@ def get_results_BiNet(batch, batchsize, pred_core, pred_penu, offs_core, offs_pe
 
     idx_lesion = tensor2index(t_core + batch[data.KEY_GLOBAL][:, 1], sequence_thresholds)
     for b in range(batchsize):
-        pr_lesion_c.append(pred_core[b, int(idx_lesion[b])])
-        pr_core_c.append(pred_core[b, int(idx_core[b])])
-        pr_penu_c.append(pred_core[b, -1])
-        pr_lesion_p.append(pred_penu[b, int(idx_lesion[b])])
-        pr_core_p.append(pred_penu[b, int(idx_core[b])])
-        pr_penu_p.append(pred_penu[b, -1])
-        off_core_c.append(offs_core[b, int(idx_core[b])])
-        off_penu_p.append(offs_penu[b, -1])
+        pr_lesion_c.append(pr_l_core[b, int(idx_lesion[b])])
+        pr_core_c.append(pr_l_core[b, int(idx_core[b])])
+        pr_penu_c.append(pr_l_core[b, -1])
+        pr_lesion_p.append(pr_l_penu[b, int(idx_lesion[b])])
+        pr_core_p.append(pr_l_penu[b, int(idx_core[b])])
+        pr_penu_p.append(pr_l_penu[b, -1])
+        off_core_c.append(gr_l_core[b, int(idx_core[b])])
+        off_penu_p.append(gr_l_penu[b, -1])
 
     return torch.stack(pr_lesion_c, dim=0).unsqueeze(1),\
            torch.stack(pr_core_c, dim=0).unsqueeze(1), torch.stack(pr_penu_c, dim=0).unsqueeze(1),\
@@ -333,14 +347,15 @@ def process_batch_BiNet(batch, batchsize, bi_net, criterion, sequence_length, se
                                                            sequence_length,
                                                            sequence_thresholds)
 
-    pred_core, pred_penu, grid_c, grid_p, offs_core, offs_penu = bi_net(gt[:, 0, :, :, :].unsqueeze(1),
-                                                                        gt[:, -1, :, :, :].unsqueeze(1),
-                                                                        batch[data.KEY_GLOBAL].to(device))
+    pr_l_core, pr_l_penu, pr_p_core, pr_c_penu, gr_l_core, gr_l_penu, phis_cl, phis_pl, phis_lp, phis_lc = \
+        bi_net(gt[:, 0, :, :, :].unsqueeze(1), gt[:, -1, :, :, :].unsqueeze(1), batch[data.KEY_GLOBAL].to(device))
 
     pr_lesion_c, pr_core_c, pr_penu_c, pr_lesion_p, pr_core_p, pr_penu_p, off_core_c, off_penu_p, idx_lesion = \
-        get_results_BiNet(batch, batchsize, pred_core, pred_penu, offs_core, offs_penu, sequence_thresholds, t_core, idx_core)
+        get_results_BiNet(batch, batchsize,
+                          pr_l_core, pr_l_penu, gr_l_core, gr_l_penu,
+                          sequence_thresholds, t_core, idx_core)
 
-    prs = pred_core * factor.unsqueeze(2).unsqueeze(3).unsqueeze(4) + (1-factor).unsqueeze(2).unsqueeze(3).unsqueeze(4) * pred_penu
+    prs = pr_l_core * factor.unsqueeze(2).unsqueeze(3).unsqueeze(4) + (1-factor).unsqueeze(2).unsqueeze(3).unsqueeze(4) * pr_l_penu
 
     loss = criterion(pr_core_c, pr_core_p,
                      gt[:, 0, :, :, :].unsqueeze(1),
@@ -352,9 +367,11 @@ def process_batch_BiNet(batch, batchsize, bi_net, criterion, sequence_length, se
                      off_core_c,
                      off_penu_p,
                      bi_net.grid_identity_core,
-                     bi_net.grid_identity_penu)
+                     bi_net.grid_identity_penu,
+                     pr_p_core, pr_c_penu,
+                     phis_cl, phis_pl, phis_lp, phis_lc)
 
-    return gt, prs, grid_c, grid_p, idx_lesion, loss
+    return gt, prs, gr_l_core, gr_l_penu, idx_lesion, loss
 
 
 def main(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
