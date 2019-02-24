@@ -894,7 +894,7 @@ class BiNet(nn.Module):
         channels_low2gru = [channels_img_low + channels_clinical, channels_gru]
         channels_gru2phi = [channels_gru + channels_img_low, (channels_gru + channels_img_low + 12)//2, 12]
         channels_prl2vec = [1, channels_img_low//3, 2*(channels_img_low//3), channels_img_low]
-        channels_vec2gru = [2 * channels_img_low + channels_clinical, channels_gru]  # +5 if add time_step
+        channels_vec2gru = [2 * channels_img_low + channels_clinical, channels_img_low, channels_gru]  # +5 if add time_step
 
         self.feature_core = self._feature(channels_feature)      # spatial image features
         self.img2vec_core = self._img2vec(channels_img2vec)      # vector  representation of image features
