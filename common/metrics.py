@@ -39,10 +39,11 @@ def binary_measures_numpy(result, target, binary_threshold=0.5):
                                mpm.sensitivity(result_binary, target_binary),
                                mpm.specificity(result_binary, target_binary))
 
+    ''' Deprecated:
     if result_binary.any() and target_binary.any():
         result.hd = mpm.hd(result_binary, target_binary)
         result.assd = mpm.assd(result_binary, target_binary)
-
+    '''
     return result
 
 
