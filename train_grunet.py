@@ -686,13 +686,14 @@ def test_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
 
     ds_test = data.single_data_loader3D_full_(modalities, labels, [17, 6, 2, 26, 11, 4], batchsize, train_transform=test_trafo)
 
-    bi_net = BiNet(seq_thr=sequence_thresholds, batch_size=batchsize, refine_path=refine).to(device)
-    bi_net.load_state_dict(torch.load(refine).state_dict(), strict=False)
+    #bi_net = BiNet(seq_thr=sequence_thresholds, batch_size=batchsize, refine_path=refine).to(device)
+    #bi_net.load_state_dict(torch.load(refine).state_dict(), strict=False)
+    bi_net = torch.load('/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp100_158e96a/f1_epoch_latest.model')
 
     criterion = Criterion_BiNet(arg_loss)
     loss_test = []
 
-    f, axarr = plt.subplots(n_visual_samples * 3, sequence_length + 3)
+    f, axarr = plt.subplots(n_visual_samples * 3, sequence_length + 5)
 
     ### Validate ###
     inc = 0
@@ -702,25 +703,26 @@ def test_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
     with torch.set_grad_enabled(is_train):
 
         for epoch, batch in enumerate(ds_test):
-            gt, pr, grid_c, grid_p, idx_lesion, loss = process_batch_BiNet(batch, batchsize, bi_net, criterion,
-                                                                           sequence_length, sequence_thresholds,
-                                                                           device)
+            gt, pr, grid_c, grid_p, idx_lesion, loss, inv_consist_core, inv_consist_penu = \
+                process_batch_BiNet(batch, batchsize, bi_net, criterion, sequence_length, sequence_thresholds, device)
 
             loss_mean += loss.item()
             inc += 1
 
-            axarr = visualise_batch(axarr,
-                                    batch,
-                                    gt.cpu().detach().numpy(),
-                                    pr.cpu().detach().numpy(),
-                                    bi_net.visual_grid.cpu().detach().numpy(),
-                                    grid_c.cpu().detach().numpy(),
-                                    grid_p.cpu().detach().numpy(),
-                                    idx_lesion,
-                                    n_visual_samples,
-                                    sequence_length,
-                                    sequence_thresholds,
-                                    init_offset=0)
+            axarr = visualise_batch_binet(axarr,
+                                            batch,
+                                            gt.cpu().detach().numpy(),
+                                            pr.cpu().detach().numpy(),
+                                            bi_net.visual_grid.cpu().detach().numpy(),
+                                            grid_c.cpu().detach().numpy(),
+                                            grid_p.cpu().detach().numpy(),
+                                            [v.cpu().detach().numpy() for v in inv_consist_core],
+                                            [v.cpu().detach().numpy() for v in inv_consist_penu],
+                                            idx_lesion,
+                                            n_visual_samples,
+                                            sequence_length,
+                                            sequence_thresholds,
+                                            init_offset=0)
             for ax in axarr.flatten():
                 ax.title.set_fontsize(3)
                 ax.xaxis.set_visible(False)
