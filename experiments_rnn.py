@@ -206,19 +206,19 @@ elif args.id == 99:
     loss = losses[3]
 elif args.id == 100:
     print(args.id, 'DEBUG / TESTING PURPOSES - simple BiNet')
-    loss = [1, 1, 63, 31, 1, 1, 0.0, 1, 1]  # TODO
-    batch_size = 2
+    loss = [0, 1, 0, 75, 0, 19, 0.2, 0, 0]  # TODO
+    batch_size = 4
     func = main_BiNet
     path = '/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp' + str(args.id)
     refine = None
     seq_thr = [.0, .522, 0.93, 1.25, 1.5, 1.75, 2., 2.25, 2.5, 2.75, 3., 3.25, 3.5, 3.75, 4., 4.25, 4.5, 4.75, 5., 5.376, 5.942, 6.793, 8.074, 10., 12.897]
 elif args.id == 101:
     print(args.id, 'DEBUG / TESTING PURPOSES - simple BiNet')
-    loss = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-    batch_size = 2
+    loss = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+    batch_size = 1
     func = test_BiNet
     path = '/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp' + str(args.id)
-    refine = '/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp100_190225_93a9c0a/f1_epoch_valmin.model'
+    refine = '/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp100/f1_epoch_valmin.model'
     seq_thr = [.0, .522, 0.93, 1.25, 1.5, 1.75, 2., 2.25, 2.5, 2.75, 3., 3.25, 3.5, 3.75, 4., 4.25, 4.5, 4.75, 5., 5.376, 5.942, 6.793, 8.074, 10., 12.897]
 else:
     raise Exception('No valid experiment id given')

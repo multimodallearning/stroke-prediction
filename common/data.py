@@ -544,7 +544,7 @@ def split_data_loader3D(modalities, labels, indices, batch_size, random_seed=Non
 
 
 def split_data_loader3D_(modalities, labels, indices, batch_size, random_seed=None, valid_size=0.5, shuffle=True,
-                        num_workers=4, pin_memory=False, train_transform=[], valid_transform=[]):
+                        num_workers=4, pin_memory=False, train_transform=[], valid_transform=[], drop_last=True):
     assert ((valid_size >= 0) and (valid_size <= 1)), "[!] valid_size should be in the range [0, 1]."
     assert train_transform, "You must provide at least a numpy-to-torch transformation."
     assert valid_transform, "You must provide at least a numpy-to-torch transformation."
@@ -571,11 +571,11 @@ def split_data_loader3D_(modalities, labels, indices, batch_size, random_seed=No
     train_loader = DataLoader(dataset_train,
                     batch_size=batch_size, sampler=train_sampler,
                     num_workers=num_workers, pin_memory=pin_memory,
-                    worker_init_fn=set_np_seed, drop_last=True)
+                    worker_init_fn=set_np_seed, drop_last=drop_last)
 
     valid_loader = DataLoader(dataset_valid,
                     batch_size=batch_size, sampler=valid_sampler,
-                    num_workers=num_workers, pin_memory=pin_memory, drop_last=True)
+                    num_workers=num_workers, pin_memory=pin_memory, drop_last=drop_last)
 
     return (train_loader, valid_loader)
 
