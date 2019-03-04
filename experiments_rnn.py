@@ -212,14 +212,24 @@ elif args.id == 100:
     path = '/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp' + str(args.id)
     refine = None
     seq_thr = [.0, .522, 0.93, 1.25, 1.5, 1.75, 2., 2.25, 2.5, 2.75, 3., 3.25, 3.5, 3.75, 4., 4.25, 4.5, 4.75, 5., 5.376, 5.942, 6.793, 8.074, 10., 12.897]
-elif args.id == 101:
+elif args.id > 100:
     print(args.id, 'DEBUG / TESTING PURPOSES - simple BiNet')
+    fold = folds[args.fold]
     loss = [0, 0, 0, 0, 0, 0, 0, 0, 0]
     batch_size = 1
     func = test_BiNet
     path = '/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp' + str(args.id)
-    refine = '/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp100/f1_epoch_valmin.model'
     seq_thr = [.0, .522, 0.93, 1.25, 1.5, 1.75, 2., 2.25, 2.5, 2.75, 3., 3.25, 3.5, 3.75, 4., 4.25, 4.5, 4.75, 5., 5.376, 5.942, 6.793, 8.074, 10., 12.897]
+    if args.id == 101:
+        refine = '/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp100/f1_epoch_valmin.model'
+    elif args.id == 102:
+        refine = '/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp100/f2_epoch_valmin.model'
+    elif args.id == 103:
+        refine = '/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp100/f3_epoch_valmin.model'
+    elif args.id == 104:
+        refine = '/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp100/f4_epoch_valmin.model'
+    elif args.id == 105:
+        refine = '/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp100/f5_epoch_valmin.model'
 else:
     raise Exception('No valid experiment id given')
 

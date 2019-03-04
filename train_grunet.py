@@ -650,7 +650,7 @@ def test_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
                    data.ClinicalFirstNOnly(3),
                    data.ToTensor()]
 
-    ds_test = data.single_data_loader3D_full_(modalities, labels, [17, 6, 2, 26, 11, 4], batchsize, train_transform=test_trafo)
+    ds_test = data.single_data_loader3D_full_(modalities, labels, arg_fold, batchsize, train_transform=test_trafo)
 
     #bi_net = BiNet(seq_thr=sequence_thresholds, batch_size=batchsize, refine_path=refine).to(device)
     #bi_net.load_state_dict(torch.load(refine).state_dict(), strict=False)
