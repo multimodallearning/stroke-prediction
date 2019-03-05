@@ -280,6 +280,8 @@ def visualise_batch_binet(axarr, batch, gt, pr, grid_default, grid_c, grid_p, in
         titles = []
         core = gt[row, 0]
         com = np.round(ndi.center_of_mass(core)).astype(np.int)
+        if np.sum(core) == 0:
+            com = np.round(ndi.center_of_mass(gt[row, 2])).astype(np.int)
         axarr[factor * row + init_offset, 0].imshow(core[com[0], :, :], vmin=0, vmax=1, cmap='gray')
         titles.append('CORE')
         axarr[factor * row + init_offset, 1].imshow(gt[row, 1, com[0], :, :], vmin=0, vmax=1, cmap='gray')
