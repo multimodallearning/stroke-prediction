@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from common import data, metrics
-from GRUnet_2 import BidirectionalSequence, tensor2index, BiNet
+from GRUnet_2 import BidirectionalSequence, tensor2index, DiffeoMorphNet
 import torch.nn.functional as F
 import matplotlib
 matplotlib.use('Agg')
@@ -131,6 +131,35 @@ class Criterion_BiNet(nn.Module):
 
         #loss += self.weights[7] * self.multi_scale(pr_p_core, torch.cat([gt_penu] * pr_p_core.size(1), dim=1), self.dc2)
         #loss += self.weights[8] * self.multi_scale(pr_c_penu, torch.cat([gt_core] * pr_c_penu.size(1), dim=1), self.dc2)
+
+        return loss
+
+
+class Criterion_DiffeoMorphNet(nn.Module):
+    def __init__(self, weights):
+        super(Criterion_DiffeoMorphNet, self).__init__()
+        self.bce = nn.BCELoss()
+        self.dc = metrics.BatchDiceLoss([1.0])  # weighted inversely by each volume proportion
+        assert len(weights) == 3
+        self.weights = [i/100 for i in weights]
+        self.scales = [nn.AvgPool3d((1, 1, 1), (1, 1, 1), padding=(0, 0, 0)),
+                       nn.AvgPool3d((1, 5, 5), (1, 1, 1), padding=(0, 2, 2)),
+                       nn.AvgPool3d((3, 13, 13), (1, 1, 1), padding=(1, 6, 6)),
+                       nn.AvgPool3d((5, 23, 23), (1, 1, 1), padding=(2, 11, 11)),
+                       nn.AvgPool3d((7, 31, 31), (1, 1, 1), padding=(3, 15, 15)),
+                       nn.AvgPool3d((9, 41, 41), (1, 1, 1), padding=(4, 20, 20))]
+
+    def multi_scale(self, input, target, criterion):
+        loss = 0.0
+        for scale in self.scales:
+            loss += criterion(scale(scale(input)), scale(scale(target)))
+        return loss/len(self.scales)
+
+    def forward(self, pred_pc_penu, pred_pl_penu, pred_lc_penu, gt_core, gt_lesion):
+
+        loss = self.weights[0] * self.multi_scale(pred_pc_penu, gt_core, self.bce)
+        loss += self.weights[1] * self.multi_scale(pred_pl_penu, gt_lesion, self.bce)
+        loss += self.weights[2] * self.multi_scale(pred_lc_penu, gt_core, self.bce)
 
         return loss
 
@@ -274,6 +303,38 @@ def visualise_batch(axarr, batch, gt, pr, grid_default, grid_c, grid_p, idx_lesi
     return axarr
 
 
+def visualise_batch_diffeomorphnet(axarr, gt, pred_pc_penu, pred_pl_penu, pred_lc_penu,
+                                   grid_pc_penu, grid_pl_penu, grid_lc_penu, n_visual_samples, offset=0):
+    for row in range(n_visual_samples):
+        titles = []
+        core = gt[row, 0]
+        com = np.round(ndi.center_of_mass(core)).astype(np.int)
+        if np.sum(core) == 0:
+            com = np.round(ndi.center_of_mass(gt[row, 2])).astype(np.int)
+        axarr[row+offset, 0].imshow(core[com[0], :, :], vmin=0, vmax=1, cmap='gray')
+        titles.append('CORE')
+        axarr[row+offset, 1].imshow(pred_pc_penu[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+        titles.append('Pr_pc')
+        axarr[row+offset, 2].imshow(pred_lc_penu[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+        titles.append('Pr_lc')
+        axarr[row+offset, 3].imshow(grid_pc_penu[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+        titles.append('Gr_pc')
+        axarr[row+offset, 4].imshow(grid_lc_penu[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+        titles.append('Gr_lc')
+        axarr[row+offset, 5].imshow(gt[row, 1, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+        titles.append('FUCT')
+        axarr[row+offset, 6].imshow(pred_pl_penu[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+        titles.append('Pr_pl')
+        axarr[row+offset, 7].imshow(grid_pl_penu[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+        titles.append('Gr_pl')
+        axarr[row+offset, 8].imshow(gt[row, 2, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+        titles.append('PENU')
+        for ax, title in zip(axarr[row + offset], titles):
+            ax.set_title(title, verticalalignment='top')
+
+    return axarr
+
+
 def visualise_batch_binet(axarr, batch, gt, pr, grid_default, grid_c, grid_p, inv_consist_core, inv_consist_penu,
                           idx_lesion, n_visual_samples, sequence_length, sequence_thresholds, init_offset, factor=2):
     for row in range(n_visual_samples):
@@ -356,32 +417,15 @@ def process_batch(batch, batchsize, bi_net, criterion, arg_combine, sequence_len
 
 
 def process_batch_BiNet(batch, batchsize, bi_net, criterion, sequence_length, sequence_thresholds, device):
+    img = batch[data.KEY_IMAGES].to(device)
     gt = batch[data.KEY_LABELS].to(device)
 
-    t_core, idx_core, factor, output_factors = get_factors(batch,
-                                                           batchsize,
-                                                           sequence_length,
-                                                           sequence_thresholds)
+    pred_pc_penu, pred_pl_penu, pred_lc_penu, grid_pc_penu, grid_pl_penu, grid_lc_penu = \
+        bi_net(img[:, 0, :, :, :].unsqueeze(1), img[:, -1, :, :, :].unsqueeze(1), batch[data.KEY_GLOBAL].to(device))
 
-    pr_l_penu, gr_l_penu = bi_net(gt[:, 0, :, :, :].unsqueeze(1), gt[:, -1, :, :, :].unsqueeze(1), batch[data.KEY_GLOBAL].to(device))
+    loss = criterion(pred_pc_penu, pred_pl_penu, pred_lc_penu, gt[:, 0, :, :, :].unsqueeze(1), gt[:, 1, :, :, :].unsqueeze(1))
 
-    pr_core_p, pr_lesion_p, pr_penu_p, off_penu_p, idx_lesion = \
-        get_results_BiNet(batch, batchsize, None, pr_l_penu, None, gr_l_penu, sequence_thresholds, t_core, idx_core)
-
-    loss = criterion(None, pr_core_p,
-                     gt[:, 0, :, :, :].unsqueeze(1),
-                     None, pr_lesion_p,
-                     gt[:, 1, :, :, :].unsqueeze(1),
-                     None, pr_penu_p,
-                     gt[:, 2, :, :, :].unsqueeze(1),
-                     pr_l_penu,
-                     None,
-                     off_penu_p,
-                     None,
-                     None,
-                     None, None)
-
-    return gt, pr_l_penu, None, gr_l_penu, idx_lesion, loss, None, None
+    return gt, pred_pc_penu, pred_pl_penu, pred_lc_penu, grid_pc_penu, grid_pl_penu, grid_lc_penu, loss
 
 
 def main(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
@@ -729,12 +773,14 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
     train_trafo = [data.ResamplePlaneXY(0.5),
                    data.UseLabelsAsImages(),
                    data.HemisphericFlip(),
+                   data.DiffeoMorphNet(),
                    data.ElasticDeform(apply_to_images=True),
                    data.ClinicalFirstNOnly(3),
                    data.ToTensor()]
     valid_trafo = [data.ResamplePlaneXY(0.5),
                    data.UseLabelsAsImages(),
                    data.HemisphericFlipFixedToCaseId(14),
+                   data.DiffeoMorphNet(),
                    data.ClinicalFirstNOnly(3),
                    data.ToTensor()]
 
@@ -761,13 +807,13 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
                                                               zsize=28)
     '''
 
-    bi_net = BiNet(seq_thr=sequence_thresholds, batch_size=batchsize).to(device)
+    bi_net = DiffeoMorphNet(seq_thr=sequence_thresholds, batch_size=batchsize, w=126, h=126, d=30).to(device)
 
     params = [p for p in bi_net.parameters() if p.requires_grad]
     print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
           '/ total: Bi-Net', sum([p.nelement() for p in bi_net.parameters()]))
 
-    criterion = Criterion_BiNet(arg_loss)
+    criterion = Criterion_DiffeoMorphNet([.2, .7, .1])
     optimizer = torch.optim.Adam(params, lr=0.001)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=75, gamma=0.1)
 
@@ -776,7 +822,7 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
 
     for epoch in range(0, arg_epochs):
         scheduler.step()
-        f, axarr = plt.subplots(n_visual_samples * 4, sequence_length + 3, figsize=(14,6))
+        f, axarr = plt.subplots(n_visual_samples*2, 9, figsize=(9*2, n_visual_samples*2*2))
         loss_mean = 0
         inc = 0
 
@@ -787,7 +833,7 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
         with torch.set_grad_enabled(is_train):
 
             for batch in ds_train:
-                gt, pr, _, grid_p, idx_lesion, loss, _, _ = \
+                gt, pred_pc_penu, pred_pl_penu, pred_lc_penu, grid_pc_penu, grid_pl_penu, grid_lc_penu, loss = \
                     process_batch_BiNet(batch, batchsize, bi_net, criterion, sequence_length, sequence_thresholds, device)
 
                 loss_mean += loss.item()
@@ -802,27 +848,18 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
 
             loss_train.append(loss_mean / inc)
 
-            axarr = visualise_batch_binet(axarr,
-                                            batch,
-                                            gt.cpu().detach().numpy(),
-                                            pr.cpu().detach().numpy(),
-                                            bi_net.visual_grid.cpu().detach().numpy(),
-                                            None,
-                                            grid_p.cpu().detach().numpy(),
-                                            None,
-                                            None,
-                                            idx_lesion,
-                                            n_visual_samples,
-                                            sequence_length,
-                                            sequence_thresholds,
-                                            init_offset=0)
+            axarr = visualise_batch_diffeomorphnet(axarr,
+                                                   gt.cpu().detach().numpy(),
+                                                   pred_pc_penu.cpu().detach().numpy(),
+                                                   pred_pl_penu.cpu().detach().numpy(),
+                                                   pred_lc_penu.cpu().detach().numpy(),
+                                                   grid_pc_penu.cpu().detach().numpy(),
+                                                   grid_pl_penu.cpu().detach().numpy(),
+                                                   grid_lc_penu.cpu().detach().numpy(),
+                                                   n_visual_samples,
+                                                   offset=0)
             del batch
 
-        del pr
-        del gt
-        #del grid_c
-        del grid_p
-        del idx_lesion
         del loss
 
         ### Validate ###
@@ -835,7 +872,7 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
         with torch.set_grad_enabled(is_train):
 
             for batch in ds_valid:
-                gt, pr, _, grid_p, idx_lesion, loss, _, _ = \
+                gt, pred_pc_penu, pred_pl_penu, pred_lc_penu, grid_pc_penu, grid_pl_penu, grid_lc_penu, loss = \
                     process_batch_BiNet(batch, batchsize, bi_net, criterion, sequence_length, sequence_thresholds, device)
 
                 loss_mean += loss.item()
@@ -846,20 +883,16 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
 
             loss_valid.append(loss_mean / inc)
 
-            axarr = visualise_batch_binet(axarr,
-                                            batch,
-                                            gt.cpu().detach().numpy(),
-                                            pr.cpu().detach().numpy(),
-                                            bi_net.visual_grid.cpu().detach().numpy(),
-                                            None,
-                                            grid_p.cpu().detach().numpy(),
-                                            None,
-                                            None,
-                                            idx_lesion,
-                                            n_visual_samples,
-                                            sequence_length,
-                                            sequence_thresholds,
-                                            init_offset=4)
+            axarr = visualise_batch_diffeomorphnet(axarr,
+                                                   gt.cpu().detach().numpy(),
+                                                   pred_pc_penu.cpu().detach().numpy(),
+                                                   pred_pl_penu.cpu().detach().numpy(),
+                                                   pred_lc_penu.cpu().detach().numpy(),
+                                                   grid_pc_penu.cpu().detach().numpy(),
+                                                   grid_pl_penu.cpu().detach().numpy(),
+                                                   grid_lc_penu.cpu().detach().numpy(),
+                                                   n_visual_samples,
+                                                   offset=2)
             del batch
 
         print('Epoch', epoch, 'last batch training loss:', loss_train[-1], '\tvalidation batch loss:', loss_valid[-1])

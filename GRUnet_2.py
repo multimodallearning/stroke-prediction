@@ -6,7 +6,7 @@ https://github.com/jacobkimmel/pytorch_convgru
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.checkpoint import checkpoint
+from torch.utils.checkpoint import checkpoint, checkpoint_sequential
 
 from torch.nn.functional import affine_grid, grid_sample
 
@@ -957,3 +957,161 @@ class BiNet(nn.Module):
             prev_step = time_step
 
         return torch.cat(pr_l_penu[::-1], dim=1), torch.cat(gr_l_penu[::-1], dim=1)
+
+
+class DiffeoMorphNet(nn.Module):
+    def _affine_identity(self):
+        return torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float)
+
+    def _feature(self, channels):
+        assert len(channels) == 5
+        return nn.Sequential(                                                                     # 30x126x126
+            nn.Conv3d(channels[0], channels[1], kernel_size=5, stride=3, dilation=2, padding=4),  # 10x42x42
+            nn.ReLU(),
+            nn.LayerNorm([channels[1], 10, 42, 42]),
+            nn.Conv3d(channels[1], channels[2], kernel_size=3, stride=1, dilation=2, padding=0),  # 6x38x38
+            nn.ReLU(),
+            nn.LayerNorm([channels[2], 6, 38, 38]),
+            nn.Conv3d(channels[2], channels[3], kernel_size=3, stride=1, dilation=1, padding=0),  # 4x36x36
+            nn.ReLU(),
+            nn.LayerNorm([channels[3], 4, 36, 36]),
+            nn.Conv3d(channels[3], channels[4], kernel_size=3, stride=1, dilation=1, padding=0),  # 2x34x34
+            nn.ReLU(),
+            nn.MaxPool3d(2, 2)                                                                    # 1x17x17
+        )
+
+    def _combine(self, channels):
+        assert len(channels) == 5
+        return nn.Sequential(
+            nn.Conv3d(channels[0], channels[1], kernel_size=3, stride=1, dilation=1, padding=1),
+            nn.ReLU(),
+            nn.LayerNorm([channels[1], 1, 17, 17]),
+            nn.Conv3d(channels[1], channels[2], kernel_size=3, stride=1, dilation=1, padding=1),
+            nn.ReLU(),
+            nn.LayerNorm([channels[2], 1, 17, 17]),
+            nn.Conv3d(channels[2], channels[3], kernel_size=3, stride=1, dilation=1, padding=1),
+            nn.ReLU(),
+            nn.LayerNorm([channels[3], 1, 17, 17]),
+            nn.Conv3d(channels[3], channels[4], kernel_size=3, stride=1, dilation=1, padding=1),
+            nn.ReLU(),
+        )
+
+    def _branch(self, channels):
+        assert len(channels) == 5
+        return nn.Sequential(
+            nn.Conv3d(channels[0], channels[1], kernel_size=3, stride=1, dilation=1, padding=1),
+            nn.ReLU(),
+            nn.LayerNorm([channels[1], 1, 17, 17]),
+            nn.Conv3d(channels[1], channels[2], kernel_size=3, stride=1, dilation=1, padding=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool3d((self.d, self.h, self.w)),
+            nn.LayerNorm([channels[2], self.d, self.h, self.w]),
+            nn.Conv3d(channels[2], channels[3], kernel_size=3, stride=1, dilation=1, padding=1),
+            nn.ReLU(),
+            nn.LayerNorm([channels[3], self.d, self.h, self.w]),
+            nn.Conv3d(channels[3], channels[4], kernel_size=3, stride=1, dilation=1, padding=1),
+            nn.ReLU(),
+            nn.Conv3d(channels[4], 3, kernel_size=1, stride=1, dilation=1, padding=0)
+        )
+
+    def _transform_vec_field(self, grid):
+        grid_permute = grid.permute(0, 4, 1, 2, 3)
+        return grid_sample(grid_permute, grid).permute(0, 2, 3, 4, 1)
+
+    def _integrate_vec_field(self, field):
+        field_arr = [field / (2 ** self.num_integration_steps)]
+        for i in range(self.num_integration_steps):
+            field_arr.append(field_arr[-1] + self._transform_vec_field(field_arr[-1]))
+        return field_arr
+
+    def _grid_identity(self, batch_size=4, out_size=(4, 1, 28, 128, 128)):
+        assert batch_size == out_size[0]
+        result = self._affine_identity()
+        result = result.view(-1, 3, 4).expand(batch_size, 3, 4).cuda()
+        return nn.functional.affine_grid(result, out_size)
+
+    def visualise_grid(self, batchsize):
+        visual_grid = torch.ones(batchsize, 1, self.d, self.h, self.w, requires_grad=False).cuda()
+        visual_grid[:, :, 1::4, :, :] = 0.75
+        visual_grid[:, :, 2::4, :, :] = 0.5
+        visual_grid[:, :, 3::4, :, :] = 0.75
+        visual_grid[:, :, :, 3::24, :] = 0
+        visual_grid[:, :, :, 4::24, :] = 0
+        visual_grid[:, :, :, 5::24, :] = 0
+        visual_grid[:, :, :, :, 3::24] = 0
+        visual_grid[:, :, :, :, 4::24] = 0
+        visual_grid[:, :, :, :, 5::24] = 0
+        return visual_grid
+
+    def __init__(self, seq_thr, batch_size, T=5, d=28, h=128, w=128):
+        super().__init__()
+
+        self.seq_thr = seq_thr
+        self.len = len(seq_thr)
+        assert self.len > 0
+
+        self.num_integration_steps = T
+
+        self.w = w
+        self.h = h
+        self.d = d
+
+        self.visual_grid = self.visualise_grid(batch_size)
+
+        channels_clinical = 3  # 5 if add time_step
+        channels_feature = [2, 8, 16, 20, 24]
+        channels_combine = [27, 32, 40, 48, 56]
+        channels_branch = [56, 56, 56, 28, 14]
+
+        assert channels_feature[-1] + channels_clinical == channels_combine[0]
+
+        self.feature_penu = self._feature(channels_feature)
+        self.clin_up_penu = nn.AdaptiveAvgPool3d((1, 17, 17))
+        self.combine_penu = self._combine(channels_combine)
+        self.branch0_penu = self._branch(channels_branch)
+        self.branch1_penu = self._branch(channels_branch)
+        self.branch2_penu = self._branch(channels_branch)
+
+        self.branch0_penu[-1].weight.data.normal_(0, 0.000001)
+        self.branch0_penu[-1].bias.data.normal_(0, 0.0001)
+        self.branch1_penu[-1].weight.data.normal_(0, 0.000001)
+        self.branch1_penu[-1].bias.data.normal_(0, 0.0001)
+        self.branch2_penu[-1].weight.data.normal_(0, 0.000001)
+        self.branch2_penu[-1].bias.data.normal_(0, 0.0001)
+
+    def forward(self, core, penu, clinical, num_chunks=2):
+        grid_identity_penu = self._grid_identity(penu.size(0), out_size=(penu.size(0), 3, self.d, self.h, self.w))
+        self.visual_grid = self.visualise_grid(penu.size(0))
+
+        input = torch.cat((core, penu), dim=1)
+
+        feature_penu = checkpoint_sequential(self.feature_penu, num_chunks, input)
+        clin_up_penu = self.clin_up_penu(clinical)
+        combine_penu = checkpoint_sequential(self.combine_penu, num_chunks, torch.cat((clin_up_penu, feature_penu), dim=1))
+
+        offset0_penu = checkpoint_sequential(self.branch0_penu, num_chunks, combine_penu)
+        offset1_penu = checkpoint_sequential(self.branch1_penu, num_chunks, combine_penu)
+        offset2_penu = checkpoint_sequential(self.branch2_penu, num_chunks, combine_penu)
+
+        diffeo0_penu = self._integrate_vec_field(offset0_penu.permute(0, 2, 3, 4, 1))[-1]
+        diffeo1_penu = self._integrate_vec_field(offset1_penu.permute(0, 2, 3, 4, 1))[-1]
+        diffeo2_penu = self._integrate_vec_field(offset2_penu.permute(0, 2, 3, 4, 1))[-1]
+
+        diffeo0_penu = 0.5*offset0_penu.permute(0, 2, 3, 4, 1) + 0.5*diffeo0_penu
+        diffeo1_penu = 0.5*offset1_penu.permute(0, 2, 3, 4, 1) + 0.5*diffeo1_penu
+        diffeo2_penu = 0.5*offset2_penu.permute(0, 2, 3, 4, 1) + 0.5*diffeo2_penu
+
+        pred_pc_penu = torch.clamp(grid_sample(penu, grid_identity_penu + diffeo0_penu), 0.0, 1.0)
+        pred_pl_penu = torch.clamp(grid_sample(penu, grid_identity_penu + diffeo1_penu), 0.0, 1.0)
+        pred_lc_penu = torch.clamp(grid_sample(penu, grid_identity_penu + diffeo1_penu + diffeo2_penu), 0.0, 1.0)
+
+        grid_pc_penu = grid_sample(self.visual_grid, grid_identity_penu + diffeo0_penu)
+        grid_pl_penu = grid_sample(self.visual_grid, grid_identity_penu + diffeo1_penu)
+        grid_lc_penu = grid_sample(self.visual_grid, grid_identity_penu + diffeo2_penu)
+
+        return F.adaptive_avg_pool3d(pred_pc_penu, (28, 128, 128)),\
+               F.adaptive_avg_pool3d(pred_pl_penu, (28, 128, 128)),\
+               F.adaptive_avg_pool3d(pred_lc_penu, (28, 128, 128)),\
+               F.adaptive_avg_pool3d(grid_pc_penu, (28, 128, 128)),\
+               F.adaptive_avg_pool3d(grid_pl_penu, (28, 128, 128)),\
+               F.adaptive_avg_pool3d(grid_lc_penu, (28, 128, 128))

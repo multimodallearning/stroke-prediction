@@ -856,13 +856,25 @@ class RandomPatch(object):
         return result
 
 
+class DiffeoMorphNet(object):
+    def __call__(self, sample):
+        result = emptyCopyFromSample(sample)
+        result[KEY_IMAGES] = np.zeros((126, 126, 30, 3), dtype=np.float32)
+        result[KEY_IMAGES][:, :, 1:-1, :] = sample[KEY_IMAGES][1:-1, 1:-1, :, :]
+        result[KEY_LABELS] = sample[KEY_LABELS]
+        result[KEY_GLOBAL] = sample[KEY_GLOBAL]
+        return result
+
+
 class PadImages(object):
     """Pad images with constant pad_value in all 6 directions (3D)."""
-    def __init__(self, pad_x, pad_y, pad_z, pad_value=0):
+    def __init__(self, pad_x, pad_y, pad_z, pad_value=0, pad_labels=False):
+        assert pad_x > 0 and pad_y > 0 and pad_z > 0
         self._padx = pad_x
         self._pady = pad_y
         self._padz = pad_z
         self._pad_value = float(pad_value)
+        self._pad_labels = pad_labels
 
     def __call__(self, sample):
         sx, sy, sz, sc = sample[KEY_IMAGES].shape
@@ -871,6 +883,9 @@ class PadImages(object):
             result[KEY_IMAGES] = np.ones((sx + 2 * self._padx, sy + 2 * self._pady, sz + 2 * self._padz, sc), dtype=np.float32) * self._pad_value
             result[KEY_IMAGES][self._padx:-self._padx, self._pady:-self._pady, self._padz:-self._padz, :] = sample[KEY_IMAGES]
         result[KEY_LABELS] = sample[KEY_LABELS]
+        if self._pad_labels and result[KEY_LABELS] != []:
+            result[KEY_LABELS] = np.ones((sx + 2 * self._padx, sy + 2 * self._pady, sz + 2 * self._padz, sc), dtype=np.float32) * self._pad_value
+            result[KEY_LABELS][self._padx:-self._padx, self._pady:-self._pady, self._padz:-self._padz, :] = sample[KEY_LABELS]
         result[KEY_GLOBAL] = sample[KEY_GLOBAL]
         return result
 
