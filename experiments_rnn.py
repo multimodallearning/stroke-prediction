@@ -211,7 +211,8 @@ elif args.id == 100:
     func = main_BiNet
     path = '/share/data_zoe2/lucas/NOT_IN_BACKUP/tmp/exps/exp' + str(args.id)
     refine = None
-    seq_thr = [.0, .522, 0.93, 1.25, 1.5, 1.75, 2., 2.25, 2.5, 2.75, 3., 3.25, 3.5, 3.75, 4., 4.25, 4.5, 4.75, 5., 5.376, 5.942, 6.793, 8.074, 10., 12.897]
+    #seq_thr = [.0, .522, 0.93, 1.25, 1.5, 1.75, 2., 2.25, 2.5, 2.75, 3., 3.25, 3.5, 3.75, 4., 4.25, 4.5, 4.75, 5., 5.376, 5.942, 6.793, 8.074, 10., 12.897]
+    seq_thr = [.0, .5, 1., 1.5, 2., 2.5, 3., 3.5, 4., 4.5, 5., 5.5, 6., 7., 9., 12.]
 elif args.id > 100:
     print(args.id, 'DEBUG / TESTING PURPOSES - simple BiNet')
     fold = folds[args.fold]

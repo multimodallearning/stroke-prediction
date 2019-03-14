@@ -959,7 +959,7 @@ class BiNet(nn.Module):
         return torch.cat(pr_l_penu[::-1], dim=1), torch.cat(gr_l_penu[::-1], dim=1)
 
 
-class DiffeoMorphNet(nn.Module):
+class IntegrateNet(nn.Module):
     def _affine_identity(self):
         return torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float)
 
@@ -1014,20 +1014,16 @@ class DiffeoMorphNet(nn.Module):
             nn.Conv3d(channels[4], 3, kernel_size=1, stride=1, dilation=1, padding=0)
         )
 
-    def _transform_vec_field(self, grid):
-        grid_permute = grid.permute(0, 4, 1, 2, 3)
-        return grid_sample(grid_permute, grid).permute(0, 2, 3, 4, 1)
+    def _transform_vec_field(self, grid_0, grid_i):
+        id = self._grid_identity(out_size=grid_0.size()).cuda()
+        return grid_sample(grid_0, id + grid_i.permute(0, 2, 3, 4, 1))
 
-    def _integrate_vec_field(self, field):
-        field_arr = [field / (2 ** self.num_integration_steps)]
-        for i in range(self.num_integration_steps):
-            field_arr.append(field_arr[-1] + self._transform_vec_field(field_arr[-1]))
-        return field_arr
+    def _integrate_step(self, field_0, field_i):
+        return field_i + self._transform_vec_field(field_0, field_i)
 
-    def _grid_identity(self, batch_size=4, out_size=(4, 1, 28, 128, 128)):
-        assert batch_size == out_size[0]
+    def _grid_identity(self, out_size=(4, 1, 28, 128, 128)):
         result = self._affine_identity()
-        result = result.view(-1, 3, 4).expand(batch_size, 3, 4).cuda()
+        result = result.view(-1, 3, 4).expand(out_size[0], 3, 4).cuda()
         return nn.functional.affine_grid(result, out_size)
 
     def visualise_grid(self, batchsize):
@@ -1043,14 +1039,12 @@ class DiffeoMorphNet(nn.Module):
         visual_grid[:, :, :, :, 5::24] = 0
         return visual_grid
 
-    def __init__(self, seq_thr, batch_size, T=5, d=28, h=128, w=128):
+    def __init__(self, seq_thr, batch_size, d=28, h=128, w=128):
         super().__init__()
 
         self.seq_thr = seq_thr
         self.len = len(seq_thr)
         assert self.len > 0
-
-        self.num_integration_steps = T
 
         self.w = w
         self.h = h
@@ -1059,9 +1053,9 @@ class DiffeoMorphNet(nn.Module):
         self.visual_grid = self.visualise_grid(batch_size)
 
         channels_clinical = 3  # 5 if add time_step
-        channels_feature = [2, 8, 16, 20, 24]
-        channels_combine = [27, 32, 40, 48, 56]
-        channels_branch = [56, 56, 56, 28, 14]
+        channels_feature = [2, 16, 20, 24, 29]
+        channels_combine = [32, 40, 48, 56, 64]
+        channels_branch = [64, 64, 64, 32, 16]
 
         assert channels_feature[-1] + channels_clinical == channels_combine[0]
 
@@ -1069,18 +1063,19 @@ class DiffeoMorphNet(nn.Module):
         self.clin_up_penu = nn.AdaptiveAvgPool3d((1, 17, 17))
         self.combine_penu = self._combine(channels_combine)
         self.branch0_penu = self._branch(channels_branch)
-        self.branch1_penu = self._branch(channels_branch)
-        self.branch2_penu = self._branch(channels_branch)
+        #self.branch1_penu = self._branch(channels_branch)
 
-        self.branch0_penu[-1].weight.data.normal_(0, 0.000001)
-        self.branch0_penu[-1].bias.data.normal_(0, 0.0001)
-        self.branch1_penu[-1].weight.data.normal_(0, 0.000001)
-        self.branch1_penu[-1].bias.data.normal_(0, 0.0001)
-        self.branch2_penu[-1].weight.data.normal_(0, 0.000001)
-        self.branch2_penu[-1].bias.data.normal_(0, 0.0001)
+        #self.branch0_penu[-1].weight.data.normal_(0, 0.000001)
+        #self.branch0_penu[-1].bias.data.normal_(0, 0.0001)
+        #self.branch1_penu[-1].weight.data.normal_(0, 0.000001)
+        #self.branch1_penu[-1].bias.data.normal_(0, 0.0001)
+
+        self.clamp = torch.nn.ReLU()
+
+        self.avgpool = nn.AvgPool3d(kernel_size=(5, 23, 23), stride=(1, 1, 1), padding=(2, 11, 11))
 
     def forward(self, core, penu, clinical, num_chunks=2):
-        grid_identity_penu = self._grid_identity(penu.size(0), out_size=(penu.size(0), 3, self.d, self.h, self.w))
+        grid_identity_penu = self._grid_identity(out_size=(penu.size(0), 3, self.d, self.h, self.w))
         self.visual_grid = self.visualise_grid(penu.size(0))
 
         input = torch.cat((core, penu), dim=1)
@@ -1088,30 +1083,14 @@ class DiffeoMorphNet(nn.Module):
         feature_penu = checkpoint_sequential(self.feature_penu, num_chunks, input)
         clin_up_penu = self.clin_up_penu(clinical)
         combine_penu = checkpoint_sequential(self.combine_penu, num_chunks, torch.cat((clin_up_penu, feature_penu), dim=1))
-
         offset0_penu = checkpoint_sequential(self.branch0_penu, num_chunks, combine_penu)
-        offset1_penu = checkpoint_sequential(self.branch1_penu, num_chunks, combine_penu)
-        offset2_penu = checkpoint_sequential(self.branch2_penu, num_chunks, combine_penu)
 
-        diffeo0_penu = self._integrate_vec_field(offset0_penu.permute(0, 2, 3, 4, 1))[-1]
-        diffeo1_penu = self._integrate_vec_field(offset1_penu.permute(0, 2, 3, 4, 1))[-1]
-        diffeo2_penu = self._integrate_vec_field(offset2_penu.permute(0, 2, 3, 4, 1))[-1]
+        offsets = [torch.zeros(offset0_penu.size()).cuda()]
+        for _ in range(1, self.len):
+            offsets.append(self.avgpool(self.avgpool(self._integrate_step(offset0_penu, offsets[-1]))))
+        offsets = offsets[::-1]
 
-        diffeo0_penu = 0.5*offset0_penu.permute(0, 2, 3, 4, 1) + 0.5*diffeo0_penu
-        diffeo1_penu = 0.5*offset1_penu.permute(0, 2, 3, 4, 1) + 0.5*diffeo1_penu
-        diffeo2_penu = 0.5*offset2_penu.permute(0, 2, 3, 4, 1) + 0.5*diffeo2_penu
+        pr_penu = torch.cat([F.adaptive_avg_pool3d(grid_sample(penu, grid_identity_penu + offset.permute(0, 2, 3, 4, 1)), (28, 128, 128)) for offset in offsets], dim=1)
+        gr_penu = torch.cat([F.adaptive_avg_pool3d(grid_sample(self.visual_grid, grid_identity_penu + offset.permute(0, 2, 3, 4, 1)), (28, 128, 128)) for offset in offsets], dim=1)
 
-        pred_pc_penu = torch.clamp(grid_sample(penu, grid_identity_penu + diffeo0_penu), 0.0, 1.0)
-        pred_pl_penu = torch.clamp(grid_sample(penu, grid_identity_penu + diffeo1_penu), 0.0, 1.0)
-        pred_lc_penu = torch.clamp(grid_sample(penu, grid_identity_penu + diffeo1_penu + diffeo2_penu), 0.0, 1.0)
-
-        grid_pc_penu = grid_sample(self.visual_grid, grid_identity_penu + diffeo0_penu)
-        grid_pl_penu = grid_sample(self.visual_grid, grid_identity_penu + diffeo1_penu)
-        grid_lc_penu = grid_sample(self.visual_grid, grid_identity_penu + diffeo2_penu)
-
-        return F.adaptive_avg_pool3d(pred_pc_penu, (28, 128, 128)),\
-               F.adaptive_avg_pool3d(pred_pl_penu, (28, 128, 128)),\
-               F.adaptive_avg_pool3d(pred_lc_penu, (28, 128, 128)),\
-               F.adaptive_avg_pool3d(grid_pc_penu, (28, 128, 128)),\
-               F.adaptive_avg_pool3d(grid_pl_penu, (28, 128, 128)),\
-               F.adaptive_avg_pool3d(grid_lc_penu, (28, 128, 128))
+        return 1 - self.clamp(1 - self.clamp(pr_penu)), gr_penu
