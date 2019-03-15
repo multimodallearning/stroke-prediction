@@ -1014,12 +1014,16 @@ class IntegrateNet(nn.Module):
             nn.Conv3d(channels[4], 3, kernel_size=1, stride=1, dilation=1, padding=0)
         )
 
-    def _transform_vec_field(self, grid_0, grid_i):
-        id = self._grid_identity(out_size=grid_0.size()).cuda()
-        return grid_sample(grid_0, id + grid_i.permute(0, 2, 3, 4, 1))
+    def _transform_vec_field(self, vec_field_0, vec_field_i):
+        grid_id = self._grid_identity(out_size=vec_field_0.size()).cuda()
+        grid_i = vec_field_i.permute(0, 2, 3, 4, 1)
+        return grid_sample(vec_field_0, grid_id + grid_i)
 
-    def _integrate_step(self, field_0, field_i):
-        return field_i + self._transform_vec_field(field_0, field_i)
+    def _integrate_vec_field(self, vec_field_0, vec_field_i):
+        return vec_field_i + self._transform_vec_field(vec_field_0, vec_field_i)
+
+    def _negate(self, vec_field):
+        return -vec_field
 
     def _grid_identity(self, out_size=(4, 1, 28, 128, 128)):
         result = self._affine_identity()
@@ -1053,9 +1057,9 @@ class IntegrateNet(nn.Module):
         self.visual_grid = self.visualise_grid(batch_size)
 
         channels_clinical = 3  # 5 if add time_step
-        channels_feature = [2, 16, 20, 24, 29]
-        channels_combine = [32, 40, 48, 56, 64]
-        channels_branch = [64, 64, 64, 32, 16]
+        channels_feature = [2, 16, 32, 64, 96]
+        channels_combine = [99, 100, 100, 100, 100]
+        channels_branch = [100, 50, 25, 12, 6]
 
         assert channels_feature[-1] + channels_clinical == channels_combine[0]
 
@@ -1072,7 +1076,7 @@ class IntegrateNet(nn.Module):
 
         self.clamp = torch.nn.ReLU()
 
-        self.avgpool = nn.AvgPool3d(kernel_size=(5, 23, 23), stride=(1, 1, 1), padding=(2, 11, 11))
+        self.avgpool = nn.AvgPool3d(kernel_size=[7, 31, 31], stride=(1, 1, 1), padding=(3, 15, 15))
 
     def forward(self, core, penu, clinical, num_chunks=2):
         grid_identity_penu = self._grid_identity(out_size=(penu.size(0), 3, self.d, self.h, self.w))
@@ -1085,12 +1089,24 @@ class IntegrateNet(nn.Module):
         combine_penu = checkpoint_sequential(self.combine_penu, num_chunks, torch.cat((clin_up_penu, feature_penu), dim=1))
         offset0_penu = checkpoint_sequential(self.branch0_penu, num_chunks, combine_penu)
 
+
+
         offsets = [torch.zeros(offset0_penu.size()).cuda()]
         for _ in range(1, self.len):
-            offsets.append(self.avgpool(self.avgpool(self._integrate_step(offset0_penu, offsets[-1]))))
+            offsets.append(self.avgpool(self.avgpool(self._integrate_vec_field(offset0_penu, offsets[-1]))))
         offsets = offsets[::-1]
 
-        pr_penu = torch.cat([F.adaptive_avg_pool3d(grid_sample(penu, grid_identity_penu + offset.permute(0, 2, 3, 4, 1)), (28, 128, 128)) for offset in offsets], dim=1)
-        gr_penu = torch.cat([F.adaptive_avg_pool3d(grid_sample(self.visual_grid, grid_identity_penu + offset.permute(0, 2, 3, 4, 1)), (28, 128, 128)) for offset in offsets], dim=1)
+        prs_penu = torch.cat([F.adaptive_avg_pool3d(grid_sample(penu, grid_identity_penu + offset.permute(0, 2, 3, 4, 1)), (28, 128, 128)) for offset in offsets], dim=1)
+        grs_penu = torch.cat([F.adaptive_avg_pool3d(grid_sample(self.visual_grid, grid_identity_penu + offset.permute(0, 2, 3, 4, 1)), (28, 128, 128)) for offset in offsets], dim=1)
 
-        return 1 - self.clamp(1 - self.clamp(pr_penu)), gr_penu
+
+
+        offset0_inverse = self._negate(offset0_penu)  # TODO self._negate(offsets[-1]) / 2**self.len ?
+        offsets_inverse = [torch.zeros(offset0_penu.size()).cuda()]
+        for _ in range(1, self.len):
+            offsets_inverse.append(self.avgpool(self.avgpool(self._integrate_vec_field(offset0_inverse, offsets_inverse[-1]))))
+
+        prs_penu_inverse = torch.cat([F.adaptive_avg_pool3d(grid_sample(core, grid_identity_penu + offset.permute(0, 2, 3, 4, 1)), (28, 128, 128)) for offset in offsets_inverse], dim=1)
+        grs_penu_inverse = torch.cat([F.adaptive_avg_pool3d(grid_sample(self.visual_grid, grid_identity_penu + offset.permute(0, 2, 3, 4, 1)), (28, 128, 128)) for offset in offsets_inverse], dim=1)
+
+        return 1 - self.clamp(1 - self.clamp(prs_penu)), grs_penu, 1 - self.clamp(1 - self.clamp(prs_penu_inverse)), grs_penu_inverse

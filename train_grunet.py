@@ -140,7 +140,7 @@ class Criterion_IntegrateNet(nn.Module):
         super(Criterion_IntegrateNet, self).__init__()
         self.bce = nn.BCELoss()
         self.dc = metrics.BatchDiceLoss([1.0])  # weighted inversely by each volume proportion
-        assert len(weights) == 2
+        assert len(weights) == 4
         self.weights = [i/100 for i in weights]
         self.scales = [nn.AvgPool3d((1, 1, 1), (1, 1, 1), padding=(0, 0, 0)),
                        nn.AvgPool3d((1, 5, 5), (1, 1, 1), padding=(0, 2, 2)),
@@ -155,10 +155,12 @@ class Criterion_IntegrateNet(nn.Module):
             loss += criterion(scale(scale(input)), scale(scale(target)))
         return loss/len(self.scales)
 
-    def forward(self, pred_pc_penu, pred_pl_penu, gt_core, gt_lesion):
+    def forward(self, pred_core, pred_lesion, pred_lesion_inv, pred_penu, gt_core, gt_lesion, gt_penu):
 
-        loss = self.weights[0] * self.multi_scale(pred_pc_penu, gt_core, self.dc)
-        loss += self.weights[1] * self.multi_scale(pred_pl_penu, gt_lesion, self.dc)
+        loss = self.weights[0] * self.multi_scale(pred_core, gt_core, self.dc)
+        loss += self.weights[1] * self.multi_scale(pred_lesion, gt_lesion, self.dc)
+        loss += self.weights[2] * self.multi_scale(pred_lesion_inv, gt_lesion, self.dc)
+        loss += self.weights[3] * self.multi_scale(pred_penu, gt_penu, self.dc)
 
         return loss
 
@@ -256,17 +258,23 @@ def get_results_BiNet(batch, batchsize, pr_l_core, pr_l_penu, gr_l_core, gr_l_pe
            torch.stack(off_penu_p, dim=0).unsqueeze(1), idx_lesion
 
 
-def get_results_IntegrateNet(batch, batchsize, prs_penu, sequence_thresholds, t_core, idx_core):
+def get_results_IntegrateNet(batch, batchsize, prs_penu, prs_penu_inverse, sequence_thresholds, t_core, idx_core):
     pr_core = []
     pr_lesion = []
+    pr_lesion_inv = []
+    pr_penu = []
 
     idx_lesion = tensor2index(t_core + batch[data.KEY_GLOBAL][:, 1], sequence_thresholds)
     for b in range(batchsize):
         pr_core.append(prs_penu[b, int(idx_core[b])])
         pr_lesion.append(prs_penu[b, int(idx_lesion[b])])
+        pr_lesion_inv.append(prs_penu_inverse[b, int(idx_lesion[b])])
+        pr_penu.append(prs_penu_inverse[b, -1])
 
     return torch.stack(pr_core, dim=0).unsqueeze(1),\
            torch.stack(pr_lesion, dim=0).unsqueeze(1),\
+           torch.stack(pr_lesion_inv, dim=0).unsqueeze(1),\
+           torch.stack(pr_penu, dim=0).unsqueeze(1),\
            idx_lesion
 
 
@@ -316,8 +324,8 @@ def visualise_batch(axarr, batch, gt, pr, grid_default, grid_c, grid_p, idx_lesi
     return axarr
 
 
-def visualise_batch_integratenet(axarr, batch, gt, prs_penu, grs_penu, grid_default, idx_lesion, n_visual_samples,
-                                 sequence_length, sequence_thresholds, offset=0, factor=2):
+def visualise_batch_integratenet(axarr, batch, gt, prs_penu, grs_penu, prs_penu_inv, grs_penu_inv, grid_default,
+                                 idx_lesion, n_visual_samples, sequence_length, sequence_thresholds, offset=0, factor=4):
     for row in range(n_visual_samples):
         titles = []
         core = gt[row, 0]
@@ -335,19 +343,46 @@ def visualise_batch_integratenet(axarr, batch, gt, prs_penu, grs_penu, grid_defa
             titles.append(get_title('Pr', row, i, batch, sequence_thresholds, idx_lesion))
         for ax, title in zip(axarr[row*factor+offset], titles):
             ax.set_title(title, verticalalignment='top')
-        titles = []
 
-        axarr[row*factor+1+offset, 0].imshow(grid_default[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+        titles = []
+        axarr[row*factor+1+offset, 0].imshow(np.ones((128, 128)), vmin=0, vmax=1, cmap='gray')
         titles.append('')
-        axarr[row*factor+1+offset, 1].imshow(grid_default[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+        axarr[row*factor+1+offset, 1].imshow(np.ones((128, 128)), vmin=0, vmax=1, cmap='gray')
         titles.append('')
-        axarr[row*factor+1+offset, 2].imshow(grid_default[row, 0, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+        axarr[row*factor+1+offset, 2].imshow(np.ones((128, 128)), vmin=0, vmax=1, cmap='gray')
         titles.append('')
         for i in range(sequence_length):
-            axarr[row*factor+1+offset, i + 3].imshow(grs_penu[row, i, com[0], :, :], vmin=0, vmax=1, cmap='gray')
-            titles.append(get_title('Gr', row, i, batch, sequence_thresholds, idx_lesion))
+            axarr[row*factor+1+offset, i + 3].imshow(prs_penu_inv[row, i, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+            titles.append(get_title('Pr_inv', row, i, batch, sequence_thresholds, idx_lesion))
         for ax, title in zip(axarr[row*factor+1+offset], titles):
             ax.set_title(title, verticalalignment='top')
+
+        titles = []
+        axarr[row*factor+2+offset, 0].imshow(np.ones((128, 128)), vmin=0, vmax=1, cmap='gray')
+        titles.append('')
+        axarr[row*factor+2+offset, 1].imshow(np.ones((128, 128)), vmin=0, vmax=1, cmap='gray')
+        titles.append('')
+        axarr[row*factor+2+offset, 2].imshow(np.ones((128, 128)), vmin=0, vmax=1, cmap='gray')
+        titles.append('')
+        for i in range(sequence_length):
+            axarr[row*factor+2+offset, i + 3].imshow(grs_penu[row, i, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+            titles.append(get_title('Gr', row, i, batch, sequence_thresholds, idx_lesion))
+        for ax, title in zip(axarr[row*factor+2+offset], titles):
+            ax.set_title(title, verticalalignment='top')
+
+        titles = []
+        axarr[row*factor+3+offset, 0].imshow(np.ones((128, 128)), vmin=0, vmax=1, cmap='gray')
+        titles.append('')
+        axarr[row*factor+3+offset, 1].imshow(np.ones((128, 128)), vmin=0, vmax=1, cmap='gray')
+        titles.append('')
+        axarr[row*factor+3+offset, 2].imshow(np.ones((128, 128)), vmin=0, vmax=1, cmap='gray')
+        titles.append('')
+        for i in range(sequence_length):
+            axarr[row*factor+3+offset, i + 3].imshow(grs_penu_inv[row, i, com[0], :, :], vmin=0, vmax=1, cmap='gray')
+            titles.append(get_title('Gr_inv', row, i, batch, sequence_thresholds, idx_lesion))
+        for ax, title in zip(axarr[row*factor+3+offset], titles):
+            ax.set_title(title, verticalalignment='top')
+
     return axarr
 
 
@@ -438,15 +473,20 @@ def process_batch_BiNet(batch, batchsize, bi_net, criterion, sequence_length, se
 
     t_core, idx_core, _, _ = get_factors(batch, batchsize, sequence_length, sequence_thresholds)
 
-    prs_penu, grs_penu = \
+    prs_penu, grs_penu, prs_penu_inverse, grs_penu_inverse = \
         bi_net(img[:, 0, :, :, :].unsqueeze(1), img[:, -1, :, :, :].unsqueeze(1), batch[data.KEY_GLOBAL].to(device))
 
-    pr_core, pr_lesion, idx_lesion = get_results_IntegrateNet(batch, batchsize, prs_penu, sequence_thresholds, t_core,
-                                                              idx_core)
+    pr_core, pr_lesion, pr_lesion_inv, pr_penu, idx_lesion = get_results_IntegrateNet(batch, batchsize, prs_penu,
+                                                                                      prs_penu_inverse,
+                                                                                      sequence_thresholds, t_core,
+                                                                                      idx_core)
 
-    loss = criterion(pr_core, pr_lesion, gt[:, 0, :, :, :].unsqueeze(1), gt[:, 1, :, :, :].unsqueeze(1))
+    loss = criterion(pr_core, pr_lesion, pr_lesion_inv, pr_penu,
+                     gt[:, 0, :, :, :].unsqueeze(1),
+                     gt[:, 1, :, :, :].unsqueeze(1),
+                     gt[:, 2, :, :, :].unsqueeze(1))
 
-    return gt, prs_penu, grs_penu, loss, idx_lesion
+    return gt, prs_penu, grs_penu, prs_penu_inverse, grs_penu_inverse, loss, idx_lesion
 
 
 def main(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_additional, arg_img2vec1,
@@ -834,7 +874,7 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
     print('# optimizing params', sum([p.nelement() * p.requires_grad for p in params]),
           '/ total: Bi-Net', sum([p.nelement() for p in bi_net.parameters()]))
 
-    criterion = Criterion_IntegrateNet([100, 0])
+    criterion = Criterion_IntegrateNet([25, 25, 25, 25])
     optimizer = torch.optim.Adam(params, lr=0.001)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=75, gamma=0.1)
 
@@ -843,7 +883,7 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
 
     for epoch in range(0, arg_epochs):
         scheduler.step()
-        f, axarr = plt.subplots(n_visual_samples*4, sequence_length + 3, figsize=(sequence_length + 3, n_visual_samples*4))
+        f, axarr = plt.subplots(n_visual_samples*8, sequence_length + 3, figsize=(sequence_length + 3, n_visual_samples*8))
         loss_mean = 0
 
         ### Train ###
@@ -853,7 +893,7 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
         with torch.set_grad_enabled(is_train):
 
             for batch in ds_train:
-                gt, prs_penu, grs_penu, loss, idx_lesion = \
+                gt, prs_penu, grs_penu, prs_penu_inv, grs_penu_inv, loss, idx_lesion = \
                     process_batch_BiNet(batch, batchsize, bi_net, criterion, sequence_length, sequence_thresholds, device)
 
                 loss_mean += loss.item()
@@ -871,12 +911,14 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
                                                  gt.cpu().detach().numpy(),
                                                  prs_penu.cpu().detach().numpy(),
                                                  grs_penu.cpu().detach().numpy(),
+                                                 prs_penu_inv.cpu().detach().numpy(),
+                                                 grs_penu_inv.cpu().detach().numpy(),
                                                  bi_net.visual_grid.cpu().detach().numpy(),
                                                  idx_lesion,
                                                  n_visual_samples,
                                                  sequence_length,
                                                  sequence_thresholds,
-                                                 offset=0, factor=2)
+                                                 offset=0, factor=4)
             del batch
 
         del loss
@@ -890,7 +932,7 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
         with torch.set_grad_enabled(is_train):
 
             for batch in ds_valid:
-                gt, prs_penu, grs_penu, loss, idx_lesion = \
+                gt, prs_penu, grs_penu, prs_penu_inv, grs_penu_inv, loss, idx_lesion = \
                     process_batch_BiNet(batch, batchsize, bi_net, criterion, sequence_length, sequence_thresholds, device)
 
                 loss_mean += loss.item()
@@ -904,12 +946,14 @@ def main_BiNet(arg_path, arg_batchsize, arg_clinical, arg_commonfeature, arg_add
                                                  gt.cpu().detach().numpy(),
                                                  prs_penu.cpu().detach().numpy(),
                                                  grs_penu.cpu().detach().numpy(),
+                                                 prs_penu_inv.cpu().detach().numpy(),
+                                                 grs_penu_inv.cpu().detach().numpy(),
                                                  bi_net.visual_grid.cpu().detach().numpy(),
                                                  idx_lesion,
                                                  n_visual_samples,
                                                  sequence_length,
                                                  sequence_thresholds,
-                                                 offset=4, factor=2)
+                                                 offset=8, factor=4)
             del batch
 
         print('Epoch', epoch, 'last batch training loss:', loss_train[-1], '\tvalidation batch loss:', loss_valid[-1])
