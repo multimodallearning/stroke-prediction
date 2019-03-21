@@ -5,7 +5,7 @@ from train_grunet import main, main_BiNet, test_BiNet
 
 
 CLINICAL = 2  # only clinical time values
-EPOCHS = 200
+EPOCHS = 150
 VALIDSIZE = 0.275
 SEED = 4
 

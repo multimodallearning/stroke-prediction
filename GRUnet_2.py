@@ -1007,6 +1007,75 @@ class IntegrateNet(nn.Module):
 
             return new_state
 
+    class _UNet(nn.Module):
+        def __init__(self):
+            super().__init__()
+
+            self.block0 = nn.Sequential(nn.LayerNorm([5, 28, 128, 128]),
+                                        nn.Conv3d(5, 20, 3, padding=1),
+                                        nn.ReLU(),
+                                        nn.LayerNorm([20, 28, 128, 128]),
+                                        nn.Conv3d(20, 20, 3, padding=1),
+                                        nn.ReLU()
+                                        )
+
+            self.mp01 = nn.MaxPool3d(2, 2)
+
+            self.block1 = nn.Sequential(nn.LayerNorm([20, 14, 64, 64]),
+                                        nn.Conv3d(20, 40, 3, padding=1),
+                                        nn.ReLU(),
+                                        nn.LayerNorm([40, 14, 64, 64]),
+                                        nn.Conv3d(40, 40, 3, padding=1),
+                                        nn.ReLU()
+                                        )
+
+            self.mp12 = nn.MaxPool3d(2, 2)
+
+            self.block2 = nn.Sequential(nn.LayerNorm([43, 7, 32, 32]),
+                                        nn.Conv3d(43, 80, 3, padding=1),
+                                        nn.ReLU(),
+                                        nn.LayerNorm([80, 7, 32, 32]),
+                                        nn.Conv3d(80, 80, 3, padding=1),
+                                        nn.ReLU()
+                                        )
+
+            self.block3 = nn.Sequential(nn.LayerNorm([120, 14, 64, 64]),
+                                        nn.Conv3d(120, 80, 3, padding=1),
+                                        nn.ReLU(),
+                                        nn.LayerNorm([80, 14, 64, 64]),
+                                        nn.Conv3d(80, 40, 3, padding=1),
+                                        nn.ReLU()
+                                        )
+
+            self.block4 = nn.Sequential(nn.LayerNorm([60, 28, 128, 128]),
+                                        nn.Conv3d(60, 40, 3, padding=1),
+                                        nn.ReLU(),
+                                        nn.LayerNorm([40, 28, 128, 128]),
+                                        nn.Conv3d(40, 20, 3, padding=1),
+                                        nn.ReLU()
+                                        )
+
+            self.block5 = nn.Sequential(nn.Conv3d(20, 10, 1),
+                                        nn.ReLU(),
+                                        nn.Conv3d(10, 2, 1)
+                                        )
+
+        def forward(self, spatial_in, global_in):
+            output0 = self.block0(spatial_in)
+            output1 = self.mp01(output0)
+            output1 = self.block1(output1)
+
+            output2 = self.mp12(output1)
+            output2 = torch.cat((F.interpolate(global_in, scale_factor=(7, 32, 32)), output2), dim=1)
+            output2 = self.block2(output2)
+
+            output3 = F.interpolate(output2, scale_factor=2, mode='trilinear')
+            output3 = self.block3(torch.cat([output3, output1], dim=1))
+            output4 = F.interpolate(output3, scale_factor=2, mode='trilinear')
+            output4 = self.block4(torch.cat([output4, output0], dim=1))
+
+            return self.block5(output4)
+
     def _feature(self, channels):
         assert len(channels) == 7
         return nn.Sequential(
@@ -1033,41 +1102,40 @@ class IntegrateNet(nn.Module):
         )
 
     def _combine(self, channels):
-        assert len(channels) == 4
+        assert len(channels) == 3
         return nn.Sequential(
             nn.LayerNorm([channels[0], 1, 25, 25]),
-            nn.Conv3d(channels[0], channels[1], kernel_size=(1, 3, 3), stride=1, dilation=1, padding=(0, 1, 1)),
+            nn.Conv3d(channels[0], channels[1], kernel_size=1, stride=1, dilation=1, padding=0),
             nn.ReLU(),
             nn.LayerNorm([channels[1], 1, 25, 25]),
-            nn.Conv3d(channels[1], channels[2], kernel_size=(1, 3, 3), stride=1, dilation=1, padding=(0, 1, 1)),
-            nn.ReLU(),
-            nn.LayerNorm([channels[2], 1, 25, 25]),
-            nn.Conv3d(channels[2], channels[3], kernel_size=(1, 3, 3), stride=1, dilation=1, padding=(0, 1, 1)),
-            nn.ReLU(),
+            nn.Conv3d(channels[1], channels[2], kernel_size=1, stride=1, dilation=1, padding=0),
         )
 
     def _branch(self, channels):
-        assert len(channels) == 6
+        assert len(channels) == 7
         return nn.Sequential(
             nn.LayerNorm([channels[0], 1, 25, 25]),
-            nn.Conv3d(channels[0], channels[1], kernel_size=(1, 3, 3), stride=1, dilation=1, padding=0),
+            nn.Conv3d(channels[0], channels[1], kernel_size=1, stride=1, dilation=1, padding=0),
             nn.ReLU(),
-            nn.Upsample(scale_factor=(7, 3, 3)),
-            nn.LayerNorm([channels[1], 7, 69, 69]),
+            nn.LayerNorm([channels[1], 1, 25, 25]),
             nn.Conv3d(channels[1], channels[2], kernel_size=(1, 3, 3), stride=1, dilation=1, padding=0),
             nn.ReLU(),
-            nn.LayerNorm([channels[2], 7, 67, 67]),
+            nn.Upsample(scale_factor=(7, 3, 3)),
+            nn.LayerNorm([channels[2], 7, 69, 69]),
             nn.Conv3d(channels[2], channels[3], kernel_size=(1, 3, 3), stride=1, dilation=1, padding=0),
             nn.ReLU(),
-            nn.Upsample(scale_factor=(4, 2, 2)),
-            nn.LayerNorm([channels[3], 28, 130, 130]),
+            nn.LayerNorm([channels[3], 7, 67, 67]),
             nn.Conv3d(channels[3], channels[4], kernel_size=(1, 3, 3), stride=1, dilation=1, padding=0),
             nn.ReLU(),
-            nn.LayerNorm([channels[4], 28, 128, 128]),
-            nn.Conv3d(channels[4], channels[5], kernel_size=1, stride=1, dilation=1, padding=0),
+            nn.Upsample(scale_factor=(4, 2, 2)),
+            nn.LayerNorm([channels[4], 28, 130, 130]),
+            nn.Conv3d(channels[4], channels[5], kernel_size=(1, 3, 3), stride=1, dilation=1, padding=0),
             nn.ReLU(),
             nn.LayerNorm([channels[5], 28, 128, 128]),
-            nn.Conv3d(channels[5], 3, kernel_size=1, stride=1, dilation=1, padding=0),
+            nn.Conv3d(channels[5], channels[6], kernel_size=1, stride=1, dilation=1, padding=0),
+            nn.ReLU(),
+            nn.LayerNorm([channels[6], 28, 128, 128]),
+            nn.Conv3d(channels[6], 3, kernel_size=1, stride=1, dilation=1, padding=0),
         )
 
     def _transform_vec_field(self, vec_field_0, vec_field_i):
@@ -1112,52 +1180,57 @@ class IntegrateNet(nn.Module):
         self.visual_grid = self.visualise_grid(batch_size)
 
         channels_clinical = 3  # 5 if add time_step
-        channels_feature = [5, 16, 16, 32, 32, 64, 64]
-        channels_combine = [67, 72, 84, 96]
-        channels_branch = [96, 84, 72, 64, 41, 20]
+        channels_feature = [5, 20, 20, 40, 40, 80, 80]
+        channels_combine = [83, 83, 83]
+        channels_branch = [83, 83, 60, 60, 40, 40, 20]
 
         assert channels_feature[-1] + channels_clinical == channels_combine[0]
 
-        self.feature_penu = self._feature(channels_feature)
-        self.combine_penu = self._combine(channels_combine)
-        self.branch0_penu = self._branch(channels_branch)
-        #self.branch1_penu = self._branch(channels_branch)
+        #self.feature_penu = self._feature(channels_feature)
+        #self.mu_penu = self._combine(channels_combine)
+        #self.sigma_penu = self._combine(channels_combine)
+        #self.branch0_penu = self._branch(channels_branch)
+        #self.branch0_penu[-1].weight.data.normal_(0, 0.01)
+        #self.branch0_penu[-1].bias.data.normal_(0, 0.1)
 
-        #self.branch0_penu[-1].weight.data.normal_(0, 0.000001)
-        #self.branch0_penu[-1].bias.data.normal_(0, 0.0001)
-        #self.branch1_penu[-1].weight.data.normal_(0, 0.000001)
-        #self.branch1_penu[-1].bias.data.normal_(0, 0.0001)
+        self.unet = self._UNet()
+
+        self.unet.block5[-1].weight[0].data.normal_(0, 0.01)
+        self.unet.block5[-1].bias[0].data.normal_(1, 0.01)   # sigma
+        self.unet.block5[-1].weight[1].data.normal_(0, 0.01)
+        self.unet.block5[-1].bias[1].data.normal_(0, 0.01)   # mu
 
         self.clamp = torch.nn.ReLU()
 
-        self.avgpool = nn.AvgPool3d(kernel_size=[7, 31, 31], stride=(1, 1, 1), padding=(3, 15, 15))
+        self.avgpool = nn.AvgPool3d(kernel_size=[5, 23, 23], stride=(1, 1, 1), padding=(2, 11, 11))
 
-    def forward(self, core, penu, ctp_labels, clinical, num_chunks=2):
+    def forward(self, core, penu, ctp_and_labels, clinical, num_chunks=2):
         grid_identity_penu = self._grid_identity(out_size=(penu.size(0), 3, self.d, self.h, self.w))
         self.visual_grid = self.visualise_grid(penu.size(0))
 
-        input = ctp_labels
+        '''
+        feature_penu = checkpoint_sequential(self.feature_penu, num_chunks, ctp_and_labels)
+        concats_penu = torch.cat((F.interpolate(clinical, scale_factor=(1, 25, 25)), feature_penu), dim=1)
+        mu_penu = checkpoint_sequential(self.mu_penu, num_chunks, concats_penu)
+        sigma_penu = checkpoint_sequential(self.sigma_penu, num_chunks, concats_penu)
+        sampleZ_penu = torch.randn(mu_penu.size()).cuda() * sigma_penu + mu_penu
+        offset0_penu = checkpoint_sequential(self.branch0_penu, num_chunks, sampleZ_penu)
+        '''
+        z_params = self.unet(ctp_and_labels, clinical)
+        sample_z = torch.randn(z_params.size(0), 3, 28, 128, 128).cuda() * z_params[:, 0].unsqueeze(1) + z_params[:, 1].unsqueeze(1)
 
-        feature_penu = checkpoint_sequential(self.feature_penu, num_chunks, input)
-        clin_up_penu = F.interpolate(clinical, scale_factor=(1, 25, 25))
-        combine_penu = checkpoint_sequential(self.combine_penu, num_chunks, torch.cat((clin_up_penu, feature_penu), dim=1))
-        offset0_penu = checkpoint_sequential(self.branch0_penu, num_chunks, combine_penu)
 
-
-
-        offsets = [torch.zeros(offset0_penu.size()).cuda()]
+        offsets = [torch.zeros(sample_z.size()).cuda()]
         for _ in range(1, self.len):
-            offsets.append(self.avgpool(self.avgpool(self._integrate_vec_field(offset0_penu, offsets[-1]))))
+            offsets.append(self.avgpool(self.avgpool(self._integrate_vec_field(sample_z, offsets[-1]))))
         offsets = offsets[::-1]
 
         prs_penu = torch.cat([F.adaptive_avg_pool3d(grid_sample(penu, grid_identity_penu + offset.permute(0, 2, 3, 4, 1)), (28, 128, 128)) for offset in offsets], dim=1)
         grs_penu = torch.cat([F.adaptive_avg_pool3d(grid_sample(self.visual_grid, grid_identity_penu + offset.permute(0, 2, 3, 4, 1)), (28, 128, 128)) for offset in offsets], dim=1)
 
 
-
-
-        offset0_inverse = self._negate(offset0_penu)  # TODO self._negate(offsets[-1]) / 2**self.len ?
-        offsets_inverse = [torch.zeros(offset0_penu.size()).cuda()]
+        offset0_inverse = self._negate(sample_z)  # TODO self._negate(offsets[-1]) / 2**self.len ?
+        offsets_inverse = [torch.zeros(sample_z.size()).cuda()]
         for _ in range(1, self.len):
             offsets_inverse.append(self.avgpool(self.avgpool(self._integrate_vec_field(offset0_inverse, offsets_inverse[-1]))))
 
@@ -1166,4 +1239,5 @@ class IntegrateNet(nn.Module):
 
         return 1 - self.clamp(1 - self.clamp(prs_penu)), grs_penu,\
                1 - self.clamp(1 - self.clamp(prs_penu_inverse)), grs_penu_inverse,\
-               torch.stack(offsets, dim=0)
+               torch.stack(offsets, dim=0).permute(1, 0, 3, 4, 5, 2),\
+               z_params
