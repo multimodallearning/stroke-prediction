@@ -960,58 +960,114 @@ class BiNet(nn.Module):
 
 
 class IntegrateNet(nn.Module):
-    def _affine_identity(self):
-        return torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float)
+    class ConvGRU(nn.Module):
+        def __init__(self, input_size, hidden_size, kernel_size):
+            super().__init__()
+
+            # Allow for anisotropic inputs
+            if (isinstance(kernel_size, tuple) or isinstance(kernel_size, list)) and len(kernel_size) == 3:
+                padding = (kernel_size[0] // 2, kernel_size[1] // 2, kernel_size[2] // 2)
+            else:
+                padding = kernel_size // 2
+            self.input_size = input_size
+
+            # GRU convolution with incorporation of hidden state
+            self.hidden_size = hidden_size
+            self.reset_gate = nn.Conv3d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
+            self.update_gate = nn.Conv3d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
+            self.out_gate = nn.Conv3d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
+
+            # Appropriate initialization
+            nn.init.orthogonal_(self.reset_gate.weight)
+            nn.init.orthogonal_(self.update_gate.weight)
+            nn.init.orthogonal_(self.out_gate.weight)
+            nn.init.constant_(self.reset_gate.bias, 0.)
+            nn.init.constant_(self.update_gate.bias, 0.)
+            nn.init.constant_(self.out_gate.bias, 0.)
+
+        def forward(self, input_, prev_state):
+            # Get batch and spatial sizes
+            batch_size = input_.data.size()[0]
+            spatial_size = input_.data.size()[2:]
+
+            # Generate empty prev_state, if None is provided
+            if prev_state is None:
+                state_size = [batch_size, self.hidden_size] + list(spatial_size)
+                if torch.cuda.is_available():
+                    prev_state = torch.zeros(state_size).cuda()
+                else:
+                    prev_state = torch.zeros(state_size)
+
+            # Data size: [batch, channel, depth, height, width]
+            stacked_inputs = torch.cat([input_, prev_state], dim=1)
+            update = torch.sigmoid(self.update_gate(stacked_inputs))
+            reset = torch.sigmoid(self.reset_gate(stacked_inputs))
+            out_inputs = torch.tanh(self.out_gate(torch.cat([input_, prev_state * reset], dim=1)))
+            new_state = prev_state * (1 - update) + out_inputs * update
+
+            return new_state
 
     def _feature(self, channels):
-        assert len(channels) == 5
-        return nn.Sequential(                                                                     # 30x126x126
-            nn.Conv3d(channels[0], channels[1], kernel_size=5, stride=3, dilation=2, padding=4),  # 10x42x42
+        assert len(channels) == 7
+        return nn.Sequential(
+            nn.LayerNorm([channels[0], 28, 128, 128]),
+            nn.Conv3d(channels[0], channels[1], kernel_size=3, stride=1, dilation=1, padding=0),
             nn.ReLU(),
-            nn.LayerNorm([channels[1], 10, 42, 42]),
-            nn.Conv3d(channels[1], channels[2], kernel_size=3, stride=1, dilation=2, padding=0),  # 6x38x38
+            nn.LayerNorm([channels[1], 26, 126, 126]),
+            nn.Conv3d(channels[1], channels[2], kernel_size=3, stride=1, dilation=1, padding=0),
             nn.ReLU(),
-            nn.LayerNorm([channels[2], 6, 38, 38]),
-            nn.Conv3d(channels[2], channels[3], kernel_size=3, stride=1, dilation=1, padding=0),  # 4x36x36
+            nn.MaxPool3d(2, 2),
+            nn.LayerNorm([channels[2], 12, 62, 62]),
+            nn.Conv3d(channels[2], channels[3], kernel_size=3, stride=1, dilation=1, padding=0),
             nn.ReLU(),
-            nn.LayerNorm([channels[3], 4, 36, 36]),
-            nn.Conv3d(channels[3], channels[4], kernel_size=3, stride=1, dilation=1, padding=0),  # 2x34x34
+            nn.LayerNorm([channels[3], 10, 60, 60]),
+            nn.Conv3d(channels[3], channels[4], kernel_size=3, stride=1, dilation=1, padding=0),
             nn.ReLU(),
-            nn.MaxPool3d(2, 2)                                                                    # 1x17x17
+            nn.MaxPool3d(2, 2),
+            nn.LayerNorm([channels[4], 4, 29, 29]),
+            nn.Conv3d(channels[4], channels[5], kernel_size=3, stride=1, dilation=1, padding=0),
+            nn.ReLU(),
+            nn.LayerNorm([channels[5], 2, 27, 27]),
+            nn.Conv3d(channels[5], channels[6], kernel_size=(2, 3, 3), stride=1, dilation=1, padding=0),
+            nn.ReLU(),  # 1, 25, 25
         )
 
     def _combine(self, channels):
-        assert len(channels) == 5
+        assert len(channels) == 4
         return nn.Sequential(
-            nn.Conv3d(channels[0], channels[1], kernel_size=3, stride=1, dilation=1, padding=1),
+            nn.LayerNorm([channels[0], 1, 25, 25]),
+            nn.Conv3d(channels[0], channels[1], kernel_size=(1, 3, 3), stride=1, dilation=1, padding=(0, 1, 1)),
             nn.ReLU(),
-            nn.LayerNorm([channels[1], 1, 17, 17]),
-            nn.Conv3d(channels[1], channels[2], kernel_size=3, stride=1, dilation=1, padding=1),
+            nn.LayerNorm([channels[1], 1, 25, 25]),
+            nn.Conv3d(channels[1], channels[2], kernel_size=(1, 3, 3), stride=1, dilation=1, padding=(0, 1, 1)),
             nn.ReLU(),
-            nn.LayerNorm([channels[2], 1, 17, 17]),
-            nn.Conv3d(channels[2], channels[3], kernel_size=3, stride=1, dilation=1, padding=1),
-            nn.ReLU(),
-            nn.LayerNorm([channels[3], 1, 17, 17]),
-            nn.Conv3d(channels[3], channels[4], kernel_size=3, stride=1, dilation=1, padding=1),
+            nn.LayerNorm([channels[2], 1, 25, 25]),
+            nn.Conv3d(channels[2], channels[3], kernel_size=(1, 3, 3), stride=1, dilation=1, padding=(0, 1, 1)),
             nn.ReLU(),
         )
 
     def _branch(self, channels):
-        assert len(channels) == 5
+        assert len(channels) == 6
         return nn.Sequential(
-            nn.Conv3d(channels[0], channels[1], kernel_size=3, stride=1, dilation=1, padding=1),
+            nn.LayerNorm([channels[0], 1, 25, 25]),
+            nn.Conv3d(channels[0], channels[1], kernel_size=(1, 3, 3), stride=1, dilation=1, padding=0),
             nn.ReLU(),
-            nn.LayerNorm([channels[1], 1, 17, 17]),
-            nn.Conv3d(channels[1], channels[2], kernel_size=3, stride=1, dilation=1, padding=1),
+            nn.Upsample(scale_factor=(7, 3, 3)),
+            nn.LayerNorm([channels[1], 7, 69, 69]),
+            nn.Conv3d(channels[1], channels[2], kernel_size=(1, 3, 3), stride=1, dilation=1, padding=0),
             nn.ReLU(),
-            nn.AdaptiveAvgPool3d((self.d, self.h, self.w)),
-            nn.LayerNorm([channels[2], self.d, self.h, self.w]),
-            nn.Conv3d(channels[2], channels[3], kernel_size=3, stride=1, dilation=1, padding=1),
+            nn.LayerNorm([channels[2], 7, 67, 67]),
+            nn.Conv3d(channels[2], channels[3], kernel_size=(1, 3, 3), stride=1, dilation=1, padding=0),
             nn.ReLU(),
-            nn.LayerNorm([channels[3], self.d, self.h, self.w]),
-            nn.Conv3d(channels[3], channels[4], kernel_size=3, stride=1, dilation=1, padding=1),
+            nn.Upsample(scale_factor=(4, 2, 2)),
+            nn.LayerNorm([channels[3], 28, 130, 130]),
+            nn.Conv3d(channels[3], channels[4], kernel_size=(1, 3, 3), stride=1, dilation=1, padding=0),
             nn.ReLU(),
-            nn.Conv3d(channels[4], 3, kernel_size=1, stride=1, dilation=1, padding=0)
+            nn.LayerNorm([channels[4], 28, 128, 128]),
+            nn.Conv3d(channels[4], channels[5], kernel_size=1, stride=1, dilation=1, padding=0),
+            nn.ReLU(),
+            nn.LayerNorm([channels[5], 28, 128, 128]),
+            nn.Conv3d(channels[5], 3, kernel_size=1, stride=1, dilation=1, padding=0),
         )
 
     def _transform_vec_field(self, vec_field_0, vec_field_i):
@@ -1026,8 +1082,7 @@ class IntegrateNet(nn.Module):
         return -vec_field
 
     def _grid_identity(self, out_size=(4, 1, 28, 128, 128)):
-        result = self._affine_identity()
-        result = result.view(-1, 3, 4).expand(out_size[0], 3, 4).cuda()
+        result = torch.eye(3, 4).expand(out_size[0], 3, 4).cuda()
         return nn.functional.affine_grid(result, out_size)
 
     def visualise_grid(self, batchsize):
@@ -1057,14 +1112,13 @@ class IntegrateNet(nn.Module):
         self.visual_grid = self.visualise_grid(batch_size)
 
         channels_clinical = 3  # 5 if add time_step
-        channels_feature = [2, 16, 32, 64, 96]
-        channels_combine = [99, 100, 100, 100, 100]
-        channels_branch = [100, 50, 25, 12, 6]
+        channels_feature = [5, 16, 16, 32, 32, 64, 64]
+        channels_combine = [67, 72, 84, 96]
+        channels_branch = [96, 84, 72, 64, 41, 20]
 
         assert channels_feature[-1] + channels_clinical == channels_combine[0]
 
         self.feature_penu = self._feature(channels_feature)
-        self.clin_up_penu = nn.AdaptiveAvgPool3d((1, 17, 17))
         self.combine_penu = self._combine(channels_combine)
         self.branch0_penu = self._branch(channels_branch)
         #self.branch1_penu = self._branch(channels_branch)
@@ -1078,14 +1132,14 @@ class IntegrateNet(nn.Module):
 
         self.avgpool = nn.AvgPool3d(kernel_size=[7, 31, 31], stride=(1, 1, 1), padding=(3, 15, 15))
 
-    def forward(self, core, penu, clinical, num_chunks=2):
+    def forward(self, core, penu, ctp_labels, clinical, num_chunks=2):
         grid_identity_penu = self._grid_identity(out_size=(penu.size(0), 3, self.d, self.h, self.w))
         self.visual_grid = self.visualise_grid(penu.size(0))
 
-        input = torch.cat((core, penu), dim=1)
+        input = ctp_labels
 
         feature_penu = checkpoint_sequential(self.feature_penu, num_chunks, input)
-        clin_up_penu = self.clin_up_penu(clinical)
+        clin_up_penu = F.interpolate(clinical, scale_factor=(1, 25, 25))
         combine_penu = checkpoint_sequential(self.combine_penu, num_chunks, torch.cat((clin_up_penu, feature_penu), dim=1))
         offset0_penu = checkpoint_sequential(self.branch0_penu, num_chunks, combine_penu)
 
@@ -1101,6 +1155,7 @@ class IntegrateNet(nn.Module):
 
 
 
+
         offset0_inverse = self._negate(offset0_penu)  # TODO self._negate(offsets[-1]) / 2**self.len ?
         offsets_inverse = [torch.zeros(offset0_penu.size()).cuda()]
         for _ in range(1, self.len):
@@ -1109,4 +1164,6 @@ class IntegrateNet(nn.Module):
         prs_penu_inverse = torch.cat([F.adaptive_avg_pool3d(grid_sample(core, grid_identity_penu + offset.permute(0, 2, 3, 4, 1)), (28, 128, 128)) for offset in offsets_inverse], dim=1)
         grs_penu_inverse = torch.cat([F.adaptive_avg_pool3d(grid_sample(self.visual_grid, grid_identity_penu + offset.permute(0, 2, 3, 4, 1)), (28, 128, 128)) for offset in offsets_inverse], dim=1)
 
-        return 1 - self.clamp(1 - self.clamp(prs_penu)), grs_penu, 1 - self.clamp(1 - self.clamp(prs_penu_inverse)), grs_penu_inverse
+        return 1 - self.clamp(1 - self.clamp(prs_penu)), grs_penu,\
+               1 - self.clamp(1 - self.clamp(prs_penu_inverse)), grs_penu_inverse,\
+               torch.stack(offsets, dim=0)

@@ -859,7 +859,7 @@ class RandomPatch(object):
 class DiffeoMorphNet(object):
     def __call__(self, sample):
         result = emptyCopyFromSample(sample)
-        result[KEY_IMAGES] = np.zeros((126, 126, 30, 3), dtype=np.float32)
+        result[KEY_IMAGES] = np.zeros((126, 126, 30, 5), dtype=np.float32)
         result[KEY_IMAGES][:, :, 1:-1, :] = sample[KEY_IMAGES][1:-1, 1:-1, :, :]
         result[KEY_LABELS] = sample[KEY_LABELS]
         result[KEY_GLOBAL] = sample[KEY_GLOBAL]
@@ -891,9 +891,15 @@ class PadImages(object):
 
 
 class UseLabelsAsImages(object):
+    def __init__(self, replace=True):
+        self.replace = replace
+
     def __call__(self, sample):
         result = emptyCopyFromSample(sample)
-        result[KEY_IMAGES] = sample[KEY_LABELS]
+        if self.replace:
+            result[KEY_IMAGES] = sample[KEY_LABELS]
+        else:
+            result[KEY_IMAGES] = np.concatenate([sample[KEY_LABELS], sample[KEY_IMAGES]], axis=3)
         result[KEY_LABELS] = sample[KEY_LABELS]
         result[KEY_GLOBAL] = sample[KEY_GLOBAL]
         return result
