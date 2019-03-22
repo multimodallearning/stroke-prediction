@@ -1179,6 +1179,7 @@ class IntegrateNet(nn.Module):
 
         self.visual_grid = self.visualise_grid(batch_size)
 
+        '''
         channels_clinical = 3  # 5 if add time_step
         channels_feature = [5, 20, 20, 40, 40, 80, 80]
         channels_combine = [83, 83, 83]
@@ -1186,23 +1187,30 @@ class IntegrateNet(nn.Module):
 
         assert channels_feature[-1] + channels_clinical == channels_combine[0]
 
-        #self.feature_penu = self._feature(channels_feature)
-        #self.mu_penu = self._combine(channels_combine)
-        #self.sigma_penu = self._combine(channels_combine)
-        #self.branch0_penu = self._branch(channels_branch)
-        #self.branch0_penu[-1].weight.data.normal_(0, 0.01)
-        #self.branch0_penu[-1].bias.data.normal_(0, 0.1)
+        self.feature_penu = self._feature(channels_feature)
+        self.mu_penu = self._combine(channels_combine)
+        self.sigma_penu = self._combine(channels_combine)
+        self.branch0_penu = self._branch(channels_branch)
+        self.branch0_penu[-1].weight.data.normal_(0, 0.01)
+        self.branch0_penu[-1].bias.data.normal_(0, 0.1)
+        '''
 
         self.unet = self._UNet()
 
-        self.unet.block5[-1].weight[0].data.normal_(0, 0.01)
-        self.unet.block5[-1].bias[0].data.normal_(1, 0.01)   # sigma
-        self.unet.block5[-1].weight[1].data.normal_(0, 0.01)
-        self.unet.block5[-1].bias[1].data.normal_(0, 0.01)   # mu
+        if (False):
+            self.unet.block5[-1].weight[0].data.normal_(0, 0.01)
+            self.unet.block5[-1].bias[0].data.normal_(1, 0.01)   # sigma
+            self.unet.block5[-1].weight[1].data.normal_(0, 0.01)
+            self.unet.block5[-1].bias[1].data.normal_(0, 0.01)   # mu
+        else:
+            self.unet.block5[-1].weight[0].data.normal_(0, 0.1)
+            self.unet.block5[-1].bias[0].data.normal_(1, 0.1)   # sigma
+            self.unet.block5[-1].weight[1].data.normal_(0, 0.1)
+            self.unet.block5[-1].bias[1].data.normal_(0, 0.1)   # mu
 
         self.clamp = torch.nn.ReLU()
 
-        self.avgpool = nn.AvgPool3d(kernel_size=[5, 23, 23], stride=(1, 1, 1), padding=(2, 11, 11))
+        self.avgpool = nn.AvgPool3d(kernel_size=[3, 13, 13], stride=(1, 1, 1), padding=(1, 6, 6))
 
     def forward(self, core, penu, ctp_and_labels, clinical, num_chunks=2):
         grid_identity_penu = self._grid_identity(out_size=(penu.size(0), 3, self.d, self.h, self.w))
@@ -1218,26 +1226,29 @@ class IntegrateNet(nn.Module):
         '''
         z_params = self.unet(ctp_and_labels, clinical)
         sample_z = torch.randn(z_params.size(0), 3, 28, 128, 128).cuda() * z_params[:, 0].unsqueeze(1) + z_params[:, 1].unsqueeze(1)
-
+        sample_z = self.avgpool(self.avgpool(sample_z))
 
         offsets = [torch.zeros(sample_z.size()).cuda()]
-        for _ in range(1, self.len):
-            offsets.append(self.avgpool(self.avgpool(self._integrate_vec_field(sample_z, offsets[-1]))))
+        if(False):
+            for _ in range(1, self.len):
+                offsets.append(self.avgpool(self.avgpool(self._integrate_vec_field(sample_z, offsets[-1]))))
+        else:
+            offset0 = sample_z / (self.len-1)
+            for _ in range(1, self.len):
+                offsets.append(self.avgpool(self.avgpool(self._integrate_vec_field(offsets[-1], offset0))))
+
+        offsets_inverse = [self._negate(offset) for offset in offsets]
         offsets = offsets[::-1]
 
         prs_penu = torch.cat([F.adaptive_avg_pool3d(grid_sample(penu, grid_identity_penu + offset.permute(0, 2, 3, 4, 1)), (28, 128, 128)) for offset in offsets], dim=1)
         grs_penu = torch.cat([F.adaptive_avg_pool3d(grid_sample(self.visual_grid, grid_identity_penu + offset.permute(0, 2, 3, 4, 1)), (28, 128, 128)) for offset in offsets], dim=1)
 
-
-        offset0_inverse = self._negate(sample_z)  # TODO self._negate(offsets[-1]) / 2**self.len ?
-        offsets_inverse = [torch.zeros(sample_z.size()).cuda()]
-        for _ in range(1, self.len):
-            offsets_inverse.append(self.avgpool(self.avgpool(self._integrate_vec_field(offset0_inverse, offsets_inverse[-1]))))
-
         prs_penu_inverse = torch.cat([F.adaptive_avg_pool3d(grid_sample(core, grid_identity_penu + offset.permute(0, 2, 3, 4, 1)), (28, 128, 128)) for offset in offsets_inverse], dim=1)
         grs_penu_inverse = torch.cat([F.adaptive_avg_pool3d(grid_sample(self.visual_grid, grid_identity_penu + offset.permute(0, 2, 3, 4, 1)), (28, 128, 128)) for offset in offsets_inverse], dim=1)
 
-        return 1 - self.clamp(1 - self.clamp(prs_penu)), grs_penu,\
-               1 - self.clamp(1 - self.clamp(prs_penu_inverse)), grs_penu_inverse,\
+        #return 1 - self.clamp(1 - self.clamp(prs_penu)), grs_penu,\
+               #1 - self.clamp(1 - self.clamp(prs_penu_inverse)), grs_penu_inverse,\
+        return prs_penu, grs_penu,\
+               prs_penu_inverse, grs_penu_inverse,\
                torch.stack(offsets, dim=0).permute(1, 0, 3, 4, 5, 2),\
                z_params

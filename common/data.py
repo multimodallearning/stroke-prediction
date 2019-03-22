@@ -1050,3 +1050,10 @@ class ClinicalFirstNOnly(object):
         result = sample
         result[KEY_GLOBAL] = result[KEY_GLOBAL][:, :, :, :self.n]
         return result
+
+
+class LabelsAsSDM(object):
+    def __call__(self, sample):
+        for c in range(sample[KEY_LABELS].shape[DIM_CHANNEL_NUMPY_3D]):
+            sample[KEY_LABELS][:, :, :, c] = ndi.distance_transform_edt(sample[KEY_LABELS][:, :, :, c] < 0.5)
+        return sample
