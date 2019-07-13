@@ -7,7 +7,7 @@ def test(args):
     # Params / Config
     modalities = ['_CBV_reg1_downsampled', '_TTD_reg1_downsampled']
     labels = ['_CBVmap_subset_reg1_downsampled', '_TTDmap_subset_reg1_downsampled',
-              '_FUCT-CBV-MAP_MAX_subset_reg1_downsampled_mirrored.nii.gz']
+              '_FUCT-CBV-MAP_MAX_subset_reg1_downsampled_mirrored']
               #'_FUCT_MAP_T_Samplespace_subset_reg1_downsampled']
     normalization_hours_penumbra = args.normalize
     pad = args.padding
