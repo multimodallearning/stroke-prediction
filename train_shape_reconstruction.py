@@ -50,7 +50,8 @@ def train(args):
 
     modalities = ['_CBV_reg1_downsampled', '_TTD_reg1_downsampled']  # dummy data only needed for visualization
     labels = ['_CBVmap_subset_reg1_downsampled', '_TTDmap_subset_reg1_downsampled',
-              '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled']
+              '_FUCT-CBV-MAP_MAX_subset_reg1_downsampled_mirrored.nii.gz']
+              #'_FUCT_MAP_T_Samplespace_subset_reg1_downsampled']
 
     ds_train, ds_valid = data.get_stroke_shape_training_data(modalities, labels, train_transform, valid_transform,
                                                              args.fold, args.validsetsize, batchsize=args.batchsize, split=use_validation)
