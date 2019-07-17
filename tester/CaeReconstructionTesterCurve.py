@@ -20,6 +20,7 @@ class CaeReconstructionTesterCurve(CaeReconstructionTester):
 
             # 1) Evaluate on ground truth tA-->tR
             batch_metrics, dto = self.infer_batch(batch, None)
+            '''
             self.print_inference(batch, batch_metrics, dto)
             self.save_inference(dto, batch)
 
@@ -35,8 +36,13 @@ class CaeReconstructionTesterCurve(CaeReconstructionTester):
                 self.print_inference(batch, batch_metrics, dto, 'ta_to_tr ratio=' + str(step) + '\t(' + str(step * ta_to_tr) + ')')
 
             # 4) Evaluate metrics curve on uniform interval [0,1] between core/penumbra
+            '''
             to_to_ta = float(batch[data.KEY_GLOBAL][:, 0, :, :, :])
             tr_to_penu = self._normalization_hours_penumbra - to_to_ta
-            for step in [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
+            oracle_DC = 0
+            for step in [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0]:
                 batch_metrics, dto = self.infer_batch(batch, step * tr_to_penu)
-                self.print_inference(batch, batch_metrics, dto, 'tr_to_penumbra=' + str(step) + '\t(' + str(step * tr_to_penu) + ')')
+                #self.print_inference(batch, batch_metrics, dto, note='tr_to_penumbra=' + str(step) + '\t(' + str(step * tr_to_penu) + ')')
+                if batch_metrics.lesion.dc > oracle_DC:
+                    oracle_DC = batch_metrics.lesion.dc
+            print('ID', int(batch[data.KEY_CASE_ID]), ': Oracle Dice', oracle_DC)
