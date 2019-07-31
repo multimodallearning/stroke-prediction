@@ -10,15 +10,14 @@ from sklearn.metrics.classification import f1_score as f1
 class OracleModule(torch.nn.Module):
     def __init__(self, batch_size, model):
         super().__init__()
-        self.model = model
-        for param in self.model.parameters():
+        self.decoder = model
+        for param in self.decoder.parameters():
             param.requires_grad = False
-        self.step = torch.nn.Parameter(torch.rand(batch_size, 1, 1, 1, 1))
+        self.zcode = torch.nn.Parameter(torch.rand(batch_size, 800, 1, 10, 10))
 
     def forward(self, dto):
-        dto.given_variables.time_to_treatment = torch.nn.functional.relu(self.step)
-        dto = self.model(dto)
-        return dto
+        dto.latents.gtruth.lesion = self.zcode
+        return self.decoder(dto)
 
 
 def test():
@@ -30,7 +29,7 @@ def test():
     # Params / Config
     modalities = ['_CBV_reg1_downsampled', '_TTD_reg1_downsampled']
     labels = ['_CBVmap_subset_reg1_downsampled_mirrored', '_TTDmap_subset_reg1_downsampled_mirrored',
-              '_FUCT-CBV-MAP_MAX_subset_reg1_downsampled_mirrored']
+              '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled_mirrored']
     criterion = metrics.BatchDiceLoss([1.0])
     n_opt_epochs = 600
     pad = args.padding
@@ -50,23 +49,19 @@ def test():
         # Single case evaluation for all cases in fold
 
         model = torch.load(path).cuda()
-        type_core = Variable(torch.zeros(ds_test.batch_size, 1, 1, 1, 1)).cuda()
-        type_penumbra = Variable(torch.ones(ds_test.batch_size, 1, 1, 1, 1)).cuda()
 
         for batch in ds_test:
-            oracle = OracleModule(ds_test.batch_size, model).cuda()
-            opt = torch.optim.Adam([oracle.step], 1e-1)
+            oracle = OracleModule(ds_test.batch_size, model.dec).cuda()
+            opt = torch.optim.Adam([oracle.zcode], 1e-1)
 
             for epoch in range(n_opt_epochs):
-                core_gt = Variable(batch[data.KEY_LABELS][:, 0, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5)).cuda()
-                penu_gt = Variable(batch[data.KEY_LABELS][:, 1, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5)).cuda()
                 lesion_gt = Variable(batch[data.KEY_LABELS][:, 2, :, :, :].unsqueeze(data.DIM_CHANNEL_TORCH3D_5)).cuda()
-                dto = CaeDtoUtil.init_dto(None, None, type_core, type_penumbra, None, None, core_gt, penu_gt, lesion_gt)
+                dto = CaeDtoUtil.init_dto(None, None, None, None, None, None, None, None, lesion_gt)
                 dto.flag = CaeDtoUtil.FLAG_GTRUTH
 
                 dto = oracle(dto)
 
-                loss = criterion(dto.reconstructions.gtruth.interpolation, dto.given_variables.gtruth.lesion)
+                loss = criterion(dto.reconstructions.gtruth.lesion, dto.given_variables.gtruth.lesion)
 
                 loss.backward()
                 opt.step()
@@ -75,6 +70,7 @@ def test():
                 if epoch % 100 == 0:
                     print('{:1.4f}'.format(float(loss)), end=' -> ')
 
+                '''
                 if epoch == 0:
                     dto_init = dto
                 elif epoch == 4:
@@ -83,25 +79,25 @@ def test():
                     dto1 = dto
                 elif epoch == 124:
                     dto2 = dto
+                '''
 
             print('ID', int(batch[data.KEY_CASE_ID]), 'F1:', f1(lesion_gt.data.cpu().numpy().flatten() > 0.5,
-                                                                dto.reconstructions.gtruth.interpolation.data.cpu().numpy().flatten() > 0.5),
-                  '(time:', float(dto.given_variables.time_to_treatment), ')')
+                                                                  dto.reconstructions.gtruth.lesion.data.cpu().numpy().flatten() > 0.5))
 
             '''
             plt.figure()
             plt.subplot(161)
             plt.imshow(lesion_gt[0, 0, z_slice].data.cpu().numpy(), cmap='gray', vmin=0, vmax=1)
             plt.subplot(162)
-            plt.imshow(dto_init.reconstructions.gtruth.interpolation[0, 0, z_slice].data.cpu().numpy(), cmap='gray', vmin=0, vmax=1)
+            plt.imshow(dto_init.reconstructions.gtruth.lesion[0, 0, z_slice].data.cpu().numpy(), cmap='gray', vmin=0, vmax=1)
             plt.subplot(163)
-            plt.imshow(dto0.reconstructions.gtruth.interpolation[0, 0, z_slice].data.cpu().numpy(), cmap='gray', vmin=0, vmax=1)
+            plt.imshow(dto0.reconstructions.gtruth.lesion[0, 0, z_slice].data.cpu().numpy(), cmap='gray', vmin=0, vmax=1)
             plt.subplot(164)
-            plt.imshow(dto1.reconstructions.gtruth.interpolation[0, 0, z_slice].data.cpu().numpy(), cmap='gray', vmin=0, vmax=1)
+            plt.imshow(dto1.reconstructions.gtruth.lesion[0, 0, z_slice].data.cpu().numpy(), cmap='gray', vmin=0, vmax=1)
             plt.subplot(165)
-            plt.imshow(dto2.reconstructions.gtruth.interpolation[0, 0, z_slice].data.cpu().numpy(), cmap='gray', vmin=0, vmax=1)
+            plt.imshow(dto2.reconstructions.gtruth.lesion[0, 0, z_slice].data.cpu().numpy(), cmap='gray', vmin=0, vmax=1)
             plt.subplot(166)
-            plt.imshow(dto.reconstructions.gtruth.interpolation[0, 0, z_slice].data.cpu().numpy(), cmap='gray', vmin=0, vmax=1)
+            plt.imshow(dto.reconstructions.gtruth.lesion[0, 0, z_slice].data.cpu().numpy(), cmap='gray', vmin=0, vmax=1)
             plt.show()
             '''
             

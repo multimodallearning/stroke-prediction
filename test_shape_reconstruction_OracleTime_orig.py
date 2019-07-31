@@ -30,7 +30,7 @@ def test():
     # Params / Config
     modalities = ['_CBV_reg1_downsampled', '_TTD_reg1_downsampled']
     labels = ['_CBVmap_subset_reg1_downsampled_mirrored', '_TTDmap_subset_reg1_downsampled_mirrored',
-              '_FUCT-CBV-MAP_MAX_subset_reg1_downsampled_mirrored']
+              '_FUCT_MAP_T_Samplespace_subset_reg1_downsampled_mirrored']
     criterion = metrics.BatchDiceLoss([1.0])
     n_opt_epochs = 600
     pad = args.padding
