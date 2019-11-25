@@ -64,6 +64,6 @@ class CaeInference(Inference):
 
     def inference_step(self, batch: dict, step=None):
         dto = self.init_clinical_variables(batch, step)
-        dto.mode = CaeDtoUtil.FLAG_GTRUTH
+        dto.flag = CaeDtoUtil.FLAG_GTRUTH
         dto = self.init_gtruth_segm_variables(batch, dto)
         return self.infer(dto)

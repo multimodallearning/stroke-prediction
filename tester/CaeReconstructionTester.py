@@ -25,23 +25,24 @@ class CaeReconstructionTester(Tester, CaeInference):
                                                            dto.given_variables.gtruth.penu, self.is_cuda)
         return batch_metrics
 
+    def nifti_from_tensor(self, tensor, affine):
+        image = np.transpose(tensor.cpu().data.numpy(), (4, 3, 2, 1, 0))[:, :, :, 0, 0]
+        return nib.Nifti1Image(ndi.zoom(image, zoom=(2, 2, 1)), affine)
+
     def save_inference(self, dto: CaeDto, batch: dict, suffix=''):
         case_id = int(batch[data.KEY_CASE_ID])
         # Output results on which metrics have been computed
         nifph = nib.load('/share/data_zoe1/lucas/Linda_Segmentations/' + str(case_id) + '/train' + str(case_id) +
                          '_CBVmap_reg1_downsampled.nii.gz').affine
-        image = np.transpose(dto.reconstructions.gtruth.core.cpu().data.numpy(), (4, 3, 2, 1, 0))[:, :, :, 0, 0]
-        nib.save(nib.Nifti1Image(ndi.zoom(image, zoom=(2, 2, 1)), nifph), self._fn(case_id, '_core', suffix))
+        nib.save(self.nifti_from_tensor(dto.reconstructions.gtruth.core, nifph), self._fn(case_id, '_core', suffix))
 
         nifph = nib.load('/share/data_zoe1/lucas/Linda_Segmentations/' + str(case_id) + '/train' + str(case_id) +
                          '_FUCT_MAP_T_Samplespace_reg1_downsampled.nii.gz').affine
-        image = np.transpose(dto.reconstructions.gtruth.interpolation.cpu().data.numpy(), (4, 3, 2, 1, 0))[:, :, :, 0, 0]
-        nib.save(nib.Nifti1Image(ndi.zoom(image, zoom=(2, 2, 1)), nifph), self._fn(case_id, '_pred', suffix))
+        nib.save(self.nifti_from_tensor(dto.reconstructions.gtruth.interpolation, nifph), self._fn(case_id, '_pred', suffix))
 
         nifph = nib.load('/share/data_zoe1/lucas/Linda_Segmentations/' + str(case_id) + '/train' + str(case_id) +
                          '_TTDmap_reg1_downsampled.nii.gz').affine
-        image = np.transpose(dto.reconstructions.gtruth.penu.cpu().data.numpy(), (4, 3, 2, 1, 0))[:, :, :, 0, 0]
-        nib.save(nib.Nifti1Image(ndi.zoom(image, zoom=(2, 2, 1)), nifph), self._fn(case_id, '_penu', suffix))
+        nib.save(self.nifti_from_tensor(dto.reconstructions.gtruth.penu, nifph), self._fn(case_id, '_penu', suffix))
 
     def print_inference(self, batch: dict, batch_metrics: MetricMeasuresDto, dto: CaeDto, note=''):
         output = 'Case Id={}\ttA-tO={:.3f}\ttR-tA={:.3f}\tnormalized_time_to_treatment={:.3f}\t-->\
