@@ -5,6 +5,9 @@ import torch
 from torch.autograd import Variable
 from matplotlib import pyplot as plt
 from sklearn.metrics.classification import f1_score as f1
+import nibabel as nib
+import numpy as np
+import scipy.ndimage.interpolation as ndi
 
 
 class OracleModule(torch.nn.Module):
@@ -75,36 +78,14 @@ def test():
                 if epoch % 100 == 0:
                     print('{:1.4f}'.format(float(loss)), end=' -> ')
 
-                if epoch == 0:
-                    dto_init = dto
-                elif epoch == 4:
-                    dto0 = dto
-                elif epoch == 24:
-                    dto1 = dto
-                elif epoch == 124:
-                    dto2 = dto
-
-            print('ID', int(batch[data.KEY_CASE_ID]), 'F1:', f1(lesion_gt.data.cpu().numpy().flatten() > 0.5,
-                                                                dto.reconstructions.gtruth.interpolation.data.cpu().numpy().flatten() > 0.5),
+            case_id = int(batch[data.KEY_CASE_ID])
+            print('ID', case_id, 'F1:', f1(lesion_gt.data.cpu().numpy().flatten() > 0.5, dto.reconstructions.gtruth.interpolation.data.cpu().numpy().flatten() > 0.5),
                   '(time:', float(dto.given_variables.time_to_treatment), ')')
 
-            '''
-            plt.figure()
-            plt.subplot(161)
-            plt.imshow(lesion_gt[0, 0, z_slice].data.cpu().numpy(), cmap='gray', vmin=0, vmax=1)
-            plt.subplot(162)
-            plt.imshow(dto_init.reconstructions.gtruth.interpolation[0, 0, z_slice].data.cpu().numpy(), cmap='gray', vmin=0, vmax=1)
-            plt.subplot(163)
-            plt.imshow(dto0.reconstructions.gtruth.interpolation[0, 0, z_slice].data.cpu().numpy(), cmap='gray', vmin=0, vmax=1)
-            plt.subplot(164)
-            plt.imshow(dto1.reconstructions.gtruth.interpolation[0, 0, z_slice].data.cpu().numpy(), cmap='gray', vmin=0, vmax=1)
-            plt.subplot(165)
-            plt.imshow(dto2.reconstructions.gtruth.interpolation[0, 0, z_slice].data.cpu().numpy(), cmap='gray', vmin=0, vmax=1)
-            plt.subplot(166)
-            plt.imshow(dto.reconstructions.gtruth.interpolation[0, 0, z_slice].data.cpu().numpy(), cmap='gray', vmin=0, vmax=1)
-            plt.show()
-            '''
-            
+            nifph = nib.load('/share/data_zoe1/lucas/Linda_Segmentations/' + str(case_id) + '/train' + str(case_id) + '_FUCT-CBV-MAP_MAX_subset_reg1_downsampled_mirrored.nii.gz').affine
+            image = np.transpose(dto.reconstructions.gtruth.interpolation.cpu().data.numpy(), (4, 3, 2, 1, 0))[:, :, :, 0, 0]
+            nib.save(nib.Nifti1Image(ndi.zoom(image, zoom=(2, 2, 1)), nifph), '/data_zoe1/lucas/Linda_Segmentations/tmp/train' + str(case_id) + '_FUCT_CBVFUmax_timeOracle_CAE1.nii.gz')
+
 
 if __name__ == '__main__':
     print(datetime.datetime.now())
