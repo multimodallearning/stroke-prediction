@@ -1,5 +1,8 @@
+
+![](animated.gif)
+
 # stroke-prediction
-Stroke infarct growth prediction (3D, pytorch 0.3)
+Stroke infarct growth prediction (3D, PyTorch 0.3)
 
 ## Objective
 Learning to Predict Stroke Infarcted Tissue Outcome based on Multivariate CT Images
